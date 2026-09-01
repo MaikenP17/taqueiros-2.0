@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Los Taqueiros | Tacos, Birria y Antojitos en Cúcuta</title>
+<meta name="description" content="Los Taqueiros — tacos, birria, dorilocos y antojitos mexicanos en Cúcuta. Pide en línea y recibe tu pedido por WhatsApp.">
+
+<!-- Logo real extraído de https://los-taqueiros.ola.click/products -->
+<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    /* Paleta extraída del logo real de Los Taqueiros (fondo crema + rojo) */
+    --rojo: #C1272D;
+    --rojo-oscuro: #8A1B1F;
+    --rojo-brillo: #E14A42;
+    --crema: #F7ECD6;
+    --crema-suave: #FFF8EA;
+    --carbon: #1C1210;
+    --carbon-2: #241714;
+    --mostaza: #E3A008;
+    --verde: #5C7A3B;
+    --texto-claro: #F7ECD6;
+    --texto-secundario: #D9C9A8; /* contraste legible sobre fondo oscuro (reemplaza el gris ilegible del sitio original) */
+    --sombra: 0 20px 50px rgba(0,0,0,.45);
+    --radio: 18px;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    font-family:'Libre Franklin', sans-serif;
+    background:var(--carbon);
+    color:var(--texto-claro);
+    overflow-x:hidden;
+  }
+  h1,h2,h3,.display{
+    font-family:'Anton', sans-serif;
+    letter-spacing:.02em;
+    text-transform:uppercase;
+    line-height:1;
+  }
+  a{color:inherit; text-decoration:none;}
+  img{max-width:100%; display:block;}
+  button{font-family:inherit; cursor:pointer; border:none;}
+  ::selection{background:var(--rojo); color:var(--crema);}
+
+  /* ---------- BACKGROUND TEXTURE ---------- */
+  .noise-bg{
+    position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.05;
+    background-image:radial-gradient(circle at 1px 1px, #fff 1px, transparent 0);
+    background-size:22px 22px;
+  }
+
+  /* ---------- HEADER ---------- */
+  header{
+    position:sticky; top:0; z-index:200;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.7rem 1.5rem;
+    background:rgba(28,18,16,.88);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid rgba(247,236,214,.08);
+  }
+  .brand{display:flex; align-items:center; gap:.7rem;}
+  .brand img{height:44px; width:44px; object-fit:contain; border-radius:12px; background:var(--crema); padding:4px;}
+  .brand .name{font-family:'Anton', sans-serif; font-size:1.3rem; letter-spacing:.03em;}
+  .brand .name span{color:var(--rojo-brillo);}
+
+  .cart-btn{
+    position:relative; display:flex; align-items:center; gap:.5rem;
+    background:var(--rojo); color:var(--crema-suave);
+    padding:.6rem 1.1rem; border-radius:999px; font-weight:700; font-size:.9rem;
+    transition:transform .2s ease, background .2s ease;
+  }
+  .cart-btn:hover{background:var(--rojo-brillo); transform:translateY(-2px);}
+  .cart-badge{
+    position:absolute; top:-8px; right:-8px;
+    background:var(--mostaza); color:var(--carbon);
+    font-weight:800; font-size:.72rem;
+    min-width:22px; height:22px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    border:2px solid var(--carbon);
+  }
+  .cart-badge.bump{animation:bump .35s ease;}
+  @keyframes bump{0%{transform:scale(1);}40%{transform:scale(1.4);}100%{transform:scale(1);}}
+
+  /* ---------- STATUS BANNER ---------- */
+  .status-banner{
+    position:relative; z-index:1;
+    display:flex; align-items:center; justify-content:center; gap:.6rem;
+    padding:.6rem 1.2rem; text-align:center;
+    font-size:.85rem; font-weight:700; letter-spacing:.01em;
+    border-bottom:1px solid rgba(0,0,0,.15);
+  }
+  .status-banner.open{ background:var(--verde); color:var(--crema-suave); }
+  .status-banner.closed{ background:var(--mostaza); color:var(--carbon); }
+  .status-banner strong{font-weight:800;}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    position:relative; z-index:1;
+    min-height:88vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:6rem 1.5rem 4rem;
+    background:
+      radial-gradient(circle at 20% 15%, rgba(193,39,45,.35), transparent 55%),
+      radial-gradient(circle at 85% 80%, rgba(227,160,8,.18), transparent 50%),
+      linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
+    overflow:hidden;
+  }
+  .hero::before{
+    content:"";
+    position:absolute; inset:-10%;
+    background-image:repeating-linear-gradient(45deg, rgba(247,236,214,.03) 0 2px, transparent 2px 26px);
+    animation:drift 30s linear infinite;
+  }
+  @keyframes drift{from{transform:translate(0,0);}to{transform:translate(60px,60px);}}
+
+  .hero-eyebrow{
+    position:relative; z-index:1;
+    font-weight:700; letter-spacing:.35em; text-transform:uppercase;
+    color:var(--mostaza); font-size:.8rem; margin-bottom:1.2rem;
+  }
+  .hero-logo-frame{
+    position:relative; z-index:1;
+    background:linear-gradient(160deg, rgba(139,27,31,.55), rgba(36,23,20,.55));
+    border:1px solid rgba(247,236,214,.12);
+    border-radius:24px; padding:1.6rem 2.4rem;
+    box-shadow:var(--sombra);
+  }
+  .hero-logo-frame img{width:min(380px, 62vw); display:block;}
+  .hero p.tagline{
+    position:relative; z-index:1;
+    max-width:560px; margin:1.4rem auto 2.4rem;
+    color:var(--texto-secundario); font-size:1.15rem; font-weight:500;
+  }
+  .hero-ctas{position:relative; z-index:1; display:flex; gap:1rem; flex-wrap:wrap; justify-content:center;}
+  .btn-primary, .btn-secondary{
+    padding:.95rem 2.1rem; border-radius:999px; font-weight:800; font-size:1rem;
+    letter-spacing:.02em; transition:transform .2s ease, box-shadow .2s ease;
+    display:inline-flex; align-items:center; gap:.5rem;
+  }
+  .btn-primary{background:var(--rojo); color:var(--crema-suave); box-shadow:0 12px 30px rgba(193,39,45,.4);}
+  .btn-primary:hover{transform:translateY(-3px) scale(1.02); box-shadow:0 16px 36px rgba(193,39,45,.55);}
+  .btn-secondary{background:transparent; color:var(--crema-suave); border:2px solid rgba(247,236,214,.35);}
+  .btn-secondary:hover{border-color:var(--crema-suave); transform:translateY(-3px);}
+
+  .hero-scroll{
+    position:relative; z-index:1; margin-top:3rem; font-size:.75rem; letter-spacing:.2em;
+    color:var(--texto-secundario); text-transform:uppercase; display:flex; flex-direction:column; align-items:center; gap:.4rem;
+  }
+  .hero-scroll span{width:1px; height:34px; background:linear-gradient(var(--rojo-brillo), transparent); animation:pulse 1.8s ease infinite;}
+  @keyframes pulse{0%,100%{opacity:.3;}50%{opacity:1;}}
+
+  /* ---------- CATEGORY NAV ---------- */
+  .cat-nav{
+    position:sticky; top:64px; z-index:150;
+    display:flex; gap:.6rem; overflow-x:auto;
+    padding:.9rem 1.2rem; background:rgba(28,18,16,.95); backdrop-filter:blur(8px);
+    border-bottom:1px solid rgba(247,236,214,.08);
+    scrollbar-width:none;
+  }
+  .cat-nav::-webkit-scrollbar{display:none;}
+  .cat-nav button{
+    flex:0 0 auto; padding:.55rem 1.2rem; border-radius:999px;
+    background:rgba(247,236,214,.06); color:var(--texto-secundario);
+    font-weight:700; font-size:.85rem; letter-spacing:.03em; white-space:nowrap;
+    border:1px solid rgba(247,236,214,.1); transition:all .2s ease;
+  }
+  .cat-nav button.active, .cat-nav button:hover{
+    background:var(--rojo); color:var(--crema-suave); border-color:var(--rojo);
+  }
+
+  /* ---------- MENU ---------- */
+  .menu{position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:3rem 1.5rem 5rem;}
+  .category-section{margin-bottom:4rem; scroll-margin-top:130px;}
+  .category-head{display:flex; align-items:baseline; gap:1rem; margin-bottom:1.6rem;}
+  .category-head h2{font-size:clamp(1.8rem,4vw,2.6rem); color:var(--crema-suave);}
+  .category-head .count{color:var(--texto-secundario); font-size:.9rem; font-weight:600;}
+  .category-head::after{content:""; flex:1; height:2px; background:linear-gradient(90deg, rgba(193,39,45,.6), transparent);}
+
+  .grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:1.6rem;}
+  @media (max-width:980px){.grid{grid-template-columns:repeat(2,1fr);}}
+  @media (max-width:640px){.grid{grid-template-columns:1fr;}}
+
+  .grid-compact{grid-template-columns:repeat(4, 1fr);}
+  @media (max-width:980px){.grid-compact{grid-template-columns:repeat(3,1fr);}}
+  @media (max-width:640px){.grid-compact{grid-template-columns:repeat(2,1fr);}}
+  .card.no-image .body{padding:1.2rem;}
+
+  .card{
+    background:var(--crema);
+    border-radius:var(--radio);
+    overflow:hidden;
+    box-shadow:var(--sombra);
+    opacity:0; transform:translateY(28px);
+    transition:opacity .6s ease, transform .6s ease;
+    display:flex; flex-direction:column;
+  }
+  .card.in-view{opacity:1; transform:translateY(0);}
+  .card .thumb{
+    position:relative; aspect-ratio:4/3; overflow:hidden; background:#e9dcbb;
+  }
+  .card .thumb img{width:100%; height:100%; object-fit:cover; transition:transform .5s ease;}
+  .card:hover .thumb img{transform:scale(1.08);}
+  .card .body{padding:1.1rem 1.2rem 1.3rem; display:flex; flex-direction:column; gap:.5rem; flex:1;}
+  .card h3{font-family:'Fredoka', sans-serif; font-weight:700; text-transform:none; letter-spacing:0; font-size:1.2rem; color:var(--carbon);}
+  .card p.desc{color:#5a4a3a; font-size:.88rem; line-height:1.45; flex:1;}
+  .card .foot{display:flex; align-items:center; justify-content:space-between; margin-top:.4rem;}
+  .card .price{font-weight:800; font-size:1.15rem; color:var(--rojo-oscuro);}
+
+  .add-btn{
+    background:var(--carbon); color:var(--crema-suave);
+    width:40px; height:40px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:1.3rem; font-weight:700;
+    transition:background .2s ease, transform .15s ease;
+  }
+  .add-btn:hover{background:var(--rojo);}
+  .add-btn:active{transform:scale(.9);}
+
+  .qty-control{
+    display:flex; align-items:center; gap:.6rem;
+    background:var(--carbon); border-radius:999px; padding:.3rem .4rem;
+  }
+  .qty-control button{
+    width:30px; height:30px; border-radius:50%; background:var(--rojo); color:var(--crema-suave);
+    font-size:1.1rem; font-weight:800; display:flex; align-items:center; justify-content:center;
+    transition:transform .15s ease;
+  }
+  .qty-control button:active{transform:scale(.85);}
+  .qty-control .qty-num{color:var(--crema-suave); font-weight:800; min-width:16px; text-align:center;}
+
+  /* ---------- FLOATING ORDER BAR ---------- */
+  .floating-bar{
+    position:fixed; left:50%; bottom:1.4rem; transform:translate(-50%, 140%);
+    z-index:300; display:flex; align-items:center; gap:1rem;
+    background:var(--carbon); border:1px solid rgba(247,236,214,.15);
+    padding:.9rem 1rem .9rem 1.3rem; border-radius:999px; box-shadow:var(--sombra);
+    width:calc(100% - 2.4rem); max-width:420px;
+    transition:transform .35s ease;
+  }
+  .floating-bar.show{transform:translate(-50%, 0);}
+  .floating-bar .info{flex:1; display:flex; flex-direction:column; line-height:1.2;}
+  .floating-bar .info small{color:var(--texto-secundario); font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;}
+  .floating-bar .info strong{color:var(--crema-suave); font-size:1.1rem;}
+  .floating-bar button{
+    background:var(--rojo); color:var(--crema-suave); font-weight:800;
+    padding:.7rem 1.3rem; border-radius:999px; font-size:.85rem; white-space:nowrap;
+  }
+
+  /* ---------- CART DRAWER ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(10,6,5,.6); backdrop-filter:blur(2px);
+    z-index:400; opacity:0; pointer-events:none; transition:opacity .3s ease;
+  }
+  .overlay.open{opacity:1; pointer-events:auto;}
+
+  .drawer{
+    position:fixed; top:0; right:0; height:100%; width:min(420px, 100%);
+    background:var(--crema-suave); color:var(--carbon);
+    z-index:401; transform:translateX(100%); transition:transform .35s ease;
+    display:flex; flex-direction:column; box-shadow:-20px 0 60px rgba(0,0,0,.5);
+  }
+  .drawer.open{transform:translateX(0);}
+  .drawer-head{
+    padding:1.3rem 1.4rem; display:flex; align-items:center; justify-content:space-between;
+    background:var(--carbon); color:var(--crema-suave);
+  }
+  .drawer-head h2{font-size:1.3rem;}
+  .drawer-head button{background:none; color:var(--crema-suave); font-size:1.6rem; line-height:1;}
+  .drawer-items{flex:1; overflow-y:auto; padding:1rem 1.2rem;}
+  .drawer-empty{text-align:center; color:#8a7a63; padding:3rem 1rem;}
+  .drawer-empty .emoji{font-size:2.6rem; margin-bottom:.6rem;}
+
+  .drawer-item{
+    display:flex; gap:.8rem; padding:.9rem 0; border-bottom:1px solid rgba(0,0,0,.08);
+  }
+  .drawer-item img{width:64px; height:64px; object-fit:cover; border-radius:10px; flex:none;}
+  .drawer-item-icon{
+    width:64px; height:64px; border-radius:10px; flex:none;
+    background:var(--carbon); color:var(--crema-suave);
+    display:flex; align-items:center; justify-content:center; font-size:1.5rem;
+  }
+  .drawer-item .meta{flex:1; display:flex; flex-direction:column; gap:.3rem;}
+  .drawer-item .meta .top{display:flex; justify-content:space-between; gap:.5rem;}
+  .drawer-item .meta .top h4{font-size:.95rem; font-weight:800;}
+  .drawer-item .unit{font-size:.78rem; color:#8a7a63;}
+  .drawer-item .row-bottom{display:flex; align-items:center; justify-content:space-between;}
+  .drawer-item .subtotal{font-weight:800; color:var(--rojo-oscuro);}
+  .remove-link{font-size:.75rem; color:#a33; font-weight:700; text-decoration:underline; background:none;}
+
+  .drawer-footer{padding:1.2rem 1.4rem 1.5rem; border-top:1px solid rgba(0,0,0,.08); background:var(--crema-suave);}
+  .note-label{display:block; font-size:.78rem; font-weight:700; color:#5a4a3a; margin-bottom:.4rem;}
+  .note-input{
+    width:100%; resize:none; font-family:inherit; font-size:.88rem;
+    padding:.7rem .8rem; border-radius:12px; border:1px solid rgba(0,0,0,.12);
+    background:#fff; color:var(--carbon); margin-bottom:1rem;
+  }
+  .note-input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .drawer-total{display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;}
+  .drawer-total span:first-child{font-weight:700; color:#5a4a3a;}
+  .drawer-total span:last-child{font-size:1.5rem; font-weight:800; color:var(--rojo-oscuro);}
+  .whatsapp-btn{
+    width:100%; background:#25D366; color:#0b2e17; padding:1rem; border-radius:999px;
+    font-weight:800; font-size:1rem; display:flex; align-items:center; justify-content:center; gap:.6rem;
+    transition:transform .2s ease, box-shadow .2s ease;
+    box-shadow:0 10px 26px rgba(37,211,102,.35);
+  }
+  .whatsapp-btn:hover{transform:translateY(-2px);}
+  .whatsapp-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
+
+  /* ---------- PRODUCT MODAL ---------- */
+  .card{cursor:pointer;}
+  .modal-overlay{
+    position:fixed; inset:0; z-index:500;
+    background:rgba(10,6,5,.55); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    opacity:0; pointer-events:none; transition:opacity .3s ease;
+    display:flex; align-items:center; justify-content:center; padding:1.2rem;
+  }
+  .modal-overlay.open{opacity:1; pointer-events:auto;}
+  .product-modal{
+    background:var(--crema); color:var(--carbon); border-radius:22px;
+    width:min(520px, 100%); max-height:88vh; overflow-y:auto;
+    box-shadow:var(--sombra); position:relative;
+    transform:scale(.92) translateY(20px); opacity:0;
+    transition:transform .3s ease, opacity .3s ease;
+  }
+  .modal-overlay.open .product-modal{transform:scale(1) translateY(0); opacity:1;}
+  .modal-close{
+    position:absolute; top:.9rem; right:.9rem; z-index:2;
+    width:38px; height:38px; border-radius:50%;
+    background:rgba(28,18,16,.65); color:var(--crema-suave);
+    font-size:1.5rem; line-height:1; display:flex; align-items:center; justify-content:center;
+  }
+  .modal-img{width:100%; aspect-ratio:4/3; background:#e9dcbb;}
+  .modal-img img{width:100%; height:100%; object-fit:cover;}
+  .modal-body{padding:1.4rem 1.5rem 1.7rem; display:flex; flex-direction:column; gap:.7rem;}
+  .modal-body h3{font-family:'Fredoka', sans-serif; font-weight:700; text-transform:none; letter-spacing:0; font-size:1.6rem;}
+  .modal-body p.desc{color:#5a4a3a; font-size:.98rem; line-height:1.55;}
+  .modal-foot{display:flex; align-items:center; justify-content:space-between; margin-top:.4rem;}
+  .modal-foot .price{font-weight:800; font-size:1.4rem; color:var(--rojo-oscuro);}
+
+  /* ---------- FOOTER ---------- */
+  footer{
+    position:relative; z-index:1; background:#150d0b; padding:3.5rem 1.5rem 2rem;
+    border-top:1px solid rgba(247,236,214,.08);
+  }
+  .footer-grid{
+    max-width:1100px; margin:0 auto; display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:2.5rem;
+  }
+  @media (max-width:760px){.footer-grid{grid-template-columns:1fr; text-align:left;}}
+  .footer-brand{display:flex; align-items:center; gap:.7rem; margin-bottom:.9rem;}
+  .footer-brand img{height:38px; width:38px; border-radius:10px; background:var(--crema); padding:3px;}
+  .footer-brand span{font-family:'Anton'; font-size:1.15rem;}
+  footer p{color:var(--texto-secundario); font-size:.9rem; line-height:1.6;}
+  footer h4{font-size:.85rem; letter-spacing:.1em; text-transform:uppercase; color:var(--mostaza); margin-bottom:.9rem;}
+  footer ul{list-style:none;}
+  footer li{margin-bottom:.55rem; font-size:.9rem; color:var(--texto-secundario);}
+  footer a:hover{color:var(--rojo-brillo);}
+  .socials{display:flex; gap:.8rem; margin-top:1rem;}
+  .socials a{
+    width:38px; height:38px; border-radius:50%; background:rgba(247,236,214,.08);
+    display:flex; align-items:center; justify-content:center; font-size:1rem;
+    transition:background .2s ease, transform .2s ease;
+  }
+  .socials a:hover{background:var(--rojo); transform:translateY(-3px);}
+  .copy{text-align:center; margin-top:2.5rem; font-size:.78rem; color:#6b5c4c;}
+
+  @media (max-width:640px){
+    .brand .name{font-size:1.05rem;}
+    header{padding:.6rem 1rem;}
+    .cat-nav{top:60px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="noise-bg"></div>
+
+<!-- ================= HEADER ================= -->
+<header>
+  <div class="brand">
+    <img src="Recursos/logo/logo.png" alt="Logo Los Taqueiros">
+    <span class="name">LOS <span>TAQUEIROS</span></span>
+  </div>
+  <button class="cart-btn" id="openCartBtn" aria-label="Abrir carrito">
+    🛒 Carrito
+    <span class="cart-badge" id="cartBadge" hidden>0</span>
+  </button>
+</header>
+
+<!-- ================= STATUS BANNER (abierto / cerrado) ================= -->
+<div class="status-banner" id="statusBanner"></div>
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="hero-eyebrow">Tacos · Birria · Antojitos</div>
+  <div class="hero-logo-frame">
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+  </div>
+  <p class="tagline">Del comal directo a tu mesa: tacos jugosos, birria con consomé y dorilocos bien cargados. Pide en dos clics y recíbelo por WhatsApp.</p>
+  <div class="hero-ctas">
+    <a href="#menu" class="btn-primary">Ver el menú 🌮</a>
+    <a href="#footer" class="btn-secondary">Ubicación y horarios</a>
+  </div>
+  <div class="hero-scroll"><span></span>Desliza</div>
+</section>
+
+<!-- ================= CATEGORY NAV ================= -->
+<nav class="cat-nav" id="catNav"></nav>
+
+<!-- ================= MENU ================= -->
+<main class="menu" id="menu"></main>
+
+<!-- ================= FLOATING ORDER BAR ================= -->
+<div class="floating-bar" id="floatingBar">
+  <div class="info">
+    <small id="floatingCount">0 productos</small>
+    <strong id="floatingTotal">$0</strong>
+  </div>
+  <button id="floatingBtn">Ver pedido</button>
+</div>
+
+<!-- ================= CART DRAWER ================= -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Carrito de compra">
+  <div class="drawer-head">
+    <h2>Tu pedido</h2>
+    <button id="closeCartBtn" aria-label="Cerrar carrito">&times;</button>
+  </div>
+  <div class="drawer-items" id="drawerItems"></div>
+  <div class="drawer-footer">
+    <label class="note-label" for="orderNote">Nota para tu pedido (opcional)</label>
+    <textarea class="note-input" id="orderNote" placeholder="Ej: sin cebolla, extra picante, tocarle el timbre..." rows="2"></textarea>
+    <div class="drawer-total">
+      <span>Total</span>
+      <span id="drawerTotal">$0</span>
+    </div>
+    <button class="whatsapp-btn" id="whatsappBtn" disabled>📲 Pedir por WhatsApp</button>
+  </div>
+</aside>
+
+<!-- ================= PRODUCT MODAL ================= -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="product-modal" id="productModal" role="dialog" aria-modal="true">
+    <button class="modal-close" id="modalCloseBtn" aria-label="Cerrar">&times;</button>
+    <div class="modal-img" id="modalImg"></div>
+    <div class="modal-body">
+      <h3 id="modalName"></h3>
+      <p class="desc" id="modalDesc"></p>
+      <div class="modal-foot">
+        <span class="price" id="modalPrice"></span>
+        <div class="qty-slot" id="modalQtySlot"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= FOOTER ================= -->
+<footer id="footer">
+  <div class="footer-grid">
+    <div>
+      <div class="footer-brand">
+        <img src="Recursos/logo/logo.png" alt="Logo Los Taqueiros">
+        <span>LOS TAQUEIROS</span>
+      </div>
+      <p>Tacos, birria y antojitos mexicanos hechos con receta propia, en el corazón de Cúcuta. Pide en línea y te lo llevamos hasta la puerta.</p>
+      <div class="socials">
+        <a href="https://instagram.com/lostaqueiros.co" target="_blank" rel="noopener" aria-label="Instagram">📷</a>
+        <a href="https://tiktok.com/@lostaqueiros_cuc" target="_blank" rel="noopener" aria-label="TikTok">🎵</a>
+        <a href="https://wa.me/573182338433" target="_blank" rel="noopener" aria-label="WhatsApp">💬</a>
+      </div>
+    </div>
+    <div>
+      <h4>Contacto</h4>
+      <ul>
+        <li>📍 Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta, Norte de Santander</li>
+        <li>📞 +57 318 233 8433</li>
+        <li>📸 @lostaqueiros.co</li>
+        <li>🛵 Domicilio gratis · 🥡 Para llevar · 🍽️ En el local</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Horarios</h4>
+      <ul id="footerHours"></ul>
+    </div>
+  </div>
+  <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
+</footer>
+
+<script>
+/* =========================================================
+   DATOS DEL MENÚ
+   Para agregar un producto nuevo: añade un objeto más al
+   arreglo de la categoría correspondiente con id único,
+   nombre, descripción, precio (COP, número entero) e imagen
+   (ruta dentro de /recursos). El resto de la página (grid,
+   carrito, WhatsApp) se genera solo a partir de estos datos.
+========================================================= */
+/* Precios y descripciones reales tomados del menú físico de Los Taqueiros
+   (fotos enviadas por el cliente). Las 3 aguas frescas comparten precio de
+   $9.000 (16oz): en la foto solo Horchata mostraba el precio explícito para
+   ese tamaño, así que se replicó para Jamaica y Tamarindo. */
+/* PENDIENTE: confirmar precio individual de Jamaica y Tamarindo si difieren de Horchata */
+const CATEGORIES = [
+  {
+    id: "bandejas",
+    name: "Bandejas de Tacos",
+    emoji: "🌮",
+    products: [
+      { id:"bandeja-mixta", name:"Bandeja Mixta", desc:"2 tacos chingones y 2 tacos vergones.", price:28000, img:"Recursos/tacos/bandeja mixta.webp" },
+      { id:"bandeja-buchona", name:"Bandeja Buchona", desc:"Un taco de cada una de nuestras 4 bandejas: chichona, chingona, vergona y perrona.", price:29000, img:"Recursos/tacos/bandeja buchona.webp" },
+      { id:"bandeja-chichona-x2", name:"Bandeja Chichona x2", desc:"Tortilla de maíz, chicharrón carnudo, guacamole, cebolla y cilantro.", price:17000, img:"Recursos/tacos/bandeja chichona x2.jpeg" },
+      { id:"bandeja-chichona-x4", name:"Bandeja Chichona x4", desc:"Tortilla de maíz, chicharrón carnudo, guacamole, cebolla y cilantro.", price:31000, img:"Recursos/tacos/bandeja chichona x4.jpeg" },
+      { id:"bandeja-chingona-x2", name:"Bandeja Chingona x2", desc:"Tortilla de maíz, carne de birria, queso mozzarella, cebolla, cilantro y caldo de birria.", price:16000, img:"Recursos/tacos/bandeja chingona x2.jpeg" },
+      { id:"bandeja-chingona-x4", name:"Bandeja Chingona x4", desc:"Tortilla de maíz, carne de birria, queso mozzarella, cebolla, cilantro y caldo de birria.", price:27000, img:"Recursos/tacos/bandeja chingona x4.jpeg" },
+      { id:"bandeja-perrona-x2", name:"Bandeja Perrona x2", desc:"Tortilla de maíz, carne de birria, cebolla, cilantro y caldo de birria.", price:15000, img:"Recursos/tacos/bandeja perrona x2.jpeg" },
+      { id:"bandeja-perrona-x4", name:"Bandeja Perrona x4", desc:"Tortilla de maíz, carne de birria, cebolla, cilantro y caldo de birria.", price:26000, img:"Recursos/tacos/bandeja perrona x4.jpeg" },
+      { id:"bandeja-vergona-x2", name:"Bandeja Vergona x2", desc:"Tortilla de maíz, carne de birria, guacamole, cebolla, cilantro y caldo de birria.", price:17000, img:"Recursos/tacos/bandeja vergona x2.jpeg" },
+      { id:"bandeja-vergona-x4", name:"Bandeja Vergona x4", desc:"Tortilla de maíz, carne de birria, guacamole, cebolla, cilantro y caldo de birria.", price:28000, img:"Recursos/tacos/bandeja vergona x4.jpeg" }
+    ]
+  },
+  {
+    id: "con-birria",
+    name: "Con Birria",
+    emoji: "🔥",
+    products: [
+      { id:"doriloco", name:"Doriloco", desc:"Paquete 80g. Carne de birria, queso mozzarella, salsa dulce, guacamole, cebolla y cilantro.", price:26000, img:"Recursos/con birria/dorilocos.webp" },
+      { id:"doriloco-recargado", name:"Doriloco Recargado", desc:"Nuestro Doriloco con chorizo y maíz extra.", price:30000, img:"Recursos/con birria/doriloco recargado.webp" },
+      { id:"nachos-locos-p", name:"Nachos Locos Pequeño", desc:"Nachos, carne de birria, pico de gallo, guacamole y salsa dulce.", price:15000, img:"Recursos/con birria/nachos locos.webp" },
+      { id:"nachos-locos-g", name:"Nachos Locos Grande", desc:"Nachos, carne de birria, pico de gallo, guacamole y salsa dulce.", price:25000, img:"Recursos/con birria/nachos locos.webp" },
+      { id:"birriamen", name:"Birriamen", desc:"Vaso 24oz. Pasta ramen, carne, caldo de birria, queso mozzarella, cebolla y cilantro.", price:26000, img:"Recursos/con birria/birriamen.webp" },
+      { id:"birriaco", name:"Birriaco", desc:"Nuestro Birriamen + un taco perrón.", price:30000, img:"Recursos/con birria/birriaco.webp" }
+    ]
+  },
+  {
+    id: "especiales",
+    name: "Especiales",
+    emoji: "⭐",
+    products: [
+      { id:"hamburguesa-chida", name:"Hamburguesa La Chida", desc:"Pan brioche, croqueta de carne, carne de birria con queso mozzarella, queso philadelphia, cebolla y cilantro. Incluye nachos y caldo de birria.", price:28000, img:"Recursos/especiales/hamburguesa la chida.jpeg" },
+      { id:"nachos-padrisimos", name:"Nachos Padrísimos", desc:"Nachos, carne de birria, chicharrón, pechuga, maíz y pico de gallo.", price:32000, img:"Recursos/especiales/nachos padrisimos.jpeg" },
+      { id:"chicana-birria", name:"Chicana de Birria", desc:"Papas casco, carne de birria, chorizo, maduro, pico de gallo y salsa dulce.", price:30000, img:"Recursos/especiales/chicana de birria.jpeg" }
+    ]
+  },
+  {
+    id: "bebidas",
+    name: "Bebidas",
+    emoji: "🥤",
+    products: [
+      { id:"agua-brisa", name:"Agua", desc:"Agua sin gas, 400ml.", price:3000, img:"Recursos/bebidas/agua brisa.webp" },
+      { id:"cocacola", name:"Coca Cola", desc:"Coca Cola personal, ideal para bajar el picante.", price:5000, img:"Recursos/bebidas/cocacola.webp" },
+      { id:"coronita", name:"Coronita", desc:"Cerveza Corona mini.", price:7000, img:"Recursos/bebidas/coronita.webp" },
+      { id:"cerveza-sol", name:"Cerveza Sol", desc:"Cerveza clara bien fría.", price:5000, img:"Recursos/bebidas/cerveza sol.webp" }
+    ]
+  },
+  {
+    id: "aguas-frescas",
+    name: "Aguas Frescas",
+    emoji: "🍹",
+    products: [
+      { id:"agua-horchata", name:"Horchata", desc:"Bebida de arroz con canela. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de horchata.webp" },
+      { id:"agua-jamaica", name:"Flor de Jamaica", desc:"Bebida antioxidante con limón. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de jamaica.webp" },
+      { id:"agua-tamarindo", name:"Tamarindo", desc:"Bebida refrescante agridulce. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de tamarindo.webp" }
+    ]
+  },
+  {
+    id: "adiciones",
+    name: "Adiciones",
+    emoji: "➕",
+    products: [
+      { id:"add-chicharron", name:"Chicharrón", desc:"Adición.", price:8000 },
+      { id:"add-chorizo", name:"Chorizo", desc:"Adición.", price:4000 },
+      { id:"add-pechuga", name:"Pechuga", desc:"Adición.", price:8000 },
+      { id:"add-carne-birria", name:"Carne de Birria", desc:"Adición.", price:7000 },
+      { id:"add-caldo-birria", name:"Caldo de Birria", desc:"Adición.", price:5000 },
+      { id:"add-queso", name:"Queso", desc:"Adición.", price:3000 },
+      { id:"add-nachos", name:"Nachos", desc:"Adición.", price:5000 },
+      { id:"add-tortillas", name:"Tortillas x3", desc:"Adición.", price:6000 },
+      { id:"add-papa-casco", name:"Papa Casco", desc:"Adición.", price:6000 },
+      { id:"add-pico-gallo", name:"Pico de Gallo", desc:"Adición.", price:4000 },
+      { id:"add-guacamole", name:"Guacamole", desc:"Adición.", price:5000 },
+      { id:"add-salsas", name:"Salsas", desc:"Salsa dulce o salsa picante.", price:2000 }
+    ]
+  }
+];
+
+/* Número de WhatsApp real de Los Taqueiros (extraído de la página oficial) */
+const WHATSAPP_NUMBER = "573182338433";
+
+/* =========================================================
+   ESTADO DEL CARRITO
+========================================================= */
+const CART_KEY = "taqueiros-cart-v1";
+let cart = loadCart();
+
+function loadCart(){
+  try{
+    const raw = localStorage.getItem(CART_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function saveCart(){
+  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+}
+
+function formatCOP(n){
+  return "$" + Math.round(n).toLocaleString("es-CO");
+}
+
+function findProduct(id){
+  for(const cat of CATEGORIES){
+    const p = cat.products.find(p => p.id === id);
+    if(p) return p;
+  }
+  return null;
+}
+
+function cartCount(){
+  return Object.values(cart).reduce((a,q) => a+q, 0);
+}
+function cartTotal(){
+  return Object.entries(cart).reduce((sum,[id,qty]) => {
+    const p = findProduct(id);
+    return sum + (p ? p.price*qty : 0);
+  }, 0);
+}
+
+/* =========================================================
+   RENDER: NAV DE CATEGORÍAS
+========================================================= */
+const catNav = document.getElementById("catNav");
+CATEGORIES.forEach(cat => {
+  const btn = document.createElement("button");
+  btn.textContent = `${cat.emoji} ${cat.name}`;
+  btn.dataset.target = cat.id;
+  btn.addEventListener("click", () => {
+    document.getElementById("cat-"+cat.id).scrollIntoView({behavior:"smooth"});
+  });
+  catNav.appendChild(btn);
+});
+
+/* =========================================================
+   RENDER: MENÚ
+========================================================= */
+const menuEl = document.getElementById("menu");
+
+CATEGORIES.forEach(cat => {
+  const section = document.createElement("section");
+  section.className = "category-section";
+  section.id = "cat-"+cat.id;
+
+  const head = document.createElement("div");
+  head.className = "category-head";
+  head.innerHTML = `<h2>${cat.emoji} ${cat.name}</h2><span class="count">${cat.products.length} opciones</span>`;
+  section.appendChild(head);
+
+  const grid = document.createElement("div");
+  grid.className = cat.id === "adiciones" ? "grid grid-compact" : "grid";
+
+  cat.products.forEach(p => {
+    const card = document.createElement("article");
+    card.className = p.img ? "card" : "card no-image";
+    card.dataset.id = p.id;
+    card.innerHTML = `
+      ${p.img ? `<div class="thumb"><img src="${encodeURI(p.img)}" alt="${p.name}" loading="lazy"></div>` : ""}
+      <div class="body">
+        <h3>${p.name}</h3>
+        <p class="desc">${p.desc}</p>
+        <div class="foot">
+          <span class="price">${formatCOP(p.price)}</span>
+          <div class="qty-slot"></div>
+        </div>
+      </div>
+    `;
+    card.addEventListener("click", (e) => {
+      if(e.target.closest(".qty-slot")) return;
+      openProductModal(p.id);
+    });
+    grid.appendChild(card);
+  });
+
+  section.appendChild(grid);
+  menuEl.appendChild(section);
+});
+
+/* Llena un contenedor .qty-slot con el botón "+" o el control -/cantidad/+
+   según lo que haya en el carrito para ese producto. Se usa tanto en las
+   cards del grid como en el modal de producto. */
+function fillQtySlot(slot, id){
+  const qty = cart[id] || 0;
+  slot.innerHTML = "";
+  if(qty === 0){
+    const btn = document.createElement("button");
+    btn.className = "add-btn";
+    btn.setAttribute("aria-label","Agregar "+id);
+    btn.textContent = "+";
+    btn.addEventListener("click", (e) => { e.stopPropagation(); changeQty(id, 1); });
+    slot.appendChild(btn);
+  }else{
+    const wrap = document.createElement("div");
+    wrap.className = "qty-control";
+    wrap.innerHTML = `<button class="minus" aria-label="Quitar uno">–</button><span class="qty-num">${qty}</span><button class="plus" aria-label="Agregar uno">+</button>`;
+    wrap.querySelector(".minus").addEventListener("click", (e) => { e.stopPropagation(); changeQty(id, -1); });
+    wrap.querySelector(".plus").addEventListener("click", (e) => { e.stopPropagation(); changeQty(id, 1); });
+    slot.appendChild(wrap);
+  }
+}
+
+/* Renderiza el control de cantidad (+ / -) dentro de cada card según el carrito */
+function renderQtyControls(){
+  document.querySelectorAll(".card").forEach(card => {
+    fillQtySlot(card.querySelector(".qty-slot"), card.dataset.id);
+  });
+}
+
+function changeQty(id, delta){
+  const current = cart[id] || 0;
+  const next = current + delta;
+  if(next <= 0){
+    delete cart[id];
+  }else{
+    cart[id] = next;
+  }
+  saveCart();
+  renderQtyControls();
+  updateCartUI(delta > 0);
+  renderModalQty();
+}
+
+/* =========================================================
+   CARRITO: UI (badge, barra flotante, drawer)
+========================================================= */
+const cartBadge = document.getElementById("cartBadge");
+const floatingBar = document.getElementById("floatingBar");
+const floatingCount = document.getElementById("floatingCount");
+const floatingTotal = document.getElementById("floatingTotal");
+const drawerItems = document.getElementById("drawerItems");
+const drawerTotal = document.getElementById("drawerTotal");
+const whatsappBtn = document.getElementById("whatsappBtn");
+
+function updateCartUI(bump){
+  const count = cartCount();
+  const total = cartTotal();
+
+  if(count > 0){
+    cartBadge.hidden = false;
+    cartBadge.textContent = count;
+    floatingBar.classList.add("show");
+  }else{
+    cartBadge.hidden = true;
+    floatingBar.classList.remove("show");
+  }
+  if(bump){
+    cartBadge.classList.remove("bump");
+    void cartBadge.offsetWidth; // reinicia animación
+    cartBadge.classList.add("bump");
+  }
+
+  floatingCount.textContent = `${count} producto${count===1?"":"s"}`;
+  floatingTotal.textContent = formatCOP(total);
+  drawerTotal.textContent = formatCOP(total);
+  whatsappBtn.disabled = count === 0;
+
+  renderDrawerItems();
+}
+
+function renderDrawerItems(){
+  const ids = Object.keys(cart);
+  if(ids.length === 0){
+    drawerItems.innerHTML = `<div class="drawer-empty"><div class="emoji">🌮</div>Tu carrito está vacío.<br>¡Agrega algo rico del menú!</div>`;
+    return;
+  }
+  drawerItems.innerHTML = "";
+  ids.forEach(id => {
+    const p = findProduct(id);
+    if(!p) return;
+    const qty = cart[id];
+    const row = document.createElement("div");
+    row.className = "drawer-item";
+    row.innerHTML = `
+      ${p.img ? `<img src="${encodeURI(p.img)}" alt="${p.name}">` : `<div class="drawer-item-icon">➕</div>`}
+      <div class="meta">
+        <div class="top">
+          <h4>${p.name}</h4>
+          <span class="subtotal">${formatCOP(p.price*qty)}</span>
+        </div>
+        <div class="unit">${formatCOP(p.price)} c/u</div>
+        <div class="row-bottom">
+          <div class="qty-control">
+            <button class="minus" aria-label="Quitar uno">–</button>
+            <span class="qty-num">${qty}</span>
+            <button class="plus" aria-label="Agregar uno">+</button>
+          </div>
+          <button class="remove-link">Quitar</button>
+        </div>
+      </div>
+    `;
+    row.querySelector(".minus").addEventListener("click", () => changeQty(id,-1));
+    row.querySelector(".plus").addEventListener("click", () => changeQty(id,1));
+    row.querySelector(".remove-link").addEventListener("click", () => {
+      delete cart[id];
+      saveCart();
+      renderQtyControls();
+      updateCartUI(false);
+    });
+    drawerItems.appendChild(row);
+  });
+}
+
+/* =========================================================
+   DRAWER: abrir / cerrar
+========================================================= */
+const overlay = document.getElementById("overlay");
+const drawer = document.getElementById("drawer");
+
+function openDrawer(){
+  overlay.classList.add("open");
+  drawer.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+function closeDrawer(){
+  overlay.classList.remove("open");
+  drawer.classList.remove("open");
+  document.body.style.overflow = "";
+}
+document.getElementById("openCartBtn").addEventListener("click", openDrawer);
+document.getElementById("floatingBtn").addEventListener("click", openDrawer);
+document.getElementById("closeCartBtn").addEventListener("click", closeDrawer);
+overlay.addEventListener("click", closeDrawer);
+
+/* =========================================================
+   MODAL DE PRODUCTO
+========================================================= */
+const modalOverlay = document.getElementById("modalOverlay");
+const productModal = document.getElementById("productModal");
+let currentModalProductId = null;
+
+function openProductModal(id){
+  const p = findProduct(id);
+  if(!p) return;
+  currentModalProductId = id;
+
+  document.getElementById("modalImg").innerHTML = p.img
+    ? `<img src="${encodeURI(p.img)}" alt="${p.name}">`
+    : "";
+  document.getElementById("modalImg").style.display = p.img ? "block" : "none";
+  document.getElementById("modalName").textContent = p.name;
+  document.getElementById("modalDesc").textContent = p.desc;
+  document.getElementById("modalPrice").textContent = formatCOP(p.price);
+  renderModalQty();
+
+  modalOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeProductModal(){
+  modalOverlay.classList.remove("open");
+  currentModalProductId = null;
+  if(!drawer.classList.contains("open")) document.body.style.overflow = "";
+}
+
+function renderModalQty(){
+  if(!currentModalProductId) return;
+  fillQtySlot(document.getElementById("modalQtySlot"), currentModalProductId);
+}
+
+document.getElementById("modalCloseBtn").addEventListener("click", closeProductModal);
+modalOverlay.addEventListener("click", (e) => {
+  if(e.target === modalOverlay) closeProductModal();
+});
+document.addEventListener("keydown", (e) => {
+  if(e.key === "Escape") closeProductModal();
+});
+
+/* =========================================================
+   PEDIDO POR WHATSAPP
+========================================================= */
+function buildWhatsAppMessage(){
+  const ids = Object.keys(cart);
+  const lines = ids.map(id => {
+    const p = findProduct(id);
+    const qty = cart[id];
+    return `- ${qty}x ${p.name} - ${formatCOP(p.price*qty)}`;
+  });
+  const total = cartTotal();
+  const note = document.getElementById("orderNote").value.trim();
+
+  const parts = [
+    "Pedido Los Taqueiros:",
+    "",
+    ...lines
+  ];
+  if(note){
+    parts.push("", `Nota: ${note}`);
+  }
+  parts.push("", `Total: ${formatCOP(total)}`, "", "Quiero hacer este pedido, gracias.");
+
+  return encodeURIComponent(parts.join("\n"));
+}
+
+whatsappBtn.addEventListener("click", () => {
+  if(cartCount() === 0) return;
+  const text = buildWhatsAppMessage();
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+});
+
+/* =========================================================
+   ANIMACIÓN DE ENTRADA (Intersection Observer)
+========================================================= */
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if(entry.isIntersecting){
+      entry.target.classList.add("in-view");
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.15 });
+
+document.querySelectorAll(".card").forEach(card => observer.observe(card));
+
+/* =========================================================
+   NAV ACTIVA SEGÚN SCROLL
+========================================================= */
+const sections = CATEGORIES.map(c => document.getElementById("cat-"+c.id));
+const navButtons = Array.from(catNav.children);
+
+const sectionObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if(entry.isIntersecting){
+      const id = entry.target.id.replace("cat-","");
+      navButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.target === id));
+    }
+  });
+}, { rootMargin: "-140px 0px -70% 0px" });
+
+sections.forEach(sec => sectionObserver.observe(sec));
+
+/* =========================================================
+   HORARIOS Y ESTADO ABIERTO / CERRADO
+   Horarios reales de Los Taqueiros (índice 0 = domingo, como Date.getDay()).
+   Horas en formato 24h "HH:MM".
+========================================================= */
+const SCHEDULE = [
+  { day:"Domingo",  open:"16:30", close:"23:00" },
+  { day:"Lunes",    open:"16:30", close:"22:30" },
+  { day:"Martes",   open:"16:30", close:"22:30" },
+  { day:"Miércoles",open:"16:30", close:"22:30" },
+  { day:"Jueves",   open:"16:30", close:"22:30" },
+  { day:"Viernes",  open:"16:30", close:"23:00" },
+  { day:"Sábado",   open:"16:30", close:"23:00" }
+];
+
+function toMinutes(hhmm){
+  const [h,m] = hhmm.split(":").map(Number);
+  return h*60+m;
+}
+
+function isOpenNow(){
+  const now = new Date();
+  const today = SCHEDULE[now.getDay()];
+  const nowMin = now.getHours()*60 + now.getMinutes();
+  return nowMin >= toMinutes(today.open) && nowMin < toMinutes(today.close);
+}
+
+function formatHour(hhmm){
+  const [h,m] = hhmm.split(":").map(Number);
+  const period = h >= 12 ? "p.m." : "a.m.";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2,"0")} ${period}`;
+}
+
+function renderStatusBanner(){
+  const banner = document.getElementById("statusBanner");
+  const today = SCHEDULE[new Date().getDay()];
+  const horario = `${formatHour(today.open)} – ${formatHour(today.close)}`;
+
+  if(isOpenNow()){
+    banner.className = "status-banner open";
+    banner.innerHTML = `🔥 <span><strong>¡Estamos que ardemos!</strong> Ahorita sí estamos atendiendo pedidos — hoy hasta las ${formatHour(today.close)}. ¡Antójate y pide ya! 🌮</span>`;
+  }else{
+    banner.className = "status-banner closed";
+    banner.innerHTML = `🌮 <span><strong>Por hoy ya cerramos la cocina.</strong> En este momento no estamos atendiendo, pero hoy abrimos de ${horario}. ¡Vuelve pronto! 🔥</span>`;
+  }
+}
+
+function renderFooterHours(){
+  const list = document.getElementById("footerHours");
+  list.innerHTML = SCHEDULE.map(s => `<li>${s.day}: ${formatHour(s.open)} – ${formatHour(s.close)}</li>`).join("");
+}
+
+/* =========================================================
+   INIT
+========================================================= */
+document.getElementById("year").textContent = new Date().getFullYear();
+renderQtyControls();
+updateCartUI(false);
+renderFooterHours();
+renderStatusBanner();
+setInterval(renderStatusBanner, 60000);
+</script>
+</body>
+</html>
