@@ -366,6 +366,16 @@
   .confirm-summary{background:#fff; border-radius:14px; padding:1rem; margin:1rem 0; font-size:.88rem; color:#5a4a3a;}
   .confirm-summary .line{display:flex; justify-content:space-between; gap:1rem; padding:.25rem 0;}
   .confirm-total{display:flex; justify-content:space-between; font-weight:800; font-size:1.15rem; color:var(--rojo-oscuro); margin-top:.4rem;}
+  .confirm-recibido{
+    text-align:center; color:var(--verde); font-weight:700; font-size:.92rem;
+    line-height:1.45; margin:-.2rem 0 .8rem;
+  }
+  .confirm-copia{text-align:center; font-size:.82rem; color:#8a7a63; margin-top:1rem; line-height:1.6;}
+  .link-btn{
+    background:none; color:var(--rojo-oscuro); font-weight:800; font-size:.82rem;
+    text-decoration:underline; padding:.2rem; font-family:inherit;
+  }
+  .link-btn:hover{color:var(--rojo-brillo);}
 
   /* ---------- PRODUCT MODAL ---------- */
   .card{cursor:pointer;}
@@ -593,14 +603,17 @@
     <div class="modal-body">
       <div class="confirm-check">✓</div>
       <h3 style="text-align:center;">¡Pedido confirmado! 🌮</h3>
+      <p class="confirm-recibido">El restaurante ya recibió tu orden y la está preparando. No tienes que hacer nada más.</p>
       <p class="confirm-ref" id="confirmRef"></p>
       <div class="confirm-summary" id="confirmSummary"></div>
       <div class="confirm-total">
         <span>Total pagado</span>
         <span id="confirmTotal"></span>
       </div>
-      <button class="pay-btn" id="confirmWhatsappBtn" style="margin-top:1.2rem;">📲 Enviar pedido por WhatsApp</button>
-      <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:.7rem;">Volver al menú</button>
+      <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:1.2rem;">Volver al menú</button>
+      <p class="confirm-copia">¿Quieres una copia de tu pedido?
+        <button type="button" class="link-btn" id="confirmWhatsappBtn">Enviar por WhatsApp</button>
+      </p>
     </div>
   </div>
 </div>
@@ -1214,29 +1227,43 @@ async function iniciarPagoWompi(){
     indicaciones: document.getElementById("pf-indicaciones").value.trim()
   };
 
-  const items = Object.keys(cart).map(id => {
-    const p = findProduct(id);
-    return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
-  });
-  const total = cartTotal();
-  const referencia = "TAQ-" + Date.now();
-  const pedido = { referencia, cliente, items, total };
-
-  // Se guarda para poder reconstruir el resumen si el banco redirige
-  // fuera de la página (PSE) y el cliente vuelve más tarde.
-  localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pedido));
+  const items = Object.keys(cart).map(id => ({ id, cantidad: cart[id] }));
 
   paymentFormSubmitBtn.disabled = true;
   paymentFormSubmitBtn.textContent = "Generando pago...";
 
   try{
-    const resp = await fetch("/api/generar-firma", {
+    /* El pedido se REGISTRA EN EL SERVIDOR antes de pagar. Asi el
+       restaurante lo recibe aunque el cliente cierre la pestaña:
+       cuando Wompi confirme el pago, el webhook marca este mismo
+       registro como pagado y aparece en el panel de comandas.
+
+       El servidor tambien calcula el total con sus propios precios
+       y devuelve la firma, para que nadie pueda manipular el monto
+       desde el navegador. */
+    const resp = await fetch("/api/crear-pedido", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ referencia, montoEnCentavos: total * 100, modo: WOMPI_MODE })
+      body: JSON.stringify({ cliente, items, modo: WOMPI_MODE })
     });
-    if(!resp.ok) throw new Error("No se pudo generar la firma de pago");
-    const { firma } = await resp.json();
+    if(!resp.ok){
+      const detalle = await resp.json().catch(() => ({}));
+      throw new Error(detalle.error || "No se pudo registrar el pedido");
+    }
+    const { referencia, total, firma } = await resp.json();
+
+    // Resumen local, solo para poder mostrar la confirmacion si el
+    // banco redirige fuera de la pagina (PSE) y el cliente vuelve.
+    const pedido = {
+      referencia,
+      cliente,
+      total,
+      items: Object.keys(cart).map(id => {
+        const p = findProduct(id);
+        return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
+      })
+    };
+    localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pedido));
 
     closePaymentForm();
     abrirWidgetWompi(pedido, firma);

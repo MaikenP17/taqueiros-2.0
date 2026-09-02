@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel de Comandas | Los Taqueiros</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --rojo:#C1272D;
+    --rojo-oscuro:#8A1B1F;
+    --rojo-brillo:#E14A42;
+    --crema:#F7ECD6;
+    --crema-suave:#FFF8EA;
+    --carbon:#1C1210;
+    --carbon-2:#241714;
+    --carbon-3:#2E1D19;
+    --mostaza:#E3A008;
+    --verde:#5C7A3B;
+    --verde-brillo:#7FA855;
+    --texto-claro:#F7ECD6;
+    --texto-secundario:#B9A88C;
+    --borde:rgba(247,236,214,.10);
+    --radio:14px;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'Libre Franklin', sans-serif;
+    background:var(--carbon);
+    color:var(--texto-claro);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit; cursor:pointer; border:none;}
+  h1,h2,h3{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+
+  /* ---------- LOGIN ---------- */
+  .login-screen{
+    position:fixed; inset:0; z-index:900;
+    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+    background:
+      radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+      linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
+  }
+  .login-screen.hidden{display:none;}
+  .login-card{
+    width:min(400px, 100%); background:var(--carbon-2);
+    border:1px solid var(--borde); border-radius:20px;
+    padding:2.2rem 1.8rem; box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  .login-card img{width:76px; margin:0 auto 1.2rem; display:block; border-radius:14px; background:var(--crema); padding:6px;}
+  .login-card h1{font-size:1.5rem; text-align:center; margin-bottom:.4rem;}
+  .login-card p.sub{text-align:center; color:var(--texto-secundario); font-size:.85rem; margin-bottom:1.6rem;}
+  .login-card label{display:block; font-size:.75rem; font-weight:700; color:var(--texto-secundario); margin-bottom:.35rem; text-transform:uppercase; letter-spacing:.06em;}
+  .login-card input{
+    width:100%; font-family:inherit; font-size:16px; padding:.85rem .9rem;
+    border-radius:12px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro); margin-bottom:1rem;
+  }
+  .login-card input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .login-card button{
+    width:100%; background:var(--rojo); color:var(--crema-suave);
+    padding:.95rem; border-radius:999px; font-weight:800; font-size:1rem;
+    transition:background .2s ease, transform .2s ease;
+  }
+  .login-card button:hover:not(:disabled){background:var(--rojo-brillo); transform:translateY(-2px);}
+  .login-card button:disabled{opacity:.5; cursor:not-allowed;}
+  .login-error{color:#ff8f85; font-size:.82rem; text-align:center; margin-top:.9rem; min-height:1.1em;}
+
+  /* ---------- HEADER ---------- */
+  header{
+    position:sticky; top:0; z-index:100;
+    display:flex; align-items:center; gap:1rem; flex-wrap:wrap;
+    padding:.85rem 1.2rem;
+    background:rgba(28,18,16,.96); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--borde);
+  }
+  .brand{display:flex; align-items:center; gap:.7rem; margin-right:auto;}
+  .brand img{height:40px; width:40px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px;}
+  .brand .txt{display:flex; flex-direction:column; line-height:1.15;}
+  .brand .txt strong{font-family:'Anton', sans-serif; font-size:1.05rem; letter-spacing:.03em;}
+  .brand .txt small{color:var(--texto-secundario); font-size:.72rem;}
+
+  .conn{
+    display:flex; align-items:center; gap:.45rem;
+    font-size:.75rem; font-weight:700; color:var(--texto-secundario);
+    background:var(--carbon-2); border:1px solid var(--borde);
+    padding:.5rem .8rem; border-radius:999px;
+  }
+  .conn .dot{width:8px; height:8px; border-radius:50%; background:var(--mostaza);}
+  .conn.online .dot{background:var(--verde-brillo); box-shadow:0 0 0 3px rgba(127,168,85,.2);}
+  .conn.offline .dot{background:var(--rojo-brillo);}
+
+  .tool-btn{
+    background:var(--carbon-2); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:999px;
+    padding:.55rem .95rem; font-size:.78rem; font-weight:700;
+    display:inline-flex; align-items:center; gap:.4rem;
+    transition:background .2s ease, border-color .2s ease;
+  }
+  .tool-btn:hover{background:var(--carbon-3); border-color:rgba(247,236,214,.25);}
+  .tool-btn.activo{background:var(--verde); border-color:var(--verde); color:var(--crema-suave);}
+  .tool-btn.peligro:hover{background:var(--rojo-oscuro); border-color:var(--rojo);}
+
+  /* ---------- KANBAN ---------- */
+  .board{
+    display:grid; grid-template-columns:repeat(5, minmax(280px, 1fr));
+    gap:1rem; padding:1.2rem; align-items:start;
+    overflow-x:auto; min-height:calc(100vh - 72px);
+  }
+  @media (max-width:1400px){ .board{grid-template-columns:repeat(5, minmax(265px, 1fr));} }
+  @media (max-width:1100px){
+    .board{display:flex; overflow-x:auto; scroll-snap-type:x mandatory;}
+    .col{flex:0 0 300px; scroll-snap-align:start;}
+  }
+
+  .col{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:var(--radio); display:flex; flex-direction:column;
+    max-height:calc(100vh - 100px);
+  }
+  .col-head{
+    display:flex; align-items:center; gap:.6rem;
+    padding:.9rem 1rem; border-bottom:1px solid var(--borde);
+    position:sticky; top:0; background:var(--carbon-2);
+    border-radius:var(--radio) var(--radio) 0 0; z-index:2;
+  }
+  .col-head .punto{width:10px; height:10px; border-radius:50%; flex:none;}
+  .col-head h2{font-size:.92rem; letter-spacing:.06em;}
+  .col-head .contador{
+    margin-left:auto; background:var(--carbon); color:var(--texto-claro);
+    border:1px solid var(--borde); font-size:.75rem; font-weight:800;
+    min-width:26px; height:26px; border-radius:999px;
+    display:flex; align-items:center; justify-content:center; padding:0 .5rem;
+  }
+  .col[data-estado="nuevo"]           .punto{background:var(--rojo-brillo);}
+  .col[data-estado="en_preparacion"]  .punto{background:var(--mostaza);}
+  .col[data-estado="listo"]           .punto{background:var(--verde-brillo);}
+  .col[data-estado="entregado"]       .punto{background:#6b8fa8;}
+  .col[data-estado="cancelado"]       .punto{background:#7a6a5c;}
+
+  .col-body{padding:.8rem; display:flex; flex-direction:column; gap:.8rem; overflow-y:auto;}
+  .col-vacia{color:#6b5c4c; font-size:.82rem; text-align:center; padding:1.6rem .5rem;}
+
+  /* ---------- TARJETA DE PEDIDO ---------- */
+  .pedido{
+    background:var(--carbon-3); border:1px solid var(--borde);
+    border-radius:12px; padding:.9rem; cursor:pointer;
+    transition:border-color .2s ease, transform .15s ease;
+  }
+  .pedido:hover{border-color:rgba(247,236,214,.28); transform:translateY(-2px);}
+  .pedido.sin-ver{
+    border-color:var(--rojo-brillo);
+    animation:latido 1.4s ease-in-out infinite;
+  }
+  @keyframes latido{
+    0%,100%{box-shadow:0 0 0 0 rgba(225,74,66,.55);}
+    50%{box-shadow:0 0 0 7px rgba(225,74,66,0);}
+  }
+
+  .pedido-top{display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem; flex-wrap:wrap;}
+  .pedido-num{font-family:'Anton', sans-serif; font-size:1.1rem; letter-spacing:.03em;}
+  .pedido-hora{color:var(--texto-secundario); font-size:.74rem; margin-left:auto;}
+  .badge-pagado{
+    background:var(--verde); color:var(--crema-suave);
+    font-size:.68rem; font-weight:800; letter-spacing:.04em;
+    padding:.25rem .5rem; border-radius:6px; white-space:nowrap;
+  }
+
+  .pedido-cliente{font-size:.88rem; font-weight:700; margin-bottom:.15rem;}
+  .pedido-tel{font-size:.82rem; color:var(--mostaza); font-weight:700; text-decoration:none;}
+  .pedido-tel:hover{text-decoration:underline;}
+  .pedido-entrega{
+    font-size:.78rem; color:var(--texto-secundario); margin-top:.5rem;
+    line-height:1.5; padding-top:.5rem; border-top:1px dashed var(--borde);
+  }
+  .pedido-entrega .dir{color:var(--texto-claro);}
+  .pedido-nota{
+    margin-top:.4rem; font-size:.76rem; color:var(--mostaza);
+    background:rgba(227,160,8,.09); border-left:2px solid var(--mostaza);
+    padding:.4rem .55rem; border-radius:0 6px 6px 0; line-height:1.45;
+  }
+
+  .pedido-items{
+    margin:.7rem 0 .5rem; padding:.6rem .7rem;
+    background:rgba(0,0,0,.28); border-radius:8px;
+    font-size:.82rem; display:flex; flex-direction:column; gap:.3rem;
+  }
+  .pedido-items .it{display:flex; gap:.55rem; align-items:baseline;}
+  .pedido-items .cant{
+    font-weight:800; color:var(--mostaza); min-width:1.6rem;
+    font-variant-numeric:tabular-nums;
+  }
+  .pedido-items .nom{flex:1; line-height:1.35;}
+  .pedido-items .sub{color:var(--texto-secundario); font-size:.76rem; font-variant-numeric:tabular-nums;}
+
+  .pedido-total{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-weight:800; font-size:1rem; color:var(--verde-brillo);
+    padding-top:.5rem; border-top:1px solid var(--borde);
+  }
+  .pedido-total span:first-child{
+    font-size:.75rem; color:var(--texto-secundario); font-weight:700;
+    text-transform:uppercase; letter-spacing:.06em;
+  }
+
+  .pedido-acciones{display:flex; gap:.45rem; margin-top:.8rem; flex-wrap:wrap;}
+  .acc-btn{
+    flex:1; min-width:0; padding:.6rem .5rem; border-radius:8px;
+    font-size:.76rem; font-weight:800; white-space:nowrap;
+    background:var(--rojo); color:var(--crema-suave);
+    transition:background .2s ease, transform .12s ease;
+  }
+  .acc-btn:hover{background:var(--rojo-brillo);}
+  .acc-btn:active{transform:scale(.96);}
+  .acc-btn.sec{background:rgba(247,236,214,.09); color:var(--texto-claro); flex:0 0 auto; padding:.6rem .7rem;}
+  .acc-btn.sec:hover{background:rgba(247,236,214,.16);}
+  .acc-btn.cancel{background:rgba(255,255,255,.05); color:#c98d86; flex:0 0 auto; padding:.6rem .7rem;}
+  .acc-btn.cancel:hover{background:var(--rojo-oscuro); color:var(--crema-suave);}
+  .acc-btn.copiar{background:var(--mostaza); color:var(--carbon);}
+  .acc-btn.copiar:hover{background:#f0af1f;}
+  .acc-btn.copiado{background:var(--verde) !important; color:var(--crema-suave) !important;}
+
+  /* ---------- AVISO FLOTANTE ---------- */
+  .toast{
+    position:fixed; left:50%; bottom:1.5rem; transform:translate(-50%, 150%);
+    background:var(--verde); color:var(--crema-suave);
+    padding:.85rem 1.5rem; border-radius:999px; font-weight:800; font-size:.9rem;
+    box-shadow:0 14px 34px rgba(0,0,0,.45); z-index:500;
+    transition:transform .35s cubic-bezier(.2,.8,.3,1);
+  }
+  .toast.show{transform:translate(-50%, 0);}
+  .toast.error{background:var(--rojo);}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div class="login-screen" id="loginScreen">
+  <form class="login-card" id="loginForm">
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <h1>Panel de comandas</h1>
+    <p class="sub">Acceso solo para el restaurante</p>
+
+    <label for="loginEmail">Usuario</label>
+    <input type="email" id="loginEmail" autocomplete="username" required>
+
+    <label for="loginPassword">Contraseña</label>
+    <input type="password" id="loginPassword" autocomplete="current-password" required>
+
+    <button type="submit" id="loginBtn">Entrar</button>
+    <p class="login-error" id="loginError"></p>
+  </form>
+</div>
+
+<!-- ================= PANEL ================= -->
+<div id="app" hidden>
+  <header>
+    <div class="brand">
+      <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+      <div class="txt">
+        <strong>COMANDAS</strong>
+        <small id="fechaHoy"></small>
+      </div>
+    </div>
+
+    <div class="conn" id="conn"><span class="dot"></span><span id="connTxt">Conectando…</span></div>
+    <button class="tool-btn activo" id="soundBtn" title="Activar o silenciar el sonido">🔔 Sonido</button>
+    <button class="tool-btn" id="notifBtn" title="Permitir notificaciones del navegador">🔕 Notificaciones</button>
+    <button class="tool-btn peligro" id="logoutBtn">Salir</button>
+  </header>
+
+  <main class="board" id="board"></main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* =========================================================
+   CONFIGURACIÓN DE SUPABASE
+   La "anon key" es pública por diseño: sin la contraseña del
+   restaurante no sirve de nada, porque la tabla tiene RLS activo
+   y solo responde a usuarios autenticados.
+========================================================= */
+const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* Columnas del tablero, en orden */
+const COLUMNAS = [
+  { estado:"nuevo",          titulo:"Nuevo" },
+  { estado:"en_preparacion", titulo:"En preparación" },
+  { estado:"listo",          titulo:"Listo" },
+  { estado:"entregado",      titulo:"Entregado" },
+  { estado:"cancelado",      titulo:"Cancelado" }
+];
+
+/* A qué estado pasa cada botón */
+const SIGUIENTE = {
+  nuevo:          { estado:"en_preparacion", etiqueta:"▶ Preparar" },
+  en_preparacion: { estado:"listo",          etiqueta:"✓ Listo" },
+  listo:          { estado:"entregado",      etiqueta:"🛵 Entregado" }
+};
+const ANTERIOR = {
+  en_preparacion: { estado:"nuevo",          etiqueta:"↩" },
+  listo:          { estado:"en_preparacion", etiqueta:"↩" },
+  entregado:      { estado:"listo",          etiqueta:"↩" },
+  cancelado:      { estado:"nuevo",          etiqueta:"↩ Reabrir" }
+};
+
+const ICONO_TIPO = { domicilio:"🛵", llevar:"🥡", local:"🍽️" };
+const TEXTO_TIPO = { domicilio:"Domicilio", llevar:"Para llevar", local:"En el local" };
+
+const VISTOS_KEY = "taqueiros-pedidos-vistos-v1";
+const SONIDO_KEY = "taqueiros-panel-sonido-v1";
+
+let pedidos = [];
+let vistos = cargarVistos();
+let sonidoActivo = localStorage.getItem(SONIDO_KEY) !== "off";
+
+/* =========================================================
+   UTILIDADES
+========================================================= */
+function formatoCOP(n){
+  return "$" + Number(n || 0).toLocaleString("es-CO");
+}
+function numeroPedido(p){
+  return "#" + String(p.id).padStart(3, "0");
+}
+function horaCorta(iso){
+  const d = new Date(iso);
+  return d.toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit", hour12:true });
+}
+function telefonoBonito(t){
+  const s = String(t || "");
+  return s.length === 10 ? s.slice(0,3) + " " + s.slice(3,6) + " " + s.slice(6) : s;
+}
+function escapar(texto){
+  const d = document.createElement("div");
+  d.textContent = texto == null ? "" : String(texto);
+  return d.innerHTML;
+}
+function cargarVistos(){
+  try{ return new Set(JSON.parse(localStorage.getItem(VISTOS_KEY) || "[]")); }
+  catch(e){ return new Set(); }
+}
+function guardarVistos(){
+  // Solo se conservan los últimos 300 para no llenar el almacenamiento
+  localStorage.setItem(VISTOS_KEY, JSON.stringify([...vistos].slice(-300)));
+}
+
+let toastTimer = null;
+function avisar(mensaje, esError){
+  const t = document.getElementById("toast");
+  t.textContent = mensaje;
+  t.classList.toggle("error", !!esError);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+
+/* =========================================================
+   LOGIN
+========================================================= */
+const loginScreen = document.getElementById("loginScreen");
+const loginForm = document.getElementById("loginForm");
+const loginBtn = document.getElementById("loginBtn");
+const loginError = document.getElementById("loginError");
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.textContent = "";
+  loginBtn.disabled = true;
+  loginBtn.textContent = "Entrando…";
+
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById("loginEmail").value.trim(),
+    password: document.getElementById("loginPassword").value
+  });
+
+  loginBtn.disabled = false;
+  loginBtn.textContent = "Entrar";
+
+  if(error){
+    loginError.textContent = "Usuario o contraseña incorrectos.";
+    return;
+  }
+  await entrarAlPanel();
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await db.auth.signOut();
+  location.reload();
+});
+
+/* =========================================================
+   ARRANQUE
+========================================================= */
+async function entrarAlPanel(){
+  loginScreen.classList.add("hidden");
+  document.getElementById("app").hidden = false;
+
+  document.getElementById("fechaHoy").textContent =
+    new Date().toLocaleDateString("es-CO", { weekday:"long", day:"numeric", month:"long" });
+
+  const soundBtn = document.getElementById("soundBtn");
+  soundBtn.classList.toggle("activo", sonidoActivo);
+  soundBtn.textContent = sonidoActivo ? "🔔 Sonido" : "🔇 Silenciado";
+  actualizarBotonNotif();
+
+  dibujarTablero();
+  await cargarPedidos();
+  suscribirse();
+}
+
+/* Si ya había sesión abierta, entra directo */
+(async function comprobarSesion(){
+  const { data } = await db.auth.getSession();
+  if(data && data.session) await entrarAlPanel();
+})();
+
+/* =========================================================
+   DATOS
+========================================================= */
+async function cargarPedidos(){
+  // Los 'pendiente_pago' NO se muestran: son intentos de pago
+  // que nunca se completaron.
+  const { data, error } = await db
+    .from("pedidos")
+    .select("*")
+    .neq("estado", "pendiente_pago")
+    .order("creado_en", { ascending:false })
+    .limit(200);
+
+  if(error){
+    avisar("No se pudieron cargar los pedidos", true);
+    console.error(error);
+    return;
+  }
+  pedidos = data || [];
+  render();
+}
+
+function suscribirse(){
+  const conn = document.getElementById("conn");
+  const connTxt = document.getElementById("connTxt");
+
+  db.channel("pedidos-panel")
+    .on("postgres_changes", { event:"*", schema:"public", table:"pedidos" }, (payload) => {
+      const fila = payload.new;
+      if(!fila || !fila.id) return;
+
+      const i = pedidos.findIndex(p => p.id === fila.id);
+
+      // Un pedido sin pagar no se muestra en el tablero
+      if(fila.estado === "pendiente_pago"){
+        if(i >= 0){ pedidos.splice(i, 1); render(); }
+        return;
+      }
+
+      const esNuevoEnElTablero = i < 0;
+      if(i >= 0){ pedidos[i] = fila; }
+      else{ pedidos.unshift(fila); }
+
+      // Suena solo cuando un pedido pagado aparece por primera vez
+      if(esNuevoEnElTablero && fila.estado === "nuevo"){
+        anunciarPedido(fila);
+      }
+      render();
+    })
+    .subscribe((estado) => {
+      if(estado === "SUBSCRIBED"){
+        conn.className = "conn online";
+        connTxt.textContent = "En vivo";
+      }else if(estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED"){
+        conn.className = "conn offline";
+        connTxt.textContent = "Sin conexión";
+      }
+    });
+}
+
+/* Si el equipo estuvo dormido o se cayó la red, al volver se
+   recargan los pedidos para no quedarse con datos viejos. */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && !document.getElementById("app").hidden){
+    cargarPedidos();
+  }
+});
+window.addEventListener("online", () => {
+  if(!document.getElementById("app").hidden) cargarPedidos();
+});
+
+/* =========================================================
+   AVISO DE PEDIDO NUEVO (sonido + notificación)
+========================================================= */
+function sonar(){
+  if(!sonidoActivo) return;
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    // Dos tonos cortos, audibles en una cocina con ruido
+    [0, 0.22].forEach((retraso, i) => {
+      const osc = ctx.createOscillator();
+      const vol = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = i === 0 ? 880 : 1170;
+      vol.gain.setValueAtTime(0.0001, ctx.currentTime + retraso);
+      vol.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + retraso + 0.03);
+      vol.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + retraso + 0.20);
+      osc.connect(vol); vol.connect(ctx.destination);
+      osc.start(ctx.currentTime + retraso);
+      osc.stop(ctx.currentTime + retraso + 0.22);
+    });
+    setTimeout(() => ctx.close(), 900);
+  }catch(e){ /* si el navegador bloquea el audio, no pasa nada */ }
+}
+
+function anunciarPedido(pedido){
+  sonar();
+  avisar("🌮 Nuevo pedido " + numeroPedido(pedido) + " · " + formatoCOP(pedido.total));
+
+  if(("Notification" in window) && Notification.permission === "granted"){
+    try{
+      new Notification("Nuevo pedido " + numeroPedido(pedido), {
+        body: pedido.cliente_nombre + " · " + formatoCOP(pedido.total)
+              + "\n" + (TEXTO_TIPO[pedido.tipo_pedido] || ""),
+        icon: "Recursos/logo/logo.png",
+        tag: "pedido-" + pedido.id
+      });
+    }catch(e){ /* algunos navegadores lo bloquean */ }
+  }
+}
+
+document.getElementById("soundBtn").addEventListener("click", (e) => {
+  sonidoActivo = !sonidoActivo;
+  localStorage.setItem(SONIDO_KEY, sonidoActivo ? "on" : "off");
+  e.currentTarget.classList.toggle("activo", sonidoActivo);
+  e.currentTarget.textContent = sonidoActivo ? "🔔 Sonido" : "🔇 Silenciado";
+  if(sonidoActivo) sonar();
+});
+
+function actualizarBotonNotif(){
+  const btn = document.getElementById("notifBtn");
+  if(!("Notification" in window)){ btn.style.display = "none"; return; }
+  const ok = Notification.permission === "granted";
+  btn.classList.toggle("activo", ok);
+  btn.textContent = ok ? "🔔 Notificaciones" : "🔕 Notificaciones";
+}
+
+document.getElementById("notifBtn").addEventListener("click", async () => {
+  if(!("Notification" in window)) return;
+  if(Notification.permission === "granted"){
+    avisar("Las notificaciones ya están activas");
+    return;
+  }
+  const permiso = await Notification.requestPermission();
+  actualizarBotonNotif();
+  avisar(permiso === "granted" ? "Notificaciones activadas" : "Notificaciones bloqueadas", permiso !== "granted");
+});
+
+/* =========================================================
+   RENDER DEL TABLERO
+========================================================= */
+function dibujarTablero(){
+  document.getElementById("board").innerHTML = COLUMNAS.map(c =>
+    '<section class="col" data-estado="' + c.estado + '">' +
+      '<div class="col-head">' +
+        '<span class="punto"></span>' +
+        '<h2>' + c.titulo + '</h2>' +
+        '<span class="contador" id="cont-' + c.estado + '">0</span>' +
+      '</div>' +
+      '<div class="col-body" id="body-' + c.estado + '"></div>' +
+    '</section>'
+  ).join("");
+}
+
+function render(){
+  COLUMNAS.forEach(c => {
+    const delEstado = pedidos.filter(p => p.estado === c.estado);
+    document.getElementById("cont-" + c.estado).textContent = delEstado.length;
+
+    const cuerpo = document.getElementById("body-" + c.estado);
+    cuerpo.innerHTML = delEstado.length === 0
+      ? '<div class="col-vacia">Sin pedidos</div>'
+      : delEstado.map(tarjeta).join("");
+  });
+}
+
+function tarjeta(p){
+  const sinVer = p.estado === "nuevo" && !vistos.has(p.id);
+
+  const items = (p.items || []).map(it =>
+    '<div class="it">' +
+      '<span class="cant">' + it.cantidad + '×</span>' +
+      '<span class="nom">' + escapar(it.nombre) + '</span>' +
+      '<span class="sub">' + formatoCOP(it.precio * it.cantidad) + '</span>' +
+    '</div>'
+  ).join("");
+
+  const entrega = p.tipo_pedido === "domicilio"
+    ? '<div class="pedido-entrega">' + ICONO_TIPO.domicilio + ' <strong>Domicilio</strong><br>' +
+        '<span class="dir">' + escapar(p.direccion) + (p.barrio ? " · " + escapar(p.barrio) : "") + '</span>' +
+      '</div>'
+    : '<div class="pedido-entrega">' + (ICONO_TIPO[p.tipo_pedido] || "") +
+        ' <strong>' + (TEXTO_TIPO[p.tipo_pedido] || escapar(p.tipo_pedido)) + '</strong></div>';
+
+  const nota = p.indicaciones
+    ? '<div class="pedido-nota">📝 ' + escapar(p.indicaciones) + '</div>'
+    : "";
+
+  const sig = SIGUIENTE[p.estado];
+  const ant = ANTERIOR[p.estado];
+  const acciones = [];
+
+  if(ant) acciones.push('<button class="acc-btn sec" data-mover="' + p.id + '" data-a="' + ant.estado + '" title="Volver al estado anterior">' + ant.etiqueta + '</button>');
+  if(sig) acciones.push('<button class="acc-btn" data-mover="' + p.id + '" data-a="' + sig.estado + '">' + sig.etiqueta + '</button>');
+  acciones.push('<button class="acc-btn copiar" data-copiar="' + p.id + '">📋 Copiar</button>');
+  if(p.estado !== "cancelado" && p.estado !== "entregado"){
+    acciones.push('<button class="acc-btn cancel" data-mover="' + p.id + '" data-a="cancelado" title="Cancelar pedido">✕</button>');
+  }
+
+  return '<article class="pedido ' + (sinVer ? "sin-ver" : "") + '" data-id="' + p.id + '">' +
+    '<div class="pedido-top">' +
+      '<span class="pedido-num">' + numeroPedido(p) + '</span>' +
+      '<span class="badge-pagado">PAGADO ' + formatoCOP(p.total) + '</span>' +
+      '<span class="pedido-hora">' + horaCorta(p.pagado_en || p.creado_en) + '</span>' +
+    '</div>' +
+    '<div class="pedido-cliente">' + escapar(p.cliente_nombre) + '</div>' +
+    '<a class="pedido-tel" href="tel:+57' + escapar(p.cliente_telefono) + '">📞 ' + telefonoBonito(p.cliente_telefono) + '</a>' +
+    entrega +
+    nota +
+    '<div class="pedido-items">' + items + '</div>' +
+    '<div class="pedido-total"><span>Total</span><span>' + formatoCOP(p.total) + '</span></div>' +
+    '<div class="pedido-acciones">' + acciones.join("") + '</div>' +
+  '</article>';
+}
+
+/* =========================================================
+   ACCIONES SOBRE LAS TARJETAS
+========================================================= */
+document.getElementById("board").addEventListener("click", async (e) => {
+  const btnMover = e.target.closest("[data-mover]");
+  const btnCopiar = e.target.closest("[data-copiar]");
+  const tarjetaEl = e.target.closest(".pedido");
+
+  // Abrir la tarjeta la marca como vista y deja de parpadear
+  if(tarjetaEl && !btnMover && !btnCopiar){
+    const id = Number(tarjetaEl.dataset.id);
+    if(!vistos.has(id)){
+      vistos.add(id);
+      guardarVistos();
+      tarjetaEl.classList.remove("sin-ver");
+    }
+    return;
+  }
+
+  if(btnCopiar){
+    e.stopPropagation();
+    const p = pedidos.find(x => x.id === Number(btnCopiar.dataset.copiar));
+    if(p) copiarComanda(p, btnCopiar);
+    return;
+  }
+
+  if(btnMover){
+    e.stopPropagation();
+    const id = Number(btnMover.dataset.mover);
+    const nuevoEstado = btnMover.dataset.a;
+
+    if(nuevoEstado === "cancelado" && !confirm("¿Cancelar este pedido? El cliente ya pagó.")) return;
+
+    vistos.add(id); guardarVistos();
+
+    btnMover.disabled = true;
+    const { error } = await db.from("pedidos").update({ estado: nuevoEstado }).eq("id", id);
+    btnMover.disabled = false;
+
+    if(error){
+      avisar("No se pudo actualizar el pedido", true);
+      console.error(error);
+      return;
+    }
+    // Se refleja de una vez; Realtime confirma después
+    const i = pedidos.findIndex(x => x.id === id);
+    if(i >= 0){ pedidos[i].estado = nuevoEstado; render(); }
+  }
+});
+
+/* =========================================================
+   COPIAR COMANDA
+   Formato pensado para transcribir rápido al sistema de
+   facturación: cantidad a la izquierda, nombres alineados
+   y precios a la derecha.
+========================================================= */
+function construirComanda(p){
+  const lineas = [];
+  lineas.push("PEDIDO WEB " + numeroPedido(p) + " — PAGADO");
+  lineas.push(p.cliente_nombre + " · " + telefonoBonito(p.cliente_telefono));
+
+  if(p.tipo_pedido === "domicilio"){
+    lineas.push("Domicilio: " + p.direccion + (p.barrio ? ", " + p.barrio : ""));
+  }else{
+    lineas.push(TEXTO_TIPO[p.tipo_pedido] || p.tipo_pedido);
+  }
+  if(p.indicaciones){
+    lineas.push('Ref: "' + p.indicaciones + '"');
+  }
+  lineas.push("");
+
+  const items = p.items || [];
+  const anchoNombre = Math.max(18, ...items.map(it => String(it.nombre).length));
+
+  items.forEach(it => {
+    const cant = String(it.cantidad).padStart(2, " ");
+    const nom = String(it.nombre).padEnd(anchoNombre + 2, " ");
+    const val = formatoCOP(it.precio * it.cantidad).padStart(9, " ");
+    lineas.push(cant + "  " + nom + val);
+  });
+
+  lineas.push("");
+  lineas.push("TOTAL: " + formatoCOP(p.total));
+
+  return lineas.join("\n");
+}
+
+async function copiarComanda(p, boton){
+  const texto = construirComanda(p);
+  const original = boton.textContent;
+  let copiado = false;
+
+  try{
+    await navigator.clipboard.writeText(texto);
+    copiado = true;
+  }catch(e){
+    // Respaldo para navegadores que bloquean el portapapeles
+    const ta = document.createElement("textarea");
+    ta.value = texto;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try{ copiado = document.execCommand("copy"); }catch(err){ copiado = false; }
+    document.body.removeChild(ta);
+  }
+
+  if(!copiado){
+    avisar("No se pudo copiar la comanda", true);
+    return;
+  }
+
+  boton.textContent = "✓ Copiado";
+  boton.classList.add("copiado");
+  setTimeout(() => {
+    boton.textContent = original;
+    boton.classList.remove("copiado");
+  }, 1600);
+}
+</script>
+</body>
+</html>
