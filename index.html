@@ -325,11 +325,13 @@
   .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
   .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
+  #paymentForm{display:flex; flex-direction:column;}
   .form-field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:.9rem;}
   .form-field label{font-size:.78rem; font-weight:700; color:#5a4a3a;}
   .form-field input, .form-field textarea{
-    font-family:inherit; font-size:.92rem; padding:.7rem .8rem; border-radius:12px;
+    font-family:inherit; font-size:16px; padding:.8rem .9rem; border-radius:12px;
     border:1px solid rgba(0,0,0,.15); background:#fff; color:var(--carbon);
+    -webkit-appearance:none; appearance:none; width:100%;
   }
   .form-field input:focus, .form-field textarea:focus{outline:2px solid var(--rojo); outline-offset:1px;}
   .form-field.error input, .form-field.error textarea{border-color:#c0392b;}
@@ -338,17 +340,23 @@
   .order-type-option{flex:1; min-width:96px;}
   .order-type-option input{position:absolute; opacity:0; pointer-events:none;}
   .order-type-option span{
-    display:block; text-align:center; padding:.7rem .5rem; border-radius:12px;
+    display:block; text-align:center; padding:.8rem .5rem; border-radius:12px;
     border:1.5px solid rgba(0,0,0,.15); font-size:.8rem; font-weight:700; color:#5a4a3a;
-    cursor:pointer; transition:all .2s ease;
+    cursor:pointer; transition:all .2s ease; -webkit-tap-highlight-color:transparent;
   }
   .order-type-option input:checked + span{background:var(--rojo); border-color:var(--rojo); color:var(--crema-suave);}
   .form-submit-btn{
     width:100%; background:var(--carbon); color:var(--crema-suave); padding:1rem; border-radius:999px;
-    font-weight:800; font-size:1rem; margin-top:.4rem; transition:background .2s ease, transform .2s ease;
+    font-weight:800; font-size:1rem; margin-top:.6rem; transition:background .2s ease, transform .2s ease;
+    position:sticky; bottom:0; box-shadow:0 -6px 16px rgba(0,0,0,.12);
   }
   .form-submit-btn:hover:not(:disabled){background:var(--rojo); transform:translateY(-2px);}
   .form-submit-btn:disabled{opacity:.45; cursor:not-allowed;}
+  @media (max-width:640px){
+    .order-type-option span{padding:.9rem .5rem; font-size:.85rem;}
+    .form-field input, .form-field textarea{padding:.9rem 1rem;}
+    .form-submit-btn{padding:1.1rem;}
+  }
 
   .confirm-check{
     width:70px; height:70px; border-radius:50%; background:var(--verde); color:var(--crema-suave);
@@ -370,10 +378,22 @@
   .modal-overlay.open{opacity:1; pointer-events:auto;}
   .product-modal{
     background:var(--crema); color:var(--carbon); border-radius:22px;
-    width:min(520px, 100%); max-height:88vh; overflow-y:auto;
+    width:min(520px, 100%); max-height:88vh; max-height:88dvh; overflow-y:auto;
+    -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
     box-shadow:var(--sombra); position:relative;
     transform:scale(.92) translateY(20px); opacity:0;
     transition:transform .3s ease, opacity .3s ease;
+  }
+  /* En celular: hoja deslizante desde abajo, ocupa casi toda la pantalla
+     y siempre deja el botón principal alcanzable sin necesidad de zoom. */
+  @media (max-width:640px){
+    .modal-overlay{align-items:flex-end; padding:0;}
+    .product-modal{
+      width:100%; max-height:94vh; max-height:94dvh;
+      border-radius:22px 22px 0 0;
+      transform:translateY(100%);
+    }
+    .modal-body{padding:1.2rem 1.2rem 2rem;}
   }
   .modal-overlay.open .product-modal{transform:scale(1) translateY(0); opacity:1;}
   .modal-close{
@@ -1098,6 +1118,7 @@ function resetPaymentForm(){
 }
 
 function openPaymentForm(){
+  closeDrawer();
   resetPaymentForm();
   paymentFormOverlay.classList.add("open");
   document.body.style.overflow = "hidden";
