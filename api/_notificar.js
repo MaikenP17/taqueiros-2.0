@@ -59,7 +59,7 @@ function construirComanda(pedido) {
 }
 
 async function notificarWhatsApp(pedido) {
-  const telefono = process.env.CALLMEBOT_PHONE;      // ej: 573125755214
+  const telefono = process.env.CALLMEBOT_PHONE;      // ej: 573125249438
   const apikey = process.env.CALLMEBOT_APIKEY;
 
   if (!telefono || !apikey) {
