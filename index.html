@@ -313,6 +313,52 @@
   .whatsapp-btn:hover{transform:translateY(-2px);}
   .whatsapp-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
+  /* ---------- PAGO EN LÍNEA (WOMPI) ---------- */
+  .pay-divider{display:flex; align-items:center; gap:.7rem; margin:.8rem 0; color:#8a7a63; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em;}
+  .pay-divider::before, .pay-divider::after{content:""; flex:1; height:1px; background:rgba(0,0,0,.1);}
+  .pay-btn{
+    width:100%; background:var(--rojo); color:var(--crema-suave); padding:1rem; border-radius:999px;
+    font-weight:800; font-size:1rem; display:flex; align-items:center; justify-content:center; gap:.6rem;
+    transition:transform .2s ease, box-shadow .2s ease, background .2s ease;
+    box-shadow:0 10px 26px rgba(193,39,45,.35);
+  }
+  .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
+  .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
+
+  .form-field{display:flex; flex-direction:column; gap:.35rem; margin-bottom:.9rem;}
+  .form-field label{font-size:.78rem; font-weight:700; color:#5a4a3a;}
+  .form-field input, .form-field textarea{
+    font-family:inherit; font-size:.92rem; padding:.7rem .8rem; border-radius:12px;
+    border:1px solid rgba(0,0,0,.15); background:#fff; color:var(--carbon);
+  }
+  .form-field input:focus, .form-field textarea:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .form-field.error input, .form-field.error textarea{border-color:#c0392b;}
+  .form-error{font-size:.74rem; color:#c0392b; min-height:1em;}
+  .order-type-group{display:flex; gap:.6rem; flex-wrap:wrap;}
+  .order-type-option{flex:1; min-width:96px;}
+  .order-type-option input{position:absolute; opacity:0; pointer-events:none;}
+  .order-type-option span{
+    display:block; text-align:center; padding:.7rem .5rem; border-radius:12px;
+    border:1.5px solid rgba(0,0,0,.15); font-size:.8rem; font-weight:700; color:#5a4a3a;
+    cursor:pointer; transition:all .2s ease;
+  }
+  .order-type-option input:checked + span{background:var(--rojo); border-color:var(--rojo); color:var(--crema-suave);}
+  .form-submit-btn{
+    width:100%; background:var(--carbon); color:var(--crema-suave); padding:1rem; border-radius:999px;
+    font-weight:800; font-size:1rem; margin-top:.4rem; transition:background .2s ease, transform .2s ease;
+  }
+  .form-submit-btn:hover:not(:disabled){background:var(--rojo); transform:translateY(-2px);}
+  .form-submit-btn:disabled{opacity:.45; cursor:not-allowed;}
+
+  .confirm-check{
+    width:70px; height:70px; border-radius:50%; background:var(--verde); color:var(--crema-suave);
+    display:flex; align-items:center; justify-content:center; font-size:2.1rem; margin:0 auto 1rem;
+  }
+  .confirm-ref{font-family:'Fredoka', sans-serif; font-weight:700; color:var(--rojo-oscuro); text-align:center; margin-bottom:.4rem;}
+  .confirm-summary{background:#fff; border-radius:14px; padding:1rem; margin:1rem 0; font-size:.88rem; color:#5a4a3a;}
+  .confirm-summary .line{display:flex; justify-content:space-between; gap:1rem; padding:.25rem 0;}
+  .confirm-total{display:flex; justify-content:space-between; font-weight:800; font-size:1.15rem; color:var(--rojo-oscuro); margin-top:.4rem;}
+
   /* ---------- PRODUCT MODAL ---------- */
   .card{cursor:pointer;}
   .modal-overlay{
@@ -441,6 +487,8 @@
       <span id="drawerTotal">$0</span>
     </div>
     <button class="whatsapp-btn" id="whatsappBtn" disabled>📲 Pedir por WhatsApp</button>
+    <div class="pay-divider">o</div>
+    <button class="pay-btn" id="payOnlineBtn" disabled>💳 Pagar en línea</button>
   </div>
 </aside>
 
@@ -456,6 +504,95 @@
         <span class="price" id="modalPrice"></span>
         <div class="qty-slot" id="modalQtySlot"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= FORMULARIO DE DATOS PARA PAGO EN LÍNEA ================= -->
+<div class="modal-overlay" id="paymentFormOverlay">
+  <div class="product-modal" id="paymentFormModal" role="dialog" aria-modal="true" aria-label="Datos para tu pedido">
+    <button class="modal-close" id="paymentFormCloseBtn" aria-label="Cerrar">&times;</button>
+    <div class="modal-body">
+      <h3>Datos para tu pedido</h3>
+      <form id="paymentForm" novalidate>
+        <div class="form-field" id="field-nombre">
+          <label for="pf-nombre">Nombre completo</label>
+          <input type="text" id="pf-nombre" autocomplete="name">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-telefono">
+          <label for="pf-telefono">Teléfono (celular, 10 dígitos)</label>
+          <input type="tel" id="pf-telefono" inputmode="numeric" placeholder="3XXXXXXXXX" autocomplete="tel">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-email">
+          <label for="pf-email">Correo electrónico</label>
+          <input type="email" id="pf-email" autocomplete="email">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-tipo">
+          <label>Tipo de pedido</label>
+          <div class="order-type-group">
+            <label class="order-type-option">
+              <input type="radio" name="tipoPedido" value="domicilio" checked>
+              <span>🛵 Domicilio</span>
+            </label>
+            <label class="order-type-option">
+              <input type="radio" name="tipoPedido" value="llevar">
+              <span>🥡 Para llevar</span>
+            </label>
+            <label class="order-type-option">
+              <input type="radio" name="tipoPedido" value="local">
+              <span>🍽️ En el local</span>
+            </label>
+          </div>
+        </div>
+        <div class="form-field" id="field-direccion">
+          <label for="pf-direccion">Dirección de entrega</label>
+          <input type="text" id="pf-direccion" autocomplete="street-address">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-barrio">
+          <label for="pf-barrio">Barrio</label>
+          <input type="text" id="pf-barrio">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-indicaciones">
+          <label for="pf-indicaciones">Indicaciones adicionales (opcional)</label>
+          <textarea id="pf-indicaciones" rows="2"></textarea>
+        </div>
+        <button type="submit" class="form-submit-btn" id="paymentFormSubmitBtn" disabled>Continuar al pago 💳</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CONFIRMACIÓN DE PAGO ================= -->
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="product-modal" id="confirmModal" role="dialog" aria-modal="true" aria-label="Pedido confirmado">
+    <div class="modal-body">
+      <div class="confirm-check">✓</div>
+      <h3 style="text-align:center;">¡Pedido confirmado! 🌮</h3>
+      <p class="confirm-ref" id="confirmRef"></p>
+      <div class="confirm-summary" id="confirmSummary"></div>
+      <div class="confirm-total">
+        <span>Total pagado</span>
+        <span id="confirmTotal"></span>
+      </div>
+      <button class="pay-btn" id="confirmWhatsappBtn" style="margin-top:1.2rem;">📲 Enviar pedido por WhatsApp</button>
+      <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:.7rem;">Volver al menú</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ESTADO DE PAGO (pendiente / rechazado) ================= -->
+<div class="modal-overlay" id="paymentStatusOverlay">
+  <div class="product-modal" id="paymentStatusModal" role="dialog" aria-modal="true" aria-label="Estado del pago">
+    <button class="modal-close" id="statusCloseBtn" aria-label="Cerrar">&times;</button>
+    <div class="modal-body">
+      <div class="confirm-check" id="statusIcon"></div>
+      <h3 style="text-align:center;" id="statusTitle"></h3>
+      <p style="text-align:center; color:#5a4a3a;" id="statusMessage"></p>
     </div>
   </div>
 </div>
@@ -491,6 +628,9 @@
   </div>
   <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
 </footer>
+
+<!-- Widget de pagos Wompi (necesario para abrir el checkout embebido) -->
+<script src="https://checkout.wompi.co/widget.js"></script>
 
 <script>
 /* =========================================================
@@ -765,6 +905,7 @@ function updateCartUI(bump){
   floatingTotal.textContent = formatCOP(total);
   drawerTotal.textContent = formatCOP(total);
   whatsappBtn.disabled = count === 0;
+  payOnlineBtn.disabled = count === 0;
 
   renderDrawerItems();
 }
@@ -876,6 +1017,14 @@ modalOverlay.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if(e.key === "Escape") closeProductModal();
 });
+document.addEventListener("keydown", (e) => {
+  if(e.key !== "Escape") return;
+  if(paymentFormOverlay.classList.contains("open")) closePaymentForm();
+  if(statusOverlay.classList.contains("open")){
+    statusOverlay.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+});
 
 /* =========================================================
    PEDIDO POR WHATSAPP
@@ -908,6 +1057,312 @@ whatsappBtn.addEventListener("click", () => {
   const text = buildWhatsAppMessage();
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
 });
+
+/* =========================================================
+   PAGO EN LÍNEA CON WOMPI (Widget de Checkout)
+========================================================= */
+
+/* ---- CONFIGURACIÓN ----
+   Modo actual: PRUEBAS (sandbox). No se cobra dinero real.
+   >>> PARA PASAR A PRODUCCIÓN: cambia el valor de esta constante
+   >>> de "pruebas" a "produccion" y despliega de nuevo. Nada más
+   >>> hay que tocar aquí; las llaves correctas se eligen solas. */
+const WOMPI_MODE = "pruebas"; // <-- CAMBIAR A "produccion" CUANDO QUIERAS COBRAR DE VERDAD
+
+const WOMPI_PUBLIC_KEY = WOMPI_MODE === "produccion"
+  ? "pub_prod_IwaQLknNwAMDaR6P5dhD4oCPWtF8UfNW"
+  : "pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz";
+
+const WOMPI_REDIRECT_URL = "https://taqueiros-2-0.vercel.app/?pago=exitoso";
+
+const WOMPI_TRANSACTION_API = WOMPI_MODE === "produccion"
+  ? "https://production.wompi.co/v1/transactions/"
+  : "https://sandbox.wompi.co/v1/transactions/";
+
+const PENDING_ORDER_KEY = "taqueiros-pending-order-v1";
+
+const payOnlineBtn = document.getElementById("payOnlineBtn");
+const paymentFormOverlay = document.getElementById("paymentFormOverlay");
+const paymentForm = document.getElementById("paymentForm");
+const paymentFormSubmitBtn = document.getElementById("paymentFormSubmitBtn");
+const paymentFormCloseBtn = document.getElementById("paymentFormCloseBtn");
+
+payOnlineBtn.addEventListener("click", () => {
+  if(cartCount() === 0) return;
+  openPaymentForm();
+});
+
+function resetPaymentForm(){
+  paymentForm.reset();
+  ["field-nombre","field-telefono","field-email","field-direccion","field-barrio"].forEach(id => fieldError(id, ""));
+}
+
+function openPaymentForm(){
+  resetPaymentForm();
+  paymentFormOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+  validatePaymentForm();
+}
+function closePaymentForm(){
+  paymentFormOverlay.classList.remove("open");
+  if(!drawer.classList.contains("open")) document.body.style.overflow = "";
+}
+paymentFormCloseBtn.addEventListener("click", closePaymentForm);
+paymentFormOverlay.addEventListener("click", (e) => { if(e.target === paymentFormOverlay) closePaymentForm(); });
+
+/* ---- Validación en tiempo real ---- */
+function fieldError(fieldId, message){
+  const field = document.getElementById(fieldId);
+  field.classList.toggle("error", !!message);
+  field.querySelector(".form-error").textContent = message || "";
+}
+
+function getTipoPedido(){
+  const checked = paymentForm.querySelector('input[name="tipoPedido"]:checked');
+  return checked ? checked.value : "domicilio";
+}
+
+function validatePaymentForm(){
+  let valid = true;
+
+  const nombre = document.getElementById("pf-nombre").value.trim();
+  if(nombre.length < 3){
+    fieldError("field-nombre", nombre ? "Escribe tu nombre completo" : "Este campo es obligatorio");
+    valid = false;
+  }else{
+    fieldError("field-nombre", "");
+  }
+
+  const telefono = document.getElementById("pf-telefono").value.trim();
+  if(!/^3\d{9}$/.test(telefono)){
+    fieldError("field-telefono", telefono ? "Debe ser un celular colombiano válido (10 dígitos, ej: 3XXXXXXXXX)" : "Este campo es obligatorio");
+    valid = false;
+  }else{
+    fieldError("field-telefono", "");
+  }
+
+  const email = document.getElementById("pf-email").value.trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    fieldError("field-email", email ? "Correo inválido" : "Este campo es obligatorio");
+    valid = false;
+  }else{
+    fieldError("field-email", "");
+  }
+
+  const tipo = getTipoPedido();
+  const esDomicilio = tipo === "domicilio";
+  document.getElementById("field-direccion").style.display = esDomicilio ? "flex" : "none";
+  document.getElementById("field-barrio").style.display = esDomicilio ? "flex" : "none";
+
+  const direccion = document.getElementById("pf-direccion").value.trim();
+  const barrio = document.getElementById("pf-barrio").value.trim();
+
+  if(esDomicilio){
+    if(!direccion){ fieldError("field-direccion", "Este campo es obligatorio"); valid = false; }
+    else{ fieldError("field-direccion", ""); }
+
+    if(!barrio){ fieldError("field-barrio", "Este campo es obligatorio"); valid = false; }
+    else{ fieldError("field-barrio", ""); }
+  }else{
+    fieldError("field-direccion", "");
+    fieldError("field-barrio", "");
+  }
+
+  paymentFormSubmitBtn.disabled = !valid;
+  return valid;
+}
+
+paymentForm.addEventListener("input", validatePaymentForm);
+paymentForm.addEventListener("change", validatePaymentForm);
+
+paymentForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if(!validatePaymentForm()) return;
+  await iniciarPagoWompi();
+});
+
+/* ---- Arma el pedido, pide la firma al backend y abre el widget ---- */
+async function iniciarPagoWompi(){
+  const cliente = {
+    nombre: document.getElementById("pf-nombre").value.trim(),
+    telefono: document.getElementById("pf-telefono").value.trim(),
+    email: document.getElementById("pf-email").value.trim(),
+    tipoPedido: getTipoPedido(),
+    direccion: document.getElementById("pf-direccion").value.trim(),
+    barrio: document.getElementById("pf-barrio").value.trim(),
+    indicaciones: document.getElementById("pf-indicaciones").value.trim()
+  };
+
+  const items = Object.keys(cart).map(id => {
+    const p = findProduct(id);
+    return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
+  });
+  const total = cartTotal();
+  const referencia = "TAQ-" + Date.now();
+  const pedido = { referencia, cliente, items, total };
+
+  // Se guarda para poder reconstruir el resumen si el banco redirige
+  // fuera de la página (PSE) y el cliente vuelve más tarde.
+  localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pedido));
+
+  paymentFormSubmitBtn.disabled = true;
+  paymentFormSubmitBtn.textContent = "Generando pago...";
+
+  try{
+    const resp = await fetch("/api/generar-firma", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ referencia, montoEnCentavos: total * 100, modo: WOMPI_MODE })
+    });
+    if(!resp.ok) throw new Error("No se pudo generar la firma de pago");
+    const { firma } = await resp.json();
+
+    closePaymentForm();
+    abrirWidgetWompi(pedido, firma);
+  }catch(err){
+    console.error(err);
+    alert("No pudimos iniciar el pago. Intenta de nuevo en unos segundos.");
+  }finally{
+    paymentFormSubmitBtn.disabled = false;
+    paymentFormSubmitBtn.textContent = "Continuar al pago 💳";
+  }
+}
+
+function abrirWidgetWompi(pedido, firma){
+  const checkout = new WidgetCheckout({
+    currency: "COP",
+    amountInCents: pedido.total * 100,
+    reference: pedido.referencia,
+    publicKey: WOMPI_PUBLIC_KEY,
+    redirectUrl: WOMPI_REDIRECT_URL,
+    signature: { integrity: firma },
+    customerData: {
+      email: pedido.cliente.email,
+      fullName: pedido.cliente.nombre,
+      phoneNumber: pedido.cliente.telefono,
+      phoneNumberPrefix: "+57"
+    },
+    shippingAddress: pedido.cliente.tipoPedido === "domicilio" ? {
+      addressLine1: pedido.cliente.direccion,
+      city: "Cúcuta",
+      region: "Norte de Santander",
+      country: "CO",
+      phoneNumber: pedido.cliente.telefono,
+      name: pedido.cliente.nombre
+    } : undefined
+  });
+
+  checkout.open(function(result){
+    manejarResultadoPago(result.transaction, pedido);
+  });
+}
+
+/* ---- Interpreta el resultado (viene del widget o de la redirección) ---- */
+function manejarResultadoPago(transaction, pedido){
+  if(!transaction) return;
+
+  if(transaction.status === "APPROVED"){
+    mostrarConfirmacion(pedido);
+  }else if(transaction.status === "PENDING"){
+    mostrarEstadoPago("⏳", "Pago en proceso", "Tu pago está siendo confirmado. Te contactaremos apenas se apruebe. Si tienes dudas, escríbenos por WhatsApp.");
+  }else{
+    mostrarEstadoPago("✕", "Pago no aprobado", `Tu pago no fue aprobado (estado: ${transaction.status}). Puedes intentar de nuevo o hacer tu pedido por WhatsApp.`);
+  }
+}
+
+/* ---- Modal de confirmación ---- */
+const confirmOverlay = document.getElementById("confirmOverlay");
+function mostrarConfirmacion(pedido){
+  document.getElementById("confirmRef").textContent = "Referencia: " + pedido.referencia;
+  document.getElementById("confirmSummary").innerHTML = pedido.items.map(it =>
+    `<div class="line"><span>${it.cantidad}x ${it.nombre}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
+  ).join("");
+  document.getElementById("confirmTotal").textContent = formatCOP(pedido.total);
+
+  document.getElementById("confirmWhatsappBtn").onclick = () => enviarPedidoPagadoPorWhatsApp(pedido);
+  document.getElementById("confirmBackBtn").onclick = () => {
+    cart = {};
+    saveCart();
+    renderQtyControls();
+    updateCartUI(false);
+    document.getElementById("orderNote").value = "";
+    localStorage.removeItem(PENDING_ORDER_KEY);
+    confirmOverlay.classList.remove("open");
+    document.body.style.overflow = "";
+    closeDrawer();
+  };
+
+  confirmOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function enviarPedidoPagadoPorWhatsApp(pedido){
+  const c = pedido.cliente;
+  const tipoTexto = { domicilio:"Domicilio", llevar:"Para llevar", local:"En el local" }[c.tipoPedido] || c.tipoPedido;
+  const lineas = pedido.items.map(it => `✅ ${it.cantidad}x ${it.nombre} — ${formatCOP(it.precio*it.cantidad)}`);
+
+  const partes = [
+    "🌮 *PEDIDO PAGADO EN LÍNEA*",
+    `Ref: ${pedido.referencia}`,
+    "",
+    `👤 ${c.nombre}`,
+    `📞 ${c.telefono}`
+  ];
+  if(c.tipoPedido === "domicilio"){
+    partes.push(`📍 ${c.direccion}, ${c.barrio}`);
+  }
+  if(c.indicaciones){
+    partes.push(`📝 ${c.indicaciones}`);
+  }
+  partes.push(`🛵 ${tipoTexto}`, "", ...lineas, "", `💰 *Total pagado: ${formatCOP(pedido.total)}*`, "💳 Pago confirmado vía Wompi");
+
+  const text = encodeURIComponent(partes.join("\n"));
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+}
+
+/* ---- Modal genérico de estado (pendiente / rechazado) ---- */
+const statusOverlay = document.getElementById("paymentStatusOverlay");
+function mostrarEstadoPago(icono, titulo, mensaje){
+  const iconEl = document.getElementById("statusIcon");
+  iconEl.textContent = icono;
+  iconEl.style.background = icono === "✕" ? "#c0392b" : "var(--mostaza)";
+  iconEl.style.color = icono === "✕" ? "var(--crema-suave)" : "var(--carbon)";
+  document.getElementById("statusTitle").textContent = titulo;
+  document.getElementById("statusMessage").textContent = mensaje;
+  statusOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+document.getElementById("statusCloseBtn").addEventListener("click", () => {
+  statusOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+});
+statusOverlay.addEventListener("click", (e) => {
+  if(e.target === statusOverlay){
+    statusOverlay.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+});
+
+/* ---- Si el banco redirigió fuera de la página (PSE) y el cliente
+   vuelve con ?id=..., consultamos el estado real de la transacción. ---- */
+(function comprobarRegresoDePago(){
+  const params = new URLSearchParams(window.location.search);
+  const transactionId = params.get("id");
+  if(!transactionId) return;
+
+  const pedidoGuardado = JSON.parse(localStorage.getItem(PENDING_ORDER_KEY) || "null");
+  if(!pedidoGuardado) return;
+
+  fetch(WOMPI_TRANSACTION_API + transactionId)
+    .then(r => r.json())
+    .then(json => {
+      if(json && json.data) manejarResultadoPago(json.data, pedidoGuardado);
+    })
+    .catch(err => console.error("No se pudo verificar el pago", err))
+    .finally(() => {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    });
+})();
 
 /* =========================================================
    ANIMACIÓN DE ENTRADA (Intersection Observer)
