@@ -420,6 +420,37 @@
     text-align:center; color:var(--verde); font-weight:700; font-size:.92rem;
     line-height:1.45; margin:-.2rem 0 .8rem;
   }
+  .btn-seguir{
+    width:100%; margin-top:1.2rem; padding:1rem; border-radius:999px;
+    background:var(--carbon); color:var(--crema-suave);
+    font-weight:800; font-size:1rem; text-decoration:none;
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
+    transition:background .2s ease, transform .2s ease;
+  }
+  .btn-seguir:hover{background:var(--rojo); transform:translateY(-2px);}
+
+  /* Banner "tienes un pedido en curso" */
+  .banner-pedido{
+    position:fixed; left:50%; bottom:1.4rem; transform:translate(-50%, 200%);
+    z-index:290; display:flex; align-items:center; gap:.8rem;
+    width:calc(100% - 2.4rem); max-width:420px;
+    background:var(--verde); color:var(--crema-suave);
+    padding:.8rem 1rem; border-radius:16px;
+    box-shadow:0 16px 40px rgba(0,0,0,.45);
+    transition:transform .4s cubic-bezier(.2,.8,.3,1);
+    text-decoration:none;
+  }
+  .banner-pedido.show{transform:translate(-50%, 0);}
+  .banner-pedido .ic{font-size:1.5rem; flex:none;}
+  .banner-pedido .txt{flex:1; line-height:1.3; min-width:0;}
+  .banner-pedido .txt strong{display:block; font-size:.9rem; font-weight:800;}
+  .banner-pedido .txt small{font-size:.76rem; opacity:.9;}
+  .banner-pedido .cerrar{
+    flex:none; background:rgba(0,0,0,.18); color:inherit;
+    width:26px; height:26px; border-radius:50%; font-size:1rem; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+  }
+
   .confirm-copia{text-align:center; font-size:.82rem; color:#8a7a63; margin-top:1rem; line-height:1.6;}
   .link-btn{
     background:none; color:var(--rojo-oscuro); font-weight:800; font-size:.82rem;
@@ -671,7 +702,8 @@
         <span>Total pagado</span>
         <span id="confirmTotal"></span>
       </div>
-      <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:1.2rem;">Volver al menú</button>
+      <a class="btn-seguir" id="confirmSeguirBtn" href="#" target="_blank" rel="noopener">🛵 Seguir mi pedido</a>
+      <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:.7rem;">Volver al menú</button>
       <p class="confirm-copia">¿Quieres una copia de tu pedido?
         <button type="button" class="link-btn" id="confirmWhatsappBtn">Enviar por WhatsApp</button>
       </p>
@@ -690,6 +722,16 @@
     </div>
   </div>
 </div>
+
+<!-- ================= BANNER: PEDIDO EN CURSO ================= -->
+<a class="banner-pedido" id="bannerPedido" href="#">
+  <span class="ic">🛵</span>
+  <span class="txt">
+    <strong>Tienes un pedido en curso</strong>
+    <small id="bannerPedidoRef">Toca para ver su estado</small>
+  </span>
+  <button class="cerrar" id="bannerPedidoCerrar" aria-label="Ocultar">&times;</button>
+</a>
 
 <!-- ================= FOOTER ================= -->
 <footer id="footer">
@@ -1658,6 +1700,11 @@ function mostrarConfirmacion(pedido){
       '<span>A convenir por WhatsApp</span></div>';
   }
 
+  // Enlace de seguimiento: se guarda para poder volver desde el menú
+  const urlSeguimiento = "pedido.html?ref=" + encodeURIComponent(pedido.referencia);
+  document.getElementById("confirmSeguirBtn").href = urlSeguimiento;
+  guardarSeguimiento(pedido.referencia);
+
   document.getElementById("confirmWhatsappBtn").onclick = () => enviarPedidoPagadoPorWhatsApp(pedido);
   document.getElementById("confirmBackBtn").onclick = () => {
     cart = {};
@@ -1698,6 +1745,43 @@ function enviarPedidoPagadoPorWhatsApp(pedido){
   const text = encodeURIComponent(partes.join("\n"));
   window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
 }
+
+/* ---- Seguimiento del pedido: banner "tienes un pedido en curso" ---- */
+const SEGUIMIENTO_KEY = "taqueiros-seguimiento-v1";
+
+function guardarSeguimiento(referencia){
+  try{
+    localStorage.setItem(SEGUIMIENTO_KEY, JSON.stringify({
+      referencia,
+      guardadoEn: Date.now()
+    }));
+  }catch(e){ /* modo incógnito o almacenamiento lleno */ }
+}
+
+function mostrarBannerSeguimiento(){
+  let dato = null;
+  try{ dato = JSON.parse(localStorage.getItem(SEGUIMIENTO_KEY) || "null"); }
+  catch(e){ return; }
+  if(!dato || !dato.referencia) return;
+
+  // Después de 6 horas se asume que el pedido ya se entregó
+  const SEIS_HORAS = 6 * 60 * 60 * 1000;
+  if(Date.now() - (dato.guardadoEn || 0) > SEIS_HORAS){
+    try{ localStorage.removeItem(SEGUIMIENTO_KEY); }catch(e){}
+    return;
+  }
+
+  const banner = document.getElementById("bannerPedido");
+  banner.href = "pedido.html?ref=" + encodeURIComponent(dato.referencia);
+  document.getElementById("bannerPedidoRef").textContent = dato.referencia;
+  setTimeout(() => banner.classList.add("show"), 1200);
+}
+
+document.getElementById("bannerPedidoCerrar").addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  document.getElementById("bannerPedido").classList.remove("show");
+});
 
 /* ---- Modal genérico de estado (pendiente / rechazado) ---- */
 const statusOverlay = document.getElementById("paymentStatusOverlay");
@@ -1835,6 +1919,7 @@ renderQtyControls();
 updateCartUI(false);
 renderFooterHours();
 renderStatusBanner();
+mostrarBannerSeguimiento();
 setInterval(renderStatusBanner, 60000);
 </script>
 </body>

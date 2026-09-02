@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sigue tu pedido | Los Taqueiros</title>
+<meta name="description" content="Sigue el estado de tu pedido de Los Taqueiros en tiempo real.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --rojo:#C1272D;
+    --rojo-oscuro:#8A1B1F;
+    --rojo-brillo:#E14A42;
+    --crema:#F7ECD6;
+    --crema-suave:#FFF8EA;
+    --carbon:#1C1210;
+    --carbon-2:#241714;
+    --mostaza:#E3A008;
+    --verde:#5C7A3B;
+    --verde-brillo:#7FA855;
+    --texto-claro:#F7ECD6;
+    --texto-secundario:#B9A88C;
+    --borde:rgba(247,236,214,.10);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'Libre Franklin', sans-serif;
+    background:
+      radial-gradient(circle at 20% 10%, rgba(193,39,45,.28), transparent 55%),
+      linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
+    background-attachment:fixed;
+    color:var(--texto-claro);
+    min-height:100vh;
+    padding:1.2rem 1rem 3rem;
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit; cursor:pointer; border:none;}
+  h1,h2{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+
+  .wrap{max-width:520px; margin:0 auto;}
+
+  /* ---------- CABECERA ---------- */
+  .cabecera{text-align:center; margin-bottom:1.4rem;}
+  .cabecera img{
+    width:70px; height:70px; object-fit:contain; margin:0 auto .8rem;
+    display:block; border-radius:16px; background:var(--crema); padding:6px;
+  }
+  .cabecera h1{font-size:1.35rem; margin-bottom:.35rem;}
+  .cabecera .ref{
+    display:inline-block; font-family:'Fredoka', sans-serif; font-weight:600;
+    font-size:.8rem; color:var(--texto-secundario);
+    background:rgba(247,236,214,.07); border:1px solid var(--borde);
+    padding:.3rem .8rem; border-radius:999px;
+  }
+
+  /* ---------- TARJETA ---------- */
+  .card{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:18px; padding:1.3rem 1.2rem; margin-bottom:1rem;
+    box-shadow:0 16px 40px rgba(0,0,0,.35);
+  }
+  .card h2{font-size:.95rem; color:var(--mostaza); letter-spacing:.08em; margin-bottom:.9rem;}
+
+  /* ---------- BARRA DE PROGRESO ---------- */
+  .progreso{display:flex; align-items:flex-start; gap:.2rem;}
+  .paso{flex:1; text-align:center; position:relative; min-width:0;}
+  .paso .globo{
+    width:46px; height:46px; border-radius:50%; margin:0 auto .5rem;
+    display:flex; align-items:center; justify-content:center; font-size:1.25rem;
+    background:rgba(247,236,214,.06); border:2px solid var(--borde);
+    transition:background .45s ease, border-color .45s ease, transform .45s ease;
+  }
+  .paso .txt{
+    font-size:.68rem; font-weight:800; line-height:1.25;
+    color:#6b5c4c; text-transform:uppercase; letter-spacing:.03em;
+    transition:color .45s ease;
+  }
+  /* Línea que une los pasos */
+  .paso::before{
+    content:""; position:absolute; top:22px; left:-50%; width:100%; height:3px;
+    background:var(--borde); z-index:0; transition:background .45s ease;
+  }
+  .paso:first-child::before{display:none;}
+  .paso .globo{position:relative; z-index:1;}
+
+  .paso.hecho .globo{background:var(--verde); border-color:var(--verde);}
+  .paso.hecho .txt{color:var(--verde-brillo);}
+  .paso.hecho::before{background:var(--verde);}
+
+  .paso.activo .globo{
+    background:var(--rojo); border-color:var(--rojo-brillo);
+    transform:scale(1.12);
+    animation:pulso 1.8s ease-in-out infinite;
+  }
+  .paso.activo .txt{color:var(--crema-suave);}
+  @keyframes pulso{
+    0%,100%{box-shadow:0 0 0 0 rgba(225,74,66,.55);}
+    50%{box-shadow:0 0 0 12px rgba(225,74,66,0);}
+  }
+
+  /* Animación al cambiar de estado */
+  @keyframes saltito{
+    0%{transform:scale(1);} 40%{transform:scale(1.35);} 100%{transform:scale(1.12);}
+  }
+  .paso.recien .globo{animation:saltito .6s ease, pulso 1.8s ease-in-out 0.6s infinite;}
+
+  .estado-frase{
+    text-align:center; margin-top:1.2rem; padding-top:1rem;
+    border-top:1px dashed var(--borde);
+    font-size:1rem; font-weight:800; color:var(--crema-suave);
+  }
+  .estado-sub{text-align:center; font-size:.85rem; color:var(--texto-secundario); margin-top:.35rem; line-height:1.5;}
+
+  /* ---------- CANCELADO ---------- */
+  .cancelado{
+    background:rgba(193,39,45,.14); border:1px solid rgba(225,74,66,.4);
+    border-radius:18px; padding:1.4rem 1.2rem; text-align:center; margin-bottom:1rem;
+  }
+  .cancelado .ic{font-size:2.4rem; margin-bottom:.6rem;}
+  .cancelado h2{font-size:1.1rem; color:var(--rojo-brillo); margin-bottom:.5rem;}
+  .cancelado p{font-size:.9rem; color:var(--texto-secundario); line-height:1.6;}
+
+  /* ---------- RESUMEN ---------- */
+  .linea{
+    display:flex; justify-content:space-between; gap:.8rem;
+    padding:.45rem 0; font-size:.9rem; border-bottom:1px solid rgba(247,236,214,.05);
+  }
+  .linea:last-of-type{border-bottom:none;}
+  .linea .cant{color:var(--mostaza); font-weight:800; margin-right:.4rem;}
+  .linea .val{color:var(--texto-secundario); font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .total{
+    display:flex; justify-content:space-between; align-items:baseline;
+    margin-top:.8rem; padding-top:.8rem; border-top:1px solid var(--borde);
+    font-weight:800; font-size:1.25rem; color:var(--verde-brillo);
+  }
+  .total span:first-child{font-size:.78rem; color:var(--texto-secundario); text-transform:uppercase; letter-spacing:.06em;}
+
+  .entrega-info{
+    margin-top:.9rem; padding:.75rem .85rem; border-radius:12px;
+    background:rgba(247,236,214,.04); border:1px solid var(--borde);
+    font-size:.85rem; line-height:1.6; color:var(--texto-secundario);
+  }
+  .entrega-info strong{color:var(--texto-claro); font-weight:700;}
+
+  /* ---------- BOTONES ---------- */
+  .btn-wsp{
+    width:100%; background:#25D366; color:#0b2e17; padding:.95rem;
+    border-radius:999px; font-weight:800; font-size:.95rem;
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
+    text-decoration:none; transition:transform .2s ease;
+  }
+  .btn-wsp:hover{transform:translateY(-2px);}
+  .btn-menu{
+    display:block; width:100%; text-align:center; margin-top:.7rem;
+    padding:.85rem; border-radius:999px; font-weight:700; font-size:.88rem;
+    color:var(--texto-secundario); background:rgba(247,236,214,.05);
+    border:1px solid var(--borde); text-decoration:none;
+  }
+  .btn-menu:hover{color:var(--crema-suave);}
+
+  /* ---------- ESTADOS DE CARGA ---------- */
+  .aviso{
+    text-align:center; padding:3rem 1.2rem; color:var(--texto-secundario);
+    font-size:.95rem; line-height:1.6;
+  }
+  .aviso .ic{font-size:2.6rem; margin-bottom:.8rem;}
+  .aviso a{color:var(--mostaza); font-weight:700;}
+
+  .actualizado{
+    text-align:center; font-size:.72rem; color:#6b5c4c; margin-top:1rem;
+  }
+  .actualizado .punto{
+    display:inline-block; width:7px; height:7px; border-radius:50%;
+    background:var(--verde-brillo); margin-right:.35rem;
+    animation:latir 2s ease-in-out infinite;
+  }
+  @keyframes latir{0%,100%{opacity:.35;}50%{opacity:1;}}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="contenido">
+  <div class="aviso"><div class="ic">🌮</div>Buscando tu pedido…</div>
+</div>
+
+<script>
+/* =========================================================
+   SEGUIMIENTO DEL PEDIDO
+
+   Esta página es pública: no lee la tabla de pedidos, solo llama
+   a la función `seguimiento(ref)` de Supabase, que devuelve
+   únicamente el pedido de la referencia consultada y sin datos
+   sensibles (nunca teléfono ni correo).
+========================================================= */
+const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+
+const WHATSAPP_NUMBER = "573125249438";
+
+/* Cada cuántos segundos se vuelve a consultar el estado */
+const REFRESCO_SEGUNDOS = 8;
+
+/* Tiempo estimado que se le muestra al cliente en cada etapa.
+   Ajusta estos textos si el restaurante maneja otros tiempos. */
+const TIEMPOS = {
+  nuevo:          "Suele estar listo en 25 – 40 minutos",
+  en_preparacion: "Ya está en el comal, unos 15 – 25 minutos más",
+  listo_domicilio:"El domiciliario va en camino, 10 – 20 minutos",
+  listo_recoger:  "¡Ya puedes pasar por él!",
+  entregado:      "¡Buen provecho! 🌮"
+};
+
+/* Los 4 pasos que ve el cliente y qué estado de cocina les toca */
+const PASOS = [
+  { clave:"nuevo",          icono:"✅", texto:"Recibido" },
+  { clave:"en_preparacion", icono:"🔥", texto:"En preparación" },
+  { clave:"listo",          icono:"🛵", texto:"En camino" },
+  { clave:"entregado",      icono:"🎉", texto:"Entregado" }
+];
+
+const TEXTO_TIPO = { domicilio:"Domicilio", llevar:"Para llevar", local:"En el local" };
+
+let estadoPrevio = null;
+let temporizador = null;
+
+function formatoCOP(n){
+  return "$" + Number(n || 0).toLocaleString("es-CO");
+}
+function escapar(t){
+  const d = document.createElement("div");
+  d.textContent = t == null ? "" : String(t);
+  return d.innerHTML;
+}
+function referenciaDeLaUrl(){
+  return new URLSearchParams(location.search).get("ref");
+}
+
+/* ---- Consulta a la función segura de Supabase ---- */
+async function consultarPedido(ref){
+  const resp = await fetch(SUPABASE_URL + "/rest/v1/rpc/seguimiento", {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ ref: ref })
+  });
+
+  if(!resp.ok) throw new Error("HTTP " + resp.status);
+  const filas = await resp.json();
+  return Array.isArray(filas) && filas.length ? filas[0] : null;
+}
+
+/* ---- Pantallas de error ---- */
+function mostrarAviso(icono, titulo, detalle){
+  document.getElementById("contenido").innerHTML =
+    '<div class="aviso"><div class="ic">' + icono + '</div>' +
+    '<strong style="display:block; color:var(--crema-suave); font-size:1.05rem; margin-bottom:.5rem;">' + titulo + '</strong>' +
+    detalle + '</div>';
+}
+
+/* ---- Dibuja todo ---- */
+function render(p){
+  const cancelado = p.estado === "cancelado";
+  const esDomicilio = p.tipo_pedido === "domicilio";
+  const indiceActual = PASOS.findIndex(x => x.clave === p.estado);
+  const cambio = estadoPrevio !== null && estadoPrevio !== p.estado;
+
+  // Paso 3 cambia de nombre si el cliente recoge
+  const pasos = PASOS.map((paso, i) => {
+    if(paso.clave === "listo" && !esDomicilio){
+      return { ...paso, icono:"🥡", texto:"Listo para recoger" };
+    }
+    return paso;
+  });
+
+  let html = '';
+
+  // --- Cabecera ---
+  html += '<div class="cabecera">' +
+    '<img src="Recursos/logo/logo.png" alt="Los Taqueiros">' +
+    '<h1>Pedido #' + String(p.numero).padStart(3, "0") + '</h1>' +
+    '<span class="ref">' + escapar(p.referencia) + '</span>' +
+  '</div>';
+
+  // --- Progreso o aviso de cancelación ---
+  if(cancelado){
+    html += '<div class="cancelado">' +
+      '<div class="ic">😔</div>' +
+      '<h2>Pedido cancelado</h2>' +
+      '<p>Este pedido fue cancelado. Si ya habías pagado o crees que se trata de un error, ' +
+      'escríbenos y lo resolvemos enseguida.</p>' +
+    '</div>';
+  }else{
+    html += '<div class="card">';
+    html += '<div class="progreso">';
+    pasos.forEach((paso, i) => {
+      let clase = "paso";
+      if(i < indiceActual) clase += " hecho";
+      else if(i === indiceActual) clase += " activo" + (cambio ? " recien" : "");
+      html += '<div class="' + clase + '">' +
+        '<div class="globo">' + paso.icono + '</div>' +
+        '<div class="txt">' + paso.texto + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+
+    // Frase del estado actual
+    let frase = "", sub = "";
+    if(p.estado === "nuevo"){
+      frase = "¡Recibimos tu pedido! 🌮"; sub = TIEMPOS.nuevo;
+    }else if(p.estado === "en_preparacion"){
+      frase = "Lo estamos preparando 🔥"; sub = TIEMPOS.en_preparacion;
+    }else if(p.estado === "listo"){
+      frase = esDomicilio ? "¡Va en camino! 🛵" : "¡Tu pedido está listo! 🥡";
+      sub = esDomicilio ? TIEMPOS.listo_domicilio : TIEMPOS.listo_recoger;
+    }else if(p.estado === "entregado"){
+      frase = "¡Entregado! 🎉"; sub = TIEMPOS.entregado;
+    }
+    html += '<div class="estado-frase">' + frase + '</div>';
+    html += '<div class="estado-sub">' + sub + '</div>';
+    html += '</div>';
+  }
+
+  // --- Resumen del pedido ---
+  html += '<div class="card"><h2>Tu pedido</h2>';
+  (p.items || []).forEach(it => {
+    html += '<div class="linea">' +
+      '<span><span class="cant">' + it.cantidad + '×</span>' + escapar(it.nombre) + '</span>' +
+      '<span class="val">' + formatoCOP(it.precio * it.cantidad) + '</span>' +
+    '</div>';
+  });
+
+  if(Number(p.costo_domicilio) > 0){
+    html += '<div class="linea"><span>🛵 Domicilio' +
+      (p.distancia_km != null ? ' (' + p.distancia_km + ' km)' : '') +
+      '</span><span class="val">' + formatoCOP(p.costo_domicilio) + '</span></div>';
+  }else if(p.fuera_de_cobertura){
+    html += '<div class="linea"><span>🛵 Domicilio</span>' +
+      '<span class="val">A convenir</span></div>';
+  }
+
+  html += '<div class="total"><span>Total pagado</span><span>' + formatoCOP(p.total) + '</span></div>';
+
+  // --- Datos de entrega ---
+  if(esDomicilio){
+    html += '<div class="entrega-info">🛵 <strong>Domicilio</strong><br>' +
+      escapar(p.direccion || "") + (p.barrio ? " · " + escapar(p.barrio) : "");
+    if(p.indicaciones) html += '<br>📝 ' + escapar(p.indicaciones);
+    html += '</div>';
+  }else{
+    html += '<div class="entrega-info">' +
+      (p.tipo_pedido === "llevar" ? "🥡" : "🍽️") + ' <strong>' +
+      (TEXTO_TIPO[p.tipo_pedido] || escapar(p.tipo_pedido)) + '</strong><br>' +
+      'Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta</div>';
+  }
+  html += '</div>';
+
+  // --- Contacto ---
+  const mensaje = encodeURIComponent(
+    "Hola! Escribo por mi pedido " + p.referencia + " (#" + String(p.numero).padStart(3,"0") + ")."
+  );
+  html += '<a class="btn-wsp" href="https://wa.me/' + WHATSAPP_NUMBER + '?text=' + mensaje +
+          '" target="_blank" rel="noopener">💬 Escribirle al restaurante</a>';
+  html += '<a class="btn-menu" href="index.html">Volver al menú</a>';
+
+  if(!cancelado && p.estado !== "entregado"){
+    html += '<div class="actualizado"><span class="punto"></span>Actualizando automáticamente</div>';
+  }
+
+  document.getElementById("contenido").innerHTML = html;
+  estadoPrevio = p.estado;
+
+  // Cuando el pedido termina, no tiene sentido seguir consultando
+  if(cancelado || p.estado === "entregado"){
+    clearInterval(temporizador);
+    // El banner de "pedido en curso" del menú ya no aplica
+    try{ localStorage.removeItem("taqueiros-seguimiento-v1"); }catch(e){}
+  }
+}
+
+/* ---- Arranque ---- */
+(async function iniciar(){
+  const ref = referenciaDeLaUrl();
+
+  if(!ref){
+    mostrarAviso("🔎", "Falta la referencia",
+      'Abre el enlace que te dimos al terminar tu pedido, o <a href="index.html">vuelve al menú</a>.');
+    return;
+  }
+
+  async function refrescar(primeraVez){
+    try{
+      const pedido = await consultarPedido(ref);
+      if(!pedido){
+        if(primeraVez){
+          mostrarAviso("🤔", "No encontramos ese pedido",
+            'Revisa que el enlace esté completo. Si acabas de pagar, espera unos segundos y recarga. ' +
+            '<br><br><a href="https://wa.me/' + WHATSAPP_NUMBER + '">Escríbenos por WhatsApp</a>');
+          clearInterval(temporizador);
+        }
+        return;
+      }
+      render(pedido);
+    }catch(err){
+      console.error(err);
+      if(primeraVez){
+        mostrarAviso("📡", "No pudimos conectarnos",
+          'Revisa tu conexión e intenta de nuevo. <br><br>' +
+          '<a href="https://wa.me/' + WHATSAPP_NUMBER + '">Escríbenos por WhatsApp</a>');
+      }
+    }
+  }
+
+  await refrescar(true);
+  temporizador = setInterval(() => refrescar(false), REFRESCO_SEGUNDOS * 1000);
+
+  // Al volver a la pestaña, refresca de una vez
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible") refrescar(false);
+  });
+})();
+</script>
+</body>
+</html>
