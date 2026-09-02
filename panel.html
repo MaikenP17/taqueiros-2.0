@@ -428,6 +428,22 @@ async function entrarAlPanel(){
   if(data && data.session) await entrarAlPanel();
 })();
 
+/* Si la sesión se cierra o caduca (aquí o en otra pestaña), el panel
+   se bloquea de inmediato y borra los pedidos que tenía en pantalla.
+   Sin sesión no queda ningún dato de clientes a la vista. */
+db.auth.onAuthStateChange((evento, sesion) => {
+  if(sesion) return;
+  if(evento === "SIGNED_OUT" || evento === "TOKEN_REFRESHED"){
+    pedidos = [];
+    const app = document.getElementById("app");
+    if(!app.hidden){
+      app.hidden = true;
+      loginScreen.classList.remove("hidden");
+      render();
+    }
+  }
+});
+
 /* =========================================================
    DATOS
 ========================================================= */

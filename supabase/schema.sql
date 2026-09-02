@@ -68,24 +68,17 @@ create trigger pedidos_actualizado_en
   for each row execute function public.tocar_actualizado_en();
 
 -- 3) SEGURIDAD (RLS) --------------------------------------------------
--- Con RLS activo y SIN politicas para 'anon', nadie puede leer los
--- pedidos con la llave publica. Solo:
---   - el usuario del restaurante (authenticated), para el panel
---   - el servidor (service_role), que se salta RLS por diseno
+-- Se activa RLS, pero las POLITICAS estan en seguridad.sql.
+--
+-- IMPORTANTE: ejecuta tambien supabase/seguridad.sql. Sin el, la
+-- tabla queda con RLS activo y sin politicas, o sea: el panel no
+-- podra leer nada (el servidor si, porque service_role se salta RLS).
+--
+-- Las politicas viven aparte porque restringen el acceso a una lista
+-- explicita de personal autorizado, en vez de confiar en el rol
+-- 'authenticated' (que en Supabase incluye a cualquiera que se
+-- registre por su cuenta si el registro publico esta abierto).
 alter table public.pedidos enable row level security;
-
-drop policy if exists "restaurante lee pedidos" on public.pedidos;
-create policy "restaurante lee pedidos"
-  on public.pedidos for select
-  to authenticated
-  using (true);
-
-drop policy if exists "restaurante actualiza pedidos" on public.pedidos;
-create policy "restaurante actualiza pedidos"
-  on public.pedidos for update
-  to authenticated
-  using (true)
-  with check (true);
 
 -- 4) REALTIME ---------------------------------------------------------
 -- Permite que el panel reciba los pedidos nuevos sin recargar.
