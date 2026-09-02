@@ -182,6 +182,21 @@
     line-height:1.5; padding-top:.5rem; border-top:1px dashed var(--borde);
   }
   .pedido-entrega .dir{color:var(--texto-claro);}
+  .pedido-envio{
+    display:flex; align-items:center; gap:.4rem; flex-wrap:wrap;
+    margin-top:.45rem; font-size:.76rem; font-weight:700; color:var(--verde-brillo);
+  }
+  .pedido-envio .fuera{color:var(--mostaza);}
+  .btn-mapa{
+    display:inline-flex; align-items:center; gap:.3rem;
+    background:rgba(107,143,168,.16); color:#9cc4dd;
+    border:1px solid rgba(107,143,168,.35);
+    padding:.3rem .55rem; border-radius:6px;
+    font-size:.72rem; font-weight:800; text-decoration:none;
+    transition:background .2s ease;
+  }
+  .btn-mapa:hover{background:rgba(107,143,168,.32); color:#c7e2f2;}
+
   .pedido-nota{
     margin-top:.4rem; font-size:.76rem; color:var(--mostaza);
     background:rgba(227,160,8,.09); border-left:2px solid var(--mostaza);
@@ -633,6 +648,29 @@ function tarjeta(p){
     ? '<div class="pedido-nota">📝 ' + escapar(p.indicaciones) + '</div>'
     : "";
 
+  // Datos del domicilio: costo, distancia y enlace a Google Maps
+  let envio = "";
+  if(p.tipo_pedido === "domicilio"){
+    const partes = [];
+    if(p.distancia_km != null) partes.push("📍 " + p.distancia_km + " km");
+
+    if(p.fuera_de_cobertura){
+      partes.push('<span class="fuera">⚠️ Fuera de zona — cobrar domicilio aparte</span>');
+    }else if(Number(p.costo_domicilio) > 0){
+      partes.push("🛵 " + formatoCOP(p.costo_domicilio));
+    }
+
+    let enlace = "";
+    if(p.lat != null && p.lng != null){
+      enlace = '<a class="btn-mapa" href="https://www.google.com/maps/search/?api=1&query='
+        + p.lat + ',' + p.lng + '" target="_blank" rel="noopener">🗺️ Ver en mapa</a>';
+    }
+
+    if(partes.length || enlace){
+      envio = '<div class="pedido-envio">' + partes.join(" · ") + enlace + '</div>';
+    }
+  }
+
   const sig = SIGUIENTE[p.estado];
   const ant = ANTERIOR[p.estado];
   const acciones = [];
@@ -653,8 +691,14 @@ function tarjeta(p){
     '<div class="pedido-cliente">' + escapar(p.cliente_nombre) + '</div>' +
     '<a class="pedido-tel" href="tel:+57' + escapar(p.cliente_telefono) + '">📞 ' + telefonoBonito(p.cliente_telefono) + '</a>' +
     entrega +
+    envio +
     nota +
     '<div class="pedido-items">' + items + '</div>' +
+    (Number(p.costo_domicilio) > 0
+      ? '<div class="pedido-total" style="border-top:none; padding-top:.2rem; color:var(--texto-secundario);">'
+        + '<span>Productos</span><span style="font-size:.85rem;">'
+        + formatoCOP(p.subtotal != null ? p.subtotal : p.total - p.costo_domicilio) + '</span></div>'
+      : "") +
     '<div class="pedido-total"><span>Total</span><span>' + formatoCOP(p.total) + '</span></div>' +
     '<div class="pedido-acciones">' + acciones.join("") + '</div>' +
   '</article>';
@@ -740,6 +784,18 @@ function construirComanda(p){
     const val = formatoCOP(it.precio * it.cantidad).padStart(9, " ");
     lineas.push(cant + "  " + nom + val);
   });
+
+  if(p.tipo_pedido === "domicilio"){
+    if(p.fuera_de_cobertura){
+      lineas.push("");
+      lineas.push("DOMICILIO: fuera de zona, cobrar aparte"
+        + (p.distancia_km != null ? " (" + p.distancia_km + " km)" : ""));
+    }else if(Number(p.costo_domicilio) > 0){
+      const nombreEnvio = "Domicilio" + (p.distancia_km != null ? " (" + p.distancia_km + " km)" : "");
+      lineas.push("   " + nombreEnvio.padEnd(anchoNombre + 2, " ")
+        + formatoCOP(p.costo_domicilio).padStart(9, " "));
+    }
+  }
 
   lineas.push("");
   lineas.push("TOTAL: " + formatoCOP(p.total));

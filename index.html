@@ -13,6 +13,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+<!-- Mapa para calcular el domicilio: Leaflet + OpenStreetMap (gratis, sin API key) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
 <style>
   :root{
     /* Paleta extraída del logo real de Los Taqueiros (fondo crema + rojo) */
@@ -358,6 +361,53 @@
     .form-submit-btn{padding:1.1rem;}
   }
 
+  /* ---------- MAPA DE DOMICILIO ---------- */
+  .mapa-bloque{margin-bottom:.9rem;}
+  .mapa-ayuda{font-size:.76rem; color:#8a7a63; line-height:1.5; margin-bottom:.5rem;}
+  #mapaDomicilio{
+    width:100%; height:260px; border-radius:14px;
+    border:1px solid rgba(0,0,0,.15); background:#e9dcbb; z-index:1;
+  }
+  @media (max-width:640px){ #mapaDomicilio{height:230px;} }
+
+  .btn-ubicacion{
+    width:100%; margin-top:.6rem; padding:.85rem;
+    background:var(--carbon); color:var(--crema-suave);
+    border-radius:12px; font-weight:800; font-size:.9rem;
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
+    transition:background .2s ease;
+  }
+  .btn-ubicacion:hover:not(:disabled){background:var(--rojo);}
+  .btn-ubicacion:disabled{opacity:.6; cursor:wait;}
+
+  .domicilio-info{
+    margin-top:.6rem; padding:.75rem .85rem; border-radius:12px;
+    background:rgba(92,122,59,.12); border:1px solid rgba(92,122,59,.35);
+    font-size:.88rem; font-weight:700; color:#3f5a24;
+    display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap;
+  }
+  .domicilio-info.fuera{
+    background:rgba(227,160,8,.14); border-color:rgba(227,160,8,.45); color:#8a6205;
+    display:block; line-height:1.5; font-weight:600;
+  }
+  .domicilio-info.vacio{
+    background:rgba(0,0,0,.04); border-color:rgba(0,0,0,.12); color:#8a7a63;
+    font-weight:600; display:block; text-align:center;
+  }
+
+  /* Desglose subtotal / domicilio / total */
+  .desglose{
+    margin-top:.9rem; padding-top:.7rem; border-top:1px dashed rgba(0,0,0,.15);
+    font-size:.9rem; color:#5a4a3a;
+  }
+  .desglose .fila{display:flex; justify-content:space-between; padding:.22rem 0;}
+  .desglose .fila.total{
+    border-top:1px solid rgba(0,0,0,.15); margin-top:.4rem; padding-top:.5rem;
+    font-weight:800; font-size:1.1rem; color:var(--rojo-oscuro);
+  }
+  .drawer-desglose{font-size:.88rem; color:#5a4a3a; margin-bottom:.5rem;}
+  .drawer-desglose .fila{display:flex; justify-content:space-between; padding:.2rem 0;}
+
   .confirm-check{
     width:70px; height:70px; border-radius:50%; background:var(--verde); color:var(--crema-suave);
     display:flex; align-items:center; justify-content:center; font-size:2.1rem; margin:0 auto 1rem;
@@ -512,6 +562,7 @@
   <div class="drawer-footer">
     <label class="note-label" for="orderNote">Nota para tu pedido (opcional)</label>
     <textarea class="note-input" id="orderNote" placeholder="Ej: sin cebolla, extra picante, tocarle el timbre..." rows="2"></textarea>
+    <div class="drawer-desglose" id="drawerDesglose"></div>
     <div class="drawer-total">
       <span>Total</span>
       <span id="drawerTotal">$0</span>
@@ -577,6 +628,14 @@
             </label>
           </div>
         </div>
+        <div class="mapa-bloque" id="bloqueMapa">
+          <label style="display:block; font-size:.78rem; font-weight:700; color:#5a4a3a; margin-bottom:.35rem;">¿A dónde lo llevamos?</label>
+          <p class="mapa-ayuda">Toca el mapa o arrastra el pin para marcar tu ubicación exacta. Con eso calculamos el costo del domicilio.</p>
+          <div id="mapaDomicilio"></div>
+          <button type="button" class="btn-ubicacion" id="btnUbicacion">📍 Usar mi ubicación actual</button>
+          <div class="domicilio-info vacio" id="domicilioInfo">Marca tu ubicación para calcular el domicilio</div>
+        </div>
+
         <div class="form-field" id="field-direccion">
           <label for="pf-direccion">Dirección de entrega</label>
           <input type="text" id="pf-direccion" autocomplete="street-address">
@@ -591,6 +650,8 @@
           <label for="pf-indicaciones">Indicaciones adicionales (opcional)</label>
           <textarea id="pf-indicaciones" rows="2"></textarea>
         </div>
+        <div class="desglose" id="desglosePago"></div>
+
         <button type="submit" class="form-submit-btn" id="paymentFormSubmitBtn" disabled>Continuar al pago 💳</button>
       </form>
     </div>
@@ -661,6 +722,8 @@
   </div>
   <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
 </footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <!-- Widget de pagos Wompi (necesario para abrir el checkout embebido) -->
 <script src="https://checkout.wompi.co/widget.js"></script>
@@ -934,9 +997,12 @@ function updateCartUI(bump){
     cartBadge.classList.add("bump");
   }
 
+  const envio = (typeof costoDomicilioActual === "function") ? costoDomicilioActual() : 0;
+
   floatingCount.textContent = `${count} producto${count===1?"":"s"}`;
-  floatingTotal.textContent = formatCOP(total);
-  drawerTotal.textContent = formatCOP(total);
+  floatingTotal.textContent = formatCOP(total + envio);
+  drawerTotal.textContent = formatCOP(total + envio);
+  if(typeof pintarDesgloseCarrito === "function") pintarDesgloseCarrito();
   whatsappBtn.disabled = count === 0;
   payOnlineBtn.disabled = count === 0;
 
@@ -1114,6 +1180,231 @@ const WOMPI_TRANSACTION_API = WOMPI_MODE === "produccion"
 
 const PENDING_ORDER_KEY = "taqueiros-pending-order-v1";
 
+/* =========================================================
+   DOMICILIO CON MAPA (Leaflet + OpenStreetMap)
+
+   IMPORTANTE: estos valores deben coincidir con los de
+   api/_domicilio.js, que es donde REALMENTE se calcula lo que se
+   cobra. Lo de aquí es solo para mostrárselo al cliente.
+========================================================= */
+
+/* ---- COORDENADAS DEL RESTAURANTE ----
+   Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta.
+
+   >>> PROVISIONAL: el geocodificador no pudo resolver esta
+   >>> dirección exacta. Para corregirlo: abre Google Maps, ubica
+   >>> el local, click derecho encima y copia las coordenadas del
+   >>> primer renglón del menú.
+   >>> Cámbialas aquí Y en api/_domicilio.js (deben ser iguales). */
+const RESTAURANTE = { lat: 7.8932961, lng: -72.4982540 };
+
+/* ---- TARIFAS POR DISTANCIA ----
+   'hasta' = límite del rango en km. precio null = fuera de cobertura. */
+const TARIFAS_DOMICILIO = [
+  { hasta: 2,   precio: 5000  },  // 0 - 2 km
+  { hasta: 4,   precio: 7000  },  // 2 - 4 km
+  { hasta: 6,   precio: 9000  },  // 4 - 6 km
+  { hasta: 8,   precio: 12000 },  // 6 - 8 km
+  { hasta: 999, precio: null  }   // +8 km -> "Consultar por WhatsApp"
+];
+
+/* Haversine da la línea recta; una moto recorre más por las calles. */
+const FACTOR_RECORRIDO = 1.3;
+
+/* Colores de las zonas dibujadas en el mapa */
+const COLORES_ZONA = ["#5C7A3B", "#8FA83F", "#E3A008", "#E07B39"];
+
+let mapa = null;
+let pinCliente = null;
+let lineaRuta = null;
+let ubicacionCliente = null;   // { lat, lng }
+let domicilioActual = null;    // { km, precio, fueraDeCobertura }
+
+function haversineKm(lat1, lng1, lat2, lng2){
+  const R = 6371;
+  const rad = x => x * Math.PI / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function calcularDomicilio(lat, lng){
+  const km = haversineKm(RESTAURANTE.lat, RESTAURANTE.lng, lat, lng) * FACTOR_RECORRIDO;
+  const tramo = TARIFAS_DOMICILIO.find(t => km <= t.hasta);
+  return {
+    km: Math.round(km * 10) / 10,
+    precio: tramo && tramo.precio != null ? tramo.precio : 0,
+    fueraDeCobertura: !tramo || tramo.precio == null
+  };
+}
+
+/* El mapa se crea una sola vez, la primera vez que se elige domicilio. */
+function iniciarMapa(){
+  if(mapa || typeof L === "undefined") return;
+
+  mapa = L.map("mapaDomicilio", { scrollWheelZoom:false })
+          .setView([RESTAURANTE.lat, RESTAURANTE.lng], 14);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(mapa);
+
+  // Zonas de tarifa: se dibujan de la más lejana a la más cercana
+  // para que las cercanas queden encima.
+  const conPrecio = TARIFAS_DOMICILIO.filter(t => t.precio != null);
+  [...conPrecio].reverse().forEach((tramo) => {
+    const i = conPrecio.indexOf(tramo);
+    L.circle([RESTAURANTE.lat, RESTAURANTE.lng], {
+      // El radio se divide por el factor: en el mapa se ve la línea
+      // recta que equivale a esos km de recorrido real.
+      radius: (tramo.hasta / FACTOR_RECORRIDO) * 1000,
+      color: COLORES_ZONA[i] || "#E07B39",
+      fillColor: COLORES_ZONA[i] || "#E07B39",
+      fillOpacity: 0.10,
+      weight: 1.5,
+      interactive: false
+    }).addTo(mapa);
+  });
+
+  const iconoLocal = L.divIcon({
+    className: "",
+    html: '<div style="background:#C1272D;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #F7ECD6;box-shadow:0 3px 10px rgba(0,0,0,.4);">\u{1F32E}</div>',
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
+  });
+  L.marker([RESTAURANTE.lat, RESTAURANTE.lng], { icon: iconoLocal, interactive: false })
+    .addTo(mapa)
+    .bindTooltip("Los Taqueiros", { direction:"top" });
+
+  mapa.on("click", (e) => fijarUbicacion(e.latlng.lat, e.latlng.lng));
+
+  // Dentro de un modal, Leaflet necesita recalcular su tamaño
+  setTimeout(() => mapa.invalidateSize(), 200);
+}
+
+function fijarUbicacion(lat, lng){
+  ubicacionCliente = { lat, lng };
+  domicilioActual = calcularDomicilio(lat, lng);
+
+  const iconoCliente = L.divIcon({
+    className: "",
+    html: '<div style="background:#1C1210;width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid #E3A008;box-shadow:0 3px 10px rgba(0,0,0,.4);"><span style="transform:rotate(45deg);font-size:15px;">\u{1F4CD}</span></div>',
+    iconSize: [34, 34],
+    iconAnchor: [17, 34]
+  });
+
+  if(pinCliente){
+    pinCliente.setLatLng([lat, lng]);
+  }else{
+    pinCliente = L.marker([lat, lng], { icon: iconoCliente, draggable: true }).addTo(mapa);
+    pinCliente.on("dragend", (e) => {
+      const punto = e.target.getLatLng();
+      fijarUbicacion(punto.lat, punto.lng);
+    });
+  }
+
+  const puntos = [[RESTAURANTE.lat, RESTAURANTE.lng], [lat, lng]];
+  if(lineaRuta){
+    lineaRuta.setLatLngs(puntos);
+  }else{
+    lineaRuta = L.polyline(puntos, { color:"#C1272D", weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapa);
+  }
+
+  mapa.fitBounds(L.latLngBounds(puntos).pad(0.35));
+  pintarInfoDomicilio();
+  validatePaymentForm();
+}
+
+function pintarInfoDomicilio(){
+  const caja = document.getElementById("domicilioInfo");
+  if(!caja) return;
+
+  if(!domicilioActual){
+    caja.className = "domicilio-info vacio";
+    caja.textContent = "Marca tu ubicación para calcular el domicilio";
+    return;
+  }
+
+  if(domicilioActual.fueraDeCobertura){
+    caja.className = "domicilio-info fuera";
+    caja.innerHTML = "\u26A0\uFE0F Estás a <strong>" + domicilioActual.km + " km</strong>. " +
+      "Estás fuera de nuestra zona de cobertura habitual \u2014 coordinamos el domicilio por WhatsApp. " +
+      "Puedes continuar y pagar solo los productos.";
+  }else{
+    caja.className = "domicilio-info";
+    caja.innerHTML = "<span>\u{1F4CD} A " + domicilioActual.km + " km</span>" +
+      "<span>\u{1F6F5} Domicilio " + formatCOP(domicilioActual.precio) + "</span>";
+  }
+}
+
+/* Costo que se suma al pedido (0 si no es domicilio o está fuera de zona) */
+function costoDomicilioActual(){
+  if(getTipoPedido() !== "domicilio") return 0;
+  if(!domicilioActual || domicilioActual.fueraDeCobertura) return 0;
+  return domicilioActual.precio;
+}
+
+function pintarDesglose(){
+  const caja = document.getElementById("desglosePago");
+  if(!caja) return;
+
+  const subtotal = cartTotal();
+  const envio = costoDomicilioActual();
+
+  let html = '<div class="fila"><span>Subtotal</span><span>' + formatCOP(subtotal) + '</span></div>';
+  if(getTipoPedido() === "domicilio" && domicilioActual){
+    html += domicilioActual.fueraDeCobertura
+      ? '<div class="fila"><span>\u{1F6F5} Domicilio</span><span>A convenir</span></div>'
+      : '<div class="fila"><span>\u{1F6F5} Domicilio</span><span>' + formatCOP(envio) + '</span></div>';
+  }
+  html += '<div class="fila total"><span>Total</span><span>' + formatCOP(subtotal + envio) + '</span></div>';
+  caja.innerHTML = html;
+
+  pintarDesgloseCarrito();
+}
+
+/* El carrito muestra el desglose solo cuando ya se conoce el envío */
+function pintarDesgloseCarrito(){
+  const cont = document.getElementById("drawerDesglose");
+  if(!cont) return;
+  const envio = costoDomicilioActual();
+
+  if(envio <= 0){ cont.innerHTML = ""; return; }
+
+  cont.innerHTML =
+    '<div class="fila"><span>Subtotal</span><span>' + formatCOP(cartTotal()) + '</span></div>' +
+    '<div class="fila"><span>\u{1F6F5} Domicilio</span><span>' + formatCOP(envio) + '</span></div>';
+}
+
+/* Botón "Usar mi ubicación actual" */
+document.getElementById("btnUbicacion").addEventListener("click", (e) => {
+  const btn = e.currentTarget;
+  if(!navigator.geolocation){
+    alert("Tu navegador no permite compartir la ubicación. Toca el mapa para marcarla a mano.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Buscando tu ubicación\u2026";
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      btn.disabled = false;
+      btn.textContent = "\u{1F4CD} Usar mi ubicación actual";
+      mapa.setView([pos.coords.latitude, pos.coords.longitude], 16);
+      fijarUbicacion(pos.coords.latitude, pos.coords.longitude);
+    },
+    () => {
+      btn.disabled = false;
+      btn.textContent = "\u{1F4CD} Usar mi ubicación actual";
+      alert("No pudimos obtener tu ubicación. Revisa los permisos del navegador o toca el mapa para marcarla a mano.");
+    },
+    { enableHighAccuracy:true, timeout:10000, maximumAge:0 }
+  );
+});
+
 const payOnlineBtn = document.getElementById("payOnlineBtn");
 const paymentFormOverlay = document.getElementById("paymentFormOverlay");
 const paymentForm = document.getElementById("paymentForm");
@@ -1128,6 +1419,14 @@ payOnlineBtn.addEventListener("click", () => {
 function resetPaymentForm(){
   paymentForm.reset();
   ["field-nombre","field-telefono","field-email","field-direccion","field-barrio"].forEach(id => fieldError(id, ""));
+
+  // Se borra la ubicación del pedido anterior
+  ubicacionCliente = null;
+  domicilioActual = null;
+  if(pinCliente && mapa){ mapa.removeLayer(pinCliente); pinCliente = null; }
+  if(lineaRuta && mapa){ mapa.removeLayer(lineaRuta); lineaRuta = null; }
+  if(mapa) mapa.setView([RESTAURANTE.lat, RESTAURANTE.lng], 14);
+  pintarInfoDomicilio();
 }
 
 function openPaymentForm(){
@@ -1188,6 +1487,14 @@ function validatePaymentForm(){
   document.getElementById("field-direccion").style.display = esDomicilio ? "flex" : "none";
   document.getElementById("field-barrio").style.display = esDomicilio ? "flex" : "none";
 
+  // El mapa solo aparece si el pedido es a domicilio
+  const bloqueMapa = document.getElementById("bloqueMapa");
+  bloqueMapa.style.display = esDomicilio ? "block" : "none";
+  if(esDomicilio){
+    iniciarMapa();
+    if(mapa) setTimeout(() => mapa.invalidateSize(), 60);
+  }
+
   const direccion = document.getElementById("pf-direccion").value.trim();
   const barrio = document.getElementById("pf-barrio").value.trim();
 
@@ -1197,11 +1504,15 @@ function validatePaymentForm(){
 
     if(!barrio){ fieldError("field-barrio", "Este campo es obligatorio"); valid = false; }
     else{ fieldError("field-barrio", ""); }
+
+    // Sin ubicación marcada no se puede calcular el domicilio
+    if(!ubicacionCliente) valid = false;
   }else{
     fieldError("field-direccion", "");
     fieldError("field-barrio", "");
   }
 
+  pintarDesglose();
   paymentFormSubmitBtn.disabled = !valid;
   return valid;
 }
@@ -1224,7 +1535,9 @@ async function iniciarPagoWompi(){
     tipoPedido: getTipoPedido(),
     direccion: document.getElementById("pf-direccion").value.trim(),
     barrio: document.getElementById("pf-barrio").value.trim(),
-    indicaciones: document.getElementById("pf-indicaciones").value.trim()
+    indicaciones: document.getElementById("pf-indicaciones").value.trim(),
+    // El servidor recalcula el costo del domicilio con estas coordenadas
+    ubicacion: ubicacionCliente
   };
 
   const items = Object.keys(cart).map(id => ({ id, cantidad: cart[id] }));
@@ -1250,7 +1563,8 @@ async function iniciarPagoWompi(){
       const detalle = await resp.json().catch(() => ({}));
       throw new Error(detalle.error || "No se pudo registrar el pedido");
     }
-    const { referencia, total, firma } = await resp.json();
+    const datos = await resp.json();
+    const { referencia, total, firma } = datos;
 
     // Resumen local, solo para poder mostrar la confirmacion si el
     // banco redirige fuera de la pagina (PSE) y el cliente vuelve.
@@ -1258,6 +1572,10 @@ async function iniciarPagoWompi(){
       referencia,
       cliente,
       total,
+      subtotal: datos.subtotal,
+      costoDomicilio: datos.costoDomicilio,
+      distanciaKm: datos.distanciaKm,
+      fueraDeCobertura: datos.fueraDeCobertura,
       items: Object.keys(cart).map(id => {
         const p = findProduct(id);
         return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
@@ -1326,6 +1644,19 @@ function mostrarConfirmacion(pedido){
     `<div class="line"><span>${it.cantidad}x ${it.nombre}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
   ).join("");
   document.getElementById("confirmTotal").textContent = formatCOP(pedido.total);
+
+  // Si hubo domicilio, se muestra el desglose en el resumen
+  if(pedido.costoDomicilio > 0){
+    document.getElementById("confirmSummary").innerHTML +=
+      '<div class="line" style="border-top:1px solid rgba(0,0,0,.1); margin-top:.4rem; padding-top:.4rem;">' +
+      '<span>\u{1F6F5} Domicilio (' + pedido.distanciaKm + ' km)</span>' +
+      '<span>' + formatCOP(pedido.costoDomicilio) + '</span></div>';
+  }else if(pedido.fueraDeCobertura){
+    document.getElementById("confirmSummary").innerHTML +=
+      '<div class="line" style="border-top:1px solid rgba(0,0,0,.1); margin-top:.4rem; padding-top:.4rem;">' +
+      '<span>\u{1F6F5} Domicilio (' + pedido.distanciaKm + ' km)</span>' +
+      '<span>A convenir por WhatsApp</span></div>';
+  }
 
   document.getElementById("confirmWhatsappBtn").onclick = () => enviarPedidoPagadoPorWhatsApp(pedido);
   document.getElementById("confirmBackBtn").onclick = () => {

@@ -51,6 +51,23 @@ function construirComanda(pedido) {
     lineas.push(`${it.cantidad}x ${it.nombre} — ${formatoCOP(it.precio * it.cantidad)}`);
   });
 
+  if (pedido.tipo_pedido === "domicilio") {
+    if (pedido.fuera_de_cobertura) {
+      lineas.push("");
+      lineas.push("⚠️ FUERA DE ZONA"
+        + (pedido.distancia_km != null ? " (" + pedido.distancia_km + " km)" : "")
+        + " — cobrar el domicilio aparte");
+    } else if (Number(pedido.costo_domicilio) > 0) {
+      lineas.push("🛵 Domicilio"
+        + (pedido.distancia_km != null ? " (" + pedido.distancia_km + " km)" : "")
+        + " — " + formatoCOP(pedido.costo_domicilio));
+    }
+    if (pedido.lat != null && pedido.lng != null) {
+      lineas.push("🗺️ https://www.google.com/maps/search/?api=1&query="
+        + pedido.lat + "," + pedido.lng);
+    }
+  }
+
   lineas.push("");
   lineas.push(`💰 *TOTAL PAGADO: ${formatoCOP(pedido.total)}*`);
   lineas.push("💳 Confirmado vía Wompi");

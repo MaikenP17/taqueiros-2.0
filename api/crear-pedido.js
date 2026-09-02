@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { PRECIOS } = require("./_precios.js");
+const { calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
 const { insertarPedido } = require("./_supabase.js");
 
 /* =============================================================
@@ -101,10 +102,41 @@ module.exports = async (req, res) => {
       total += producto.precio * cantidad;
     }
 
-    if (total <= 0) {
+    const subtotal = total;
+
+    if (subtotal <= 0) {
       res.status(400).json({ error: "Total inválido" });
       return;
     }
+
+    // ---- Costo del domicilio (calculado aqui, no en el navegador)
+    let costoDomicilio = 0;
+    let distanciaKm = null;
+    let lat = null;
+    let lng = null;
+    let fueraDeCobertura = false;
+
+    if (tipoPedido === "domicilio") {
+      const ubic = cliente.ubicacion || {};
+      lat = Number(ubic.lat);
+      lng = Number(ubic.lng);
+
+      if (!coordenadasValidas(lat, lng)) {
+        res.status(400).json({ error: "Falta marcar la ubicación en el mapa" });
+        return;
+      }
+
+      const calculo = calcularDomicilio(lat, lng);
+      costoDomicilio = calculo.precio;
+      distanciaKm = calculo.km;
+      fueraDeCobertura = calculo.fueraDeCobertura;
+
+      // Fuera de cobertura: el domicilio se acuerda por WhatsApp, no
+      // se cobra en linea. El cliente solo paga los productos.
+      if (fueraDeCobertura) costoDomicilio = 0;
+    }
+
+    total = subtotal + costoDomicilio;
 
     // ---- Referencia y firma de integridad --------------------
     const referencia = "TAQ-" + Date.now() + "-" + crypto.randomBytes(3).toString("hex");
@@ -137,14 +169,29 @@ module.exports = async (req, res) => {
       barrio: tipoPedido === "domicilio" ? barrio : null,
       indicaciones: indicaciones || null,
       items: itemsValidados,
+      subtotal,
+      costo_domicilio: costoDomicilio,
+      distancia_km: distanciaKm,
+      lat,
+      lng,
+      fuera_de_cobertura: fueraDeCobertura,
       total,
       estado_pago: "pendiente",
       wompi_ambiente: modo === "produccion" ? "prod" : "test"
     });
 
-    console.log("[Pedido] Creado pendiente de pago:", referencia, "total:", total);
+    console.log("[Pedido] Creado pendiente de pago:", referencia,
+      "subtotal:", subtotal, "domicilio:", costoDomicilio, "total:", total);
 
-    res.status(200).json({ referencia, total, firma });
+    res.status(200).json({
+      referencia,
+      subtotal,
+      costoDomicilio,
+      distanciaKm,
+      fueraDeCobertura,
+      total,
+      firma
+    });
   } catch (err) {
     console.error("[Pedido] Error creando el pedido:", err);
     res.status(500).json({ error: "No se pudo registrar el pedido" });
