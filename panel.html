@@ -310,6 +310,54 @@
   .acc-btn.copiar:hover{background:#f0af1f;}
   .acc-btn.copiado{background:var(--verde) !important; color:var(--crema-suave) !important;}
 
+  /* ---------- CRONOMETRO Y ESCALADA DE ALERTA ---------- */
+  .cronometro{
+    display:inline-flex; align-items:center; gap:.25rem;
+    font-size:.72rem; font-weight:800; font-variant-numeric:tabular-nums;
+    background:rgba(247,236,214,.08); color:var(--texto-secundario);
+    padding:.2rem .45rem; border-radius:6px;
+    transition:background .3s ease, color .3s ease;
+  }
+
+  /* A los 3 minutos: amarillo */
+  .pedido.espera-media{ border-color:var(--mostaza); }
+  .pedido.espera-media .cronometro{ background:rgba(227,160,8,.2); color:var(--mostaza); }
+
+  /* A los 5 minutos: rojo parpadeante, mas insistente */
+  .pedido.espera-alta{
+    border-color:var(--rojo-brillo);
+    animation:alerta-alta 1s ease-in-out infinite;
+  }
+  .pedido.espera-alta .cronometro{
+    background:var(--rojo); color:var(--crema-suave);
+    animation:parpadeo .8s ease-in-out infinite;
+  }
+  @keyframes alerta-alta{
+    0%,100%{box-shadow:0 0 0 0 rgba(225,74,66,.7);}
+    50%{box-shadow:0 0 0 9px rgba(225,74,66,0);}
+  }
+  @keyframes parpadeo{ 0%,100%{opacity:1;} 50%{opacity:.45;} }
+
+  /* La escalada manda sobre el parpadeo de "sin ver" */
+  .pedido.sin-ver.espera-alta{ animation:alerta-alta 1s ease-in-out infinite; }
+
+  /* ---------- BANNER DE DESCONEXION ---------- */
+  .banner-caido{
+    position:sticky; top:0; z-index:150;
+    display:none; align-items:center; justify-content:center; gap:.6rem;
+    padding:.8rem 1.2rem; text-align:center;
+    background:var(--rojo); color:var(--crema-suave);
+    font-size:.9rem; font-weight:800; letter-spacing:.01em;
+    box-shadow:0 6px 18px rgba(0,0,0,.4);
+  }
+  .banner-caido.visible{display:flex;}
+  .banner-caido .foco{
+    width:11px; height:11px; border-radius:50%; flex:none;
+    background:var(--crema-suave);
+    animation:foco-alerta .9s ease-in-out infinite;
+  }
+  @keyframes foco-alerta{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.25; transform:scale(.75);} }
+
   /* ---------- AVISO FLOTANTE ---------- */
   .toast{
     position:fixed; left:50%; bottom:1.5rem; transform:translate(-50%, 150%);
@@ -363,6 +411,11 @@
     <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">\u{1F553} Horario</button>
     <button class="tool-btn peligro" id="logoutBtn">Salir</button>
   </header>
+
+  <div class="banner-caido" id="bannerCaido">
+    <span class="foco"></span>
+    <span>SIN CONEXIÓN — No estás recibiendo pedidos nuevos</span>
+  </div>
 
   <main class="board" id="board"></main>
 </div>
@@ -574,10 +627,66 @@ async function cargarPedidos(){
   render();
 }
 
-function suscribirse(){
+/* =========================================================
+   ESTADO DE LA CONEXION
+
+   Si al restaurante se le cae el internet, deja de recibir pedidos
+   sin enterarse. Aqui se vigilan dos senales:
+     - el canal de Supabase Realtime (la que de verdad importa)
+     - navigator.onLine, como aviso temprano del navegador
+
+   Al recuperarse, se recargan los pedidos que hayan entrado
+   mientras estuvo caido y se avisa cuantos llegaron.
+========================================================= */
+let conexionViva = true;
+
+function marcarConexion(viva, motivo){
   const conn = document.getElementById("conn");
   const connTxt = document.getElementById("connTxt");
+  const banner = document.getElementById("bannerCaido");
+  const eraViva = conexionViva;
+  conexionViva = viva;
 
+  conn.className = viva ? "conn online" : "conn offline";
+  connTxt.textContent = viva ? "En vivo" : "Desconectado";
+  banner.classList.toggle("visible", !viva);
+
+  if(!viva && eraViva){
+    console.warn("[Conexion] Se perdio la conexion:", motivo || "");
+    sonarInsistente();
+  }
+
+  // Al volver: recuperar lo que entro mientras estuvo caido
+  if(viva && !eraViva){
+    console.log("[Conexion] Restablecida, recargando pedidos");
+    recuperarPedidosPerdidos();
+  }
+}
+
+async function recuperarPedidosPerdidos(){
+  const antes = pedidos.map(p => p.id);
+  await cargarPedidos();
+
+  const nuevos = pedidos.filter(p => !antes.includes(p.id) && p.estado === "nuevo");
+  if(nuevos.length){
+    sonarInsistente();
+    avisar("✅ Conexión restablecida — " + nuevos.length +
+           (nuevos.length === 1 ? " pedido nuevo" : " pedidos nuevos"));
+  }else{
+    avisar("✅ Conexión restablecida");
+  }
+}
+
+/* navigator.onLine avisa antes que el websocket, pero no es fiable
+   por si solo: dice si hay red, no si Supabase responde. Por eso se
+   usa como senal complementaria, nunca como unica fuente. */
+window.addEventListener("offline", () => marcarConexion(false, "navigator.onLine"));
+window.addEventListener("online", async () => {
+  // La red volvio, pero el canal puede tardar en reconectar
+  await cargarPedidos();
+});
+
+function suscribirse(){
   db.channel("pedidos-panel")
     .on("postgres_changes", { event:"*", schema:"public", table:"pedidos" }, (payload) => {
       const fila = payload.new;
@@ -610,11 +719,9 @@ function suscribirse(){
     })
     .subscribe((estado) => {
       if(estado === "SUBSCRIBED"){
-        conn.className = "conn online";
-        connTxt.textContent = "En vivo";
+        marcarConexion(true);
       }else if(estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED"){
-        conn.className = "conn offline";
-        connTxt.textContent = "Sin conexión";
+        marcarConexion(false, estado);
       }
     });
 }
@@ -845,6 +952,10 @@ function render(){
       ? '<div class="col-vacia">Sin pedidos</div>'
       : delEstado.map(tarjeta).join("");
   });
+
+  // Los cronometros se pintan de una vez, sin esperar al siguiente
+  // segundo, para que no aparezca "--" al recargar el tablero.
+  actualizarCronometros();
 }
 
 function tarjeta(p){
@@ -907,6 +1018,9 @@ function tarjeta(p){
     '<div class="pedido-top">' +
       '<span class="pedido-num">' + numeroPedido(p) + '</span>' +
       '<span class="badge-pagado">PAGADO ' + formatoCOP(p.total) + '</span>' +
+      (p.estado === "nuevo"
+        ? '<span class="cronometro" data-desde="' + (p.pagado_en || p.creado_en) + '">\u23F1 --</span>'
+        : "") +
       '<span class="pedido-hora">' + horaCorta(p.pagado_en || p.creado_en) + '</span>' +
     '</div>' +
     '<div class="pedido-cliente">' + escapar(p.cliente_nombre) + '</div>' +
@@ -924,6 +1038,91 @@ function tarjeta(p){
     '<div class="pedido-acciones">' + acciones.join("") + '</div>' +
   '</article>';
 }
+
+/* =========================================================
+   ESCALADA: PEDIDOS QUE LLEVAN MUCHO ESPERANDO
+
+   Un pedido pagado que nadie ve es el peor escenario. El contador
+   corre mientras la tarjeta este en "Nuevo" y se detiene sola en
+   cuanto la mueven a "En preparacion" (porque deja de existir en
+   esa columna).
+
+   A los 3 minutos la tarjeta se pone amarilla y vuelve a sonar.
+   A los 5 se pone roja parpadeante y suena de forma mas insistente,
+   repitiendose cada minuto hasta que alguien la atienda.
+========================================================= */
+const MINUTOS_AVISO_MEDIO = 3;
+const MINUTOS_AVISO_ALTO  = 5;
+
+/* Recuerda por que nivel ya paso cada pedido, para no sonar en cada
+   segundo sino solo cuando cruza el umbral. */
+const nivelAvisado = new Map();
+
+function minutosEsperando(desde){
+  return Math.floor((Date.now() - new Date(desde).getTime()) / 60000);
+}
+
+function actualizarCronometros(){
+  document.querySelectorAll(".cronometro").forEach((reloj) => {
+    const tarjeta = reloj.closest(".pedido");
+    if(!tarjeta) return;
+
+    const id = Number(tarjeta.dataset.id);
+    const minutos = minutosEsperando(reloj.dataset.desde);
+
+    reloj.textContent = "\u23F1 " + (minutos < 1 ? "recién" : minutos + " min");
+
+    const nivel = minutos >= MINUTOS_AVISO_ALTO ? 2
+                : minutos >= MINUTOS_AVISO_MEDIO ? 1 : 0;
+
+    tarjeta.classList.toggle("espera-media", nivel === 1);
+    tarjeta.classList.toggle("espera-alta", nivel === 2);
+
+    const previo = nivelAvisado.get(id) || 0;
+
+    if(nivel > previo){
+      // Recién cruzó un umbral: suena y avisa
+      nivelAvisado.set(id, nivel);
+      if(nivel === 1){
+        sonar();
+        avisar("\u23F1 Pedido " + numeroPedido({id:id}) + " lleva " + minutos + " min sin atender");
+      }else{
+        sonarInsistente();
+        avisar("\u26A0\uFE0F Pedido " + numeroPedido({id:id}) + " lleva " + minutos + " min SIN ATENDER", true);
+      }
+    }else if(nivel === 2){
+      // Mientras siga sin atenderse, se insiste una vez por minuto
+      if(nivelAvisado.get("m" + id) !== minutos){
+        nivelAvisado.set("m" + id, minutos);
+        sonarInsistente();
+      }
+    }
+  });
+}
+
+/* Sonido mas insistente: tres tonos seguidos y mas graves */
+function sonarInsistente(){
+  if(!sonidoActivo) return;
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new Ctx();
+    [0, 0.18, 0.36].forEach((retraso) => {
+      const osc = ctx.createOscillator();
+      const vol = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 660;
+      vol.gain.setValueAtTime(0.0001, ctx.currentTime + retraso);
+      vol.gain.exponentialRampToValueAtTime(0.30, ctx.currentTime + retraso + 0.03);
+      vol.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + retraso + 0.16);
+      osc.connect(vol); vol.connect(ctx.destination);
+      osc.start(ctx.currentTime + retraso);
+      osc.stop(ctx.currentTime + retraso + 0.18);
+    });
+    setTimeout(() => ctx.close(), 1200);
+  }catch(e){ /* si el navegador bloquea el audio, no pasa nada */ }
+}
+
+setInterval(actualizarCronometros, 1000);
 
 /* =========================================================
    ACCIONES SOBRE LAS TARJETAS
@@ -959,6 +1158,10 @@ document.getElementById("board").addEventListener("click", async (e) => {
     if(nuevoEstado === "cancelado" && !confirm("¿Cancelar este pedido? El cliente ya pagó.")) return;
 
     vistos.add(id); guardarVistos();
+
+    // El pedido sale de "Nuevo": su cronometro deja de importar
+    nivelAvisado.delete(id);
+    nivelAvisado.delete("m" + id);
 
     btnMover.disabled = true;
     const { error } = await db.from("pedidos").update({ estado: nuevoEstado }).eq("id", id);

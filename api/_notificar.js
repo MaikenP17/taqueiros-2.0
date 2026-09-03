@@ -78,11 +78,15 @@ function formatoPrecio(n) {
 
 /* Arma la comanda en texto plano, lista para leer en el celular.
    Los asteriscos son el formato de negrita de WhatsApp. */
-function construirComanda(pedido) {
+function construirComanda(pedido, opciones) {
   const lineas = [];
+  const op = opciones || {};
 
-  lineas.push("\u{1F32E} *NUEVO PEDIDO PAGADO*");
+  // Por defecto es una comanda nueva; las alertas de pedidos sin
+  // atender reutilizan el mismo formato con otro encabezado.
+  lineas.push(op.encabezado || "\u{1F32E} *NUEVO PEDIDO PAGADO*");
   lineas.push(`Pedido #${String(pedido.id).padStart(3, "0")} \u00b7 ${pedido.referencia}`);
+  if (op.subtitulo) lineas.push(`\u23F1 ${op.subtitulo}`);
   lineas.push("");
 
   lineas.push(`\u{1F464} ${pedido.cliente_nombre}`);
@@ -128,7 +132,7 @@ function construirComanda(pedido) {
   return lineas.join("\n");
 }
 
-async function notificarWhatsApp(pedido) {
+async function notificarWhatsApp(pedido, opciones) {
   const telefono = process.env.CALLMEBOT_PHONE;      // formato: 57XXXXXXXXXX
   const apikey = process.env.CALLMEBOT_APIKEY;
 
@@ -137,7 +141,7 @@ async function notificarWhatsApp(pedido) {
     return { enviado: false, motivo: "sin configurar" };
   }
 
-  const texto = construirComanda(pedido);
+  const texto = construirComanda(pedido, opciones);
   const url = "https://api.callmebot.com/whatsapp.php"
     + `?phone=${encodeURIComponent(telefono)}`
     + `&text=${encodeURIComponent(texto)}`
