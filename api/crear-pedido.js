@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { PRECIOS } = require("./_precios.js");
 const { calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
+const { estadoRestaurante } = require("./_horario.js");
 const { insertarPedido } = require("./_supabase.js");
 
 /* =============================================================
@@ -32,6 +33,18 @@ module.exports = async (req, res) => {
 
   try {
     const { cliente, items, modo } = req.body || {};
+
+    // ---- El restaurante debe estar abierto --------------------
+    // Se valida AQUI, no solo en el navegador: cualquiera podria
+    // saltarse la validacion del frontend desde la consola.
+    const estado = await estadoRestaurante();
+    if (!estado.abierto) {
+      res.status(409).json({
+        error: estado.mensaje || "El restaurante está cerrado en este momento",
+        cerrado: true
+      });
+      return;
+    }
 
     // ---- Validar cliente -------------------------------------
     if (!cliente || typeof cliente !== "object") {

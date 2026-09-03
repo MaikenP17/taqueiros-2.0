@@ -78,4 +78,40 @@ async function actualizarPedidoPorReferencia(referencia, cambios) {
   return filas.length ? filas[0] : null;
 }
 
-module.exports = { insertarPedido, buscarPedidoPorReferencia, actualizarPedidoPorReferencia };
+/* Lee la fila unica de configuracion (horarios del restaurante). */
+async function leerConfiguracion() {
+  const { url, key } = credenciales();
+  const resp = await fetch(`${url}/rest/v1/configuracion?id=eq.1&select=*`, {
+    headers: cabeceras(key)
+  });
+
+  const texto = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Supabase configuracion fallo (${resp.status}): ${texto}`);
+  }
+  const filas = JSON.parse(texto);
+  return filas.length ? filas[0] : null;
+}
+
+/* Busca pedidos con un filtro libre de PostgREST.
+   Ej: consultarPedidos("estado=eq.nuevo&alerta_enviada=is.false") */
+async function consultarPedidos(filtro) {
+  const { url, key } = credenciales();
+  const resp = await fetch(`${url}/rest/v1/pedidos?${filtro}`, {
+    headers: cabeceras(key)
+  });
+
+  const texto = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Supabase consulta fallo (${resp.status}): ${texto}`);
+  }
+  return JSON.parse(texto);
+}
+
+module.exports = {
+  insertarPedido,
+  buscarPedidoPorReferencia,
+  actualizarPedidoPorReferencia,
+  leerConfiguracion,
+  consultarPedidos
+};

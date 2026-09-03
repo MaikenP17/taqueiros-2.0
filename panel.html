@@ -109,6 +109,73 @@
   .tool-btn.activo{background:var(--verde); border-color:var(--verde); color:var(--crema-suave);}
   .tool-btn.peligro:hover{background:var(--rojo-oscuro); border-color:var(--rojo);}
 
+  /* ---------- INTERRUPTOR ABIERTO / CERRADO ---------- */
+  .switch-local{
+    display:inline-flex; align-items:center; gap:.5rem;
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:999px; padding:.4rem .5rem .4rem .9rem;
+    font-size:.78rem; font-weight:800;
+  }
+  .switch-local .etiqueta{white-space:nowrap;}
+  .switch-local.abierto{border-color:rgba(92,122,59,.6); color:var(--verde-brillo);}
+  .switch-local.cerrado{border-color:rgba(225,74,66,.6); color:var(--rojo-brillo);}
+  .switch-pista{
+    width:44px; height:24px; border-radius:999px; position:relative;
+    background:var(--rojo-oscuro); transition:background .25s ease; flex:none;
+  }
+  .switch-local.abierto .switch-pista{background:var(--verde);}
+  .switch-pista::after{
+    content:""; position:absolute; top:3px; left:3px;
+    width:18px; height:18px; border-radius:50%;
+    background:var(--crema-suave); transition:transform .25s ease;
+  }
+  .switch-local.abierto .switch-pista::after{transform:translateX(20px);}
+
+  /* ---------- PANEL DE HORARIOS ---------- */
+  .modal-fondo{
+    position:fixed; inset:0; z-index:800;
+    background:rgba(10,6,5,.66); backdrop-filter:blur(5px);
+    display:flex; align-items:center; justify-content:center; padding:1.2rem;
+    opacity:0; pointer-events:none; transition:opacity .25s ease;
+  }
+  .modal-fondo.open{opacity:1; pointer-events:auto;}
+  .modal-horarios{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:18px; width:min(520px,100%); max-height:88vh; overflow-y:auto;
+    padding:1.4rem 1.3rem; box-shadow:0 24px 60px rgba(0,0,0,.55);
+  }
+  .modal-horarios h2{font-size:1.05rem; margin-bottom:.3rem;}
+  .modal-horarios .ayuda{font-size:.8rem; color:var(--texto-secundario); margin-bottom:1.1rem; line-height:1.5;}
+  .fila-dia{
+    display:flex; align-items:center; gap:.6rem;
+    padding:.5rem 0; border-bottom:1px solid rgba(247,236,214,.05);
+  }
+  .fila-dia .nombre{flex:1; font-size:.85rem; font-weight:700; min-width:80px;}
+  .fila-dia input[type="time"]{
+    background:var(--carbon); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:8px;
+    padding:.4rem .5rem; font-family:inherit; font-size:.85rem;
+  }
+  .fila-dia input[type="time"]:disabled{opacity:.35;}
+  .fila-dia .abre-cierra{display:flex; align-items:center; gap:.35rem;}
+  .fila-dia label.activo{
+    display:flex; align-items:center; gap:.3rem;
+    font-size:.72rem; color:var(--texto-secundario); cursor:pointer; user-select:none;
+  }
+  .campo-mensaje{
+    width:100%; margin-top:1rem; padding:.7rem .8rem; border-radius:10px;
+    background:var(--carbon); color:var(--texto-claro);
+    border:1px solid var(--borde); font-family:inherit; font-size:.85rem; resize:vertical;
+  }
+  .acciones-modal{display:flex; gap:.6rem; margin-top:1.2rem;}
+  .acciones-modal button{
+    flex:1; padding:.85rem; border-radius:999px; font-weight:800; font-size:.9rem;
+  }
+  .btn-guardar{background:var(--verde); color:var(--crema-suave);}
+  .btn-guardar:hover{background:var(--verde-brillo);}
+  .btn-cancelar{background:rgba(247,236,214,.08); color:var(--texto-claro);}
+  .btn-cancelar:hover{background:rgba(247,236,214,.16);}
+
   /* ---------- KANBAN ---------- */
   .board{
     display:grid; grid-template-columns:repeat(5, minmax(280px, 1fr));
@@ -289,10 +356,35 @@
     <div class="conn" id="conn"><span class="dot"></span><span id="connTxt">Conectando…</span></div>
     <button class="tool-btn activo" id="soundBtn" title="Activar o silenciar el sonido">🔔 Sonido</button>
     <button class="tool-btn" id="notifBtn" title="Permitir notificaciones del navegador">🔕 Notificaciones</button>
+    <button class="switch-local abierto" id="switchLocal" title="Abrir o cerrar el local manualmente">
+      <span class="etiqueta" id="switchTexto">Abierto</span>
+      <span class="switch-pista"></span>
+    </button>
+    <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">\u{1F553} Horario</button>
     <button class="tool-btn peligro" id="logoutBtn">Salir</button>
   </header>
 
   <main class="board" id="board"></main>
+</div>
+
+<div class="modal-fondo" id="modalHorarios">
+  <div class="modal-horarios" role="dialog" aria-modal="true" aria-label="Horario de atencion">
+    <h2>Horario de atención</h2>
+    <p class="ayuda">Fuera de este horario los clientes no pueden pagar en línea, pero sí pueden escribir por WhatsApp. Desmarca un día para cerrarlo por completo.</p>
+
+    <div id="filasHorario"></div>
+
+    <label style="display:block; margin-top:1.1rem; font-size:.78rem; font-weight:700; color:var(--texto-secundario);">
+      Mensaje que ve el cliente cuando está cerrado (opcional)
+    </label>
+    <textarea class="campo-mensaje" id="mensajeCerrado" rows="2"
+      placeholder="Si lo dejas vacío se muestra la hora de apertura automáticamente"></textarea>
+
+    <div class="acciones-modal">
+      <button class="btn-cancelar" id="cancelarHorarios">Cancelar</button>
+      <button class="btn-guardar" id="guardarHorarios">Guardar</button>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -433,6 +525,7 @@ async function entrarAlPanel(){
   actualizarBotonNotif();
 
   dibujarTablero();
+  await cargarConfiguracion();
   await cargarPedidos();
   suscribirse();
 }
@@ -507,6 +600,13 @@ function suscribirse(){
         anunciarPedido(fila);
       }
       render();
+    })
+    .on("postgres_changes", { event:"*", schema:"public", table:"configuracion" }, (payload) => {
+      // Si cierran el local desde otro dispositivo, este panel se entera
+      if(payload.new){
+        configuracion = payload.new;
+        pintarSwitch();
+      }
     })
     .subscribe((estado) => {
       if(estado === "SUBSCRIBED"){
@@ -596,6 +696,127 @@ document.getElementById("notifBtn").addEventListener("click", async () => {
   const permiso = await Notification.requestPermission();
   actualizarBotonNotif();
   avisar(permiso === "granted" ? "Notificaciones activadas" : "Notificaciones bloqueadas", permiso !== "granted");
+});
+
+/* =========================================================
+   CONFIGURACION DEL LOCAL (horario y cierre manual)
+========================================================= */
+const DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+let configuracion = null;
+
+async function cargarConfiguracion(){
+  const { data, error } = await db.from("configuracion").select("*").eq("id", 1).maybeSingle();
+  if(error){
+    console.error(error);
+    return;
+  }
+  configuracion = data;
+  pintarSwitch();
+}
+
+function pintarSwitch(){
+  const boton = document.getElementById("switchLocal");
+  const texto = document.getElementById("switchTexto");
+  if(!configuracion) return;
+
+  const cerrado = !!configuracion.cerrado_temporal;
+  boton.classList.toggle("abierto", !cerrado);
+  boton.classList.toggle("cerrado", cerrado);
+  texto.textContent = cerrado ? "Cerrado" : "Abierto";
+}
+
+/* Interruptor manual: cierra o abre el local al instante */
+document.getElementById("switchLocal").addEventListener("click", async () => {
+  if(!configuracion) return;
+  const nuevoValor = !configuracion.cerrado_temporal;
+
+  if(nuevoValor && !confirm("¿Cerrar el local? Los clientes no podrán pagar en línea hasta que lo vuelvas a abrir.")) return;
+
+  const { error } = await db.from("configuracion")
+    .update({ cerrado_temporal: nuevoValor }).eq("id", 1);
+
+  if(error){
+    avisar("No se pudo cambiar el estado", true);
+    console.error(error);
+    return;
+  }
+  configuracion.cerrado_temporal = nuevoValor;
+  pintarSwitch();
+  avisar(nuevoValor ? "🔴 Local cerrado" : "🟢 Local abierto");
+});
+
+/* ---- Modal de horarios ---- */
+const modalHorarios = document.getElementById("modalHorarios");
+
+function abrirHorarios(){
+  if(!configuracion){ avisar("Todavía no se cargó la configuración", true); return; }
+
+  const horarios = Array.isArray(configuracion.horarios) ? configuracion.horarios : [];
+  document.getElementById("filasHorario").innerHTML = DIAS_SEMANA.map((dia, i) => {
+    const h = horarios[i] || { abre:"11:00", cierra:"22:00", activo:true };
+    const activo = h.activo !== false;
+    return '<div class="fila-dia" data-dia="' + i + '">' +
+      '<span class="nombre">' + dia + '</span>' +
+      '<span class="abre-cierra">' +
+        '<input type="time" class="abre" value="' + h.abre + '"' + (activo ? "" : " disabled") + '>' +
+        '<span style="color:var(--texto-secundario);">a</span>' +
+        '<input type="time" class="cierra" value="' + h.cierra + '"' + (activo ? "" : " disabled") + '>' +
+      '</span>' +
+      '<label class="activo"><input type="checkbox" class="chk-activo"' + (activo ? " checked" : "") + '> abre</label>' +
+    '</div>';
+  }).join("");
+
+  // Al desmarcar un día se apagan sus horas
+  document.querySelectorAll("#filasHorario .chk-activo").forEach(chk => {
+    chk.addEventListener("change", (e) => {
+      const fila = e.target.closest(".fila-dia");
+      fila.querySelectorAll('input[type="time"]').forEach(i => { i.disabled = !e.target.checked; });
+    });
+  });
+
+  document.getElementById("mensajeCerrado").value = configuracion.mensaje_cerrado || "";
+  modalHorarios.classList.add("open");
+}
+
+function cerrarHorarios(){ modalHorarios.classList.remove("open"); }
+
+document.getElementById("horariosBtn").addEventListener("click", abrirHorarios);
+document.getElementById("cancelarHorarios").addEventListener("click", cerrarHorarios);
+modalHorarios.addEventListener("click", (e) => { if(e.target === modalHorarios) cerrarHorarios(); });
+
+document.getElementById("guardarHorarios").addEventListener("click", async (e) => {
+  const boton = e.currentTarget;
+  const horarios = [...document.querySelectorAll("#filasHorario .fila-dia")].map((fila, i) => ({
+    dia: DIAS_SEMANA[i],
+    abre: fila.querySelector(".abre").value || "11:00",
+    cierra: fila.querySelector(".cierra").value || "22:00",
+    activo: fila.querySelector(".chk-activo").checked
+  }));
+
+  // Un cierre antes de la apertura dejaria el local cerrado siempre
+  const invalido = horarios.find(h => h.activo && h.abre >= h.cierra);
+  if(invalido){
+    avisar("En " + invalido.dia + " la hora de cierre debe ser posterior a la de apertura", true);
+    return;
+  }
+
+  boton.disabled = true;
+  const mensaje = document.getElementById("mensajeCerrado").value.trim();
+
+  const { error } = await db.from("configuracion")
+    .update({ horarios, mensaje_cerrado: mensaje || null }).eq("id", 1);
+  boton.disabled = false;
+
+  if(error){
+    avisar("No se pudo guardar el horario", true);
+    console.error(error);
+    return;
+  }
+
+  configuracion.horarios = horarios;
+  configuracion.mensaje_cerrado = mensaje || null;
+  cerrarHorarios();
+  avisar("Horario guardado");
 });
 
 /* =========================================================
