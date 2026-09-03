@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const { PRECIOS } = require("./_precios.js");
 const { calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
 const { estadoRestaurante } = require("./_horario.js");
+const { verificarUbicacion } = require("./_ubicacion.js");
 const { insertarPedido } = require("./_supabase.js");
 
 /* =============================================================
@@ -128,6 +129,8 @@ module.exports = async (req, res) => {
     let lat = null;
     let lng = null;
     let fueraDeCobertura = false;
+    let barrioDetectado = null;
+    let ubicacionSospechosa = null;
 
     if (tipoPedido === "domicilio") {
       const ubic = cliente.ubicacion || {};
@@ -147,6 +150,17 @@ module.exports = async (req, res) => {
       // Fuera de cobertura: el domicilio se acuerda por WhatsApp, no
       // se cobra en linea. El cliente solo paga los productos.
       if (fueraDeCobertura) costoDomicilio = 0;
+
+      // Revision del punto de entrega. Es de MEJOR ESFUERZO: si algo
+      // falla aqui el pedido sigue igual, solo se queda sin la senal
+      // de aviso para el panel.
+      try {
+        const revision = await verificarUbicacion(lat, lng, barrio);
+        barrioDetectado = revision.barrioDetectado;
+        ubicacionSospechosa = revision.sospechosa;
+      } catch (err) {
+        console.warn("[Pedido] No se pudo verificar la ubicacion:", err.message);
+      }
     }
 
     total = subtotal + costoDomicilio;
@@ -188,6 +202,8 @@ module.exports = async (req, res) => {
       lat,
       lng,
       fuera_de_cobertura: fueraDeCobertura,
+      barrio_detectado: barrioDetectado,
+      ubicacion_sospechosa: ubicacionSospechosa,
       total,
       estado_pago: "pendiente",
       wompi_ambiente: modo === "produccion" ? "prod" : "test"

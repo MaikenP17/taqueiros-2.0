@@ -254,6 +254,12 @@
     margin-top:.45rem; font-size:.76rem; font-weight:700; color:var(--verde-brillo);
   }
   .pedido-envio .fuera{color:var(--mostaza);}
+  .badge-verificar{
+    display:block; margin-top:.5rem; padding:.5rem .6rem; border-radius:8px;
+    background:rgba(227,160,8,.16); border:1px solid rgba(227,160,8,.5);
+    color:var(--mostaza); font-size:.74rem; font-weight:800; line-height:1.45;
+  }
+  .badge-verificar .motivo{display:block; font-weight:600; opacity:.9; margin-top:.15rem;}
   .btn-mapa{
     display:inline-flex; align-items:center; gap:.3rem;
     background:rgba(107,143,168,.16); color:#9cc4dd;
@@ -1001,6 +1007,13 @@ function tarjeta(p){
     if(partes.length || enlace){
       envio = '<div class="pedido-envio">' + partes.join(" · ") + enlace + '</div>';
     }
+
+    // Pin sospechoso: conviene llamar al cliente antes de despachar
+    if(p.ubicacion_sospechosa){
+      envio += '<div class="badge-verificar">⚠️ Verificar ubicación' +
+        '<span class="motivo">' + escapar(p.ubicacion_sospechosa) + '</span>' +
+        '<span class="motivo">Llama al cliente antes de despachar.</span></div>';
+    }
   }
 
   const sig = SIGUIENTE[p.estado];
@@ -1208,6 +1221,10 @@ function construirComanda(p){
     const val = formatoCOP(it.precio * it.cantidad).padStart(9, " ");
     lineas.push(cant + "  " + nom + val);
   });
+
+  if(p.tipo_pedido === "domicilio" && p.ubicacion_sospechosa){
+    lineas.push("!! VERIFICAR UBICACION: " + p.ubicacion_sospechosa);
+  }
 
   if(p.tipo_pedido === "domicilio"){
     if(p.fuera_de_cobertura){

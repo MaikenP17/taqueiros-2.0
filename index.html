@@ -328,6 +328,31 @@
   .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
   .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
+  /* Confirmacion del punto de entrega */
+  #mapaConfirmacion{
+    width:100%; height:190px; border-radius:14px;
+    border:1px solid rgba(0,0,0,.15); background:#e9dcbb; z-index:1;
+  }
+  .confirmar-aviso{
+    margin:.9rem 0; padding:.8rem .9rem; border-radius:12px;
+    background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4);
+    color:#8a6205; font-size:.85rem; font-weight:700; line-height:1.5; text-align:center;
+  }
+  .confirmar-dato{
+    display:flex; justify-content:space-between; gap:.8rem;
+    padding:.45rem 0; font-size:.9rem; color:#5a4a3a;
+    border-bottom:1px solid rgba(0,0,0,.07);
+  }
+  .confirmar-dato:last-of-type{border-bottom:none;}
+  .confirmar-dato strong{color:var(--carbon); text-align:right;}
+  .confirmar-dato .envio{color:var(--rojo-oscuro); font-weight:800;}
+  .btn-corregir{
+    width:100%; margin-top:.6rem; padding:.9rem; border-radius:999px;
+    background:rgba(0,0,0,.06); color:#5a4a3a; border:1px solid rgba(0,0,0,.12);
+    font-weight:800; font-size:.9rem;
+  }
+  .btn-corregir:hover{background:rgba(0,0,0,.1);}
+
   /* Aviso cuando el restaurante esta cerrado */
   .aviso-cerrado{
     margin-top:.7rem; padding:.75rem .85rem; border-radius:12px;
@@ -694,6 +719,39 @@
 
         <button type="submit" class="form-submit-btn" id="paymentFormSubmitBtn" disabled>Continuar al pago 💳</button>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CONFIRMAR PUNTO DE ENTREGA ================= -->
+<div class="modal-overlay" id="confirmUbicacionOverlay">
+  <div class="product-modal" role="dialog" aria-modal="true" aria-label="Confirmar punto de entrega">
+    <button class="modal-close" id="cerrarConfirmUbicacion" aria-label="Cerrar">&times;</button>
+    <div class="modal-body">
+      <h3>¿Aquí te lo llevamos?</h3>
+
+      <div id="mapaConfirmacion"></div>
+
+      <div class="confirmar-aviso">
+        Confirma que este es tu punto de entrega.<br>
+        El domiciliario irá exactamente aquí.
+      </div>
+
+      <div class="confirmar-dato">
+        <span>Dirección</span>
+        <strong id="confUbicDireccion"></strong>
+      </div>
+      <div class="confirmar-dato">
+        <span>Distancia</span>
+        <strong id="confUbicDistancia"></strong>
+      </div>
+      <div class="confirmar-dato">
+        <span>Domicilio</span>
+        <strong class="envio" id="confUbicEnvio"></strong>
+      </div>
+
+      <button class="form-submit-btn" id="btnConfirmarPagar" style="margin-top:1rem;">Confirmar y pagar 💳</button>
+      <button class="btn-corregir" id="btnCorregirUbicacion">Corregir ubicación</button>
     </div>
   </div>
 </div>
@@ -1577,6 +1635,108 @@ paymentForm.addEventListener("change", validatePaymentForm);
 paymentForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if(!validatePaymentForm()) return;
+
+  // En domicilio se confirma el punto de entrega antes de cobrar.
+  // Un pin mal puesto cambia el precio del domicilio, y despues es
+  // una discusion incomoda con el cliente.
+  if(getTipoPedido() === "domicilio"){
+    mostrarConfirmacionUbicacion();
+    return;
+  }
+  await iniciarPagoWompi();
+});
+
+/* =========================================================
+   PASO DE CONFIRMACION DEL PUNTO DE ENTREGA
+========================================================= */
+const confirmUbicacionOverlay = document.getElementById("confirmUbicacionOverlay");
+let mapaConfirmacion = null;
+
+function mostrarConfirmacionUbicacion(){
+  if(!ubicacionCliente || !domicilioActual) return;
+
+  const direccion = document.getElementById("pf-direccion").value.trim();
+  const barrio = document.getElementById("pf-barrio").value.trim();
+
+  document.getElementById("confUbicDireccion").textContent =
+    direccion + (barrio ? ", " + barrio : "");
+  document.getElementById("confUbicDistancia").textContent =
+    "\u{1F4CD} A " + domicilioActual.km + " km del restaurante";
+  document.getElementById("confUbicEnvio").textContent = domicilioActual.fueraDeCobertura
+    ? "A convenir por WhatsApp"
+    : "\u{1F6F5} " + formatCOP(domicilioActual.precio);
+
+  // El formulario se oculta para que el mapa se vea sin estorbo
+  paymentFormOverlay.classList.remove("open");
+  confirmUbicacionOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+
+  dibujarMapaConfirmacion();
+}
+
+/* Mapa de solo lectura: aqui no se puede mover el pin, para eso
+   esta el boton "Corregir ubicacion". */
+function dibujarMapaConfirmacion(){
+  if(typeof L === "undefined") return;
+
+  if(!mapaConfirmacion){
+    mapaConfirmacion = L.map("mapaConfirmacion", {
+      zoomControl:false, dragging:false, scrollWheelZoom:false,
+      doubleClickZoom:false, touchZoom:false, keyboard:false
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom:19, attribution:"&copy; OpenStreetMap"
+    }).addTo(mapaConfirmacion);
+  }
+
+  // Se redibujan las capas por si el cliente corrigio la ubicacion
+  mapaConfirmacion.eachLayer(capa => {
+    if(capa instanceof L.Marker || capa instanceof L.Polyline) mapaConfirmacion.removeLayer(capa);
+  });
+
+  const iconoLocal = L.divIcon({
+    className:"",
+    html:'<div style="background:#C1272D;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #F7ECD6;">\u{1F32E}</div>',
+    iconSize:[30,30], iconAnchor:[15,15]
+  });
+  const iconoCliente = L.divIcon({
+    className:"",
+    html:'<div style="background:#1C1210;width:40px;height:40px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid #E3A008;box-shadow:0 4px 12px rgba(0,0,0,.5);"><span style="transform:rotate(45deg);font-size:18px;">\u{1F4CD}</span></div>',
+    iconSize:[40,40], iconAnchor:[20,40]
+  });
+
+  L.marker([RESTAURANTE.lat, RESTAURANTE.lng], { icon:iconoLocal, interactive:false }).addTo(mapaConfirmacion);
+  L.marker([ubicacionCliente.lat, ubicacionCliente.lng], { icon:iconoCliente, interactive:false }).addTo(mapaConfirmacion);
+  L.polyline([[RESTAURANTE.lat, RESTAURANTE.lng], [ubicacionCliente.lat, ubicacionCliente.lng]],
+    { color:"#C1272D", weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapaConfirmacion);
+
+  mapaConfirmacion.fitBounds(
+    L.latLngBounds([[RESTAURANTE.lat, RESTAURANTE.lng],[ubicacionCliente.lat, ubicacionCliente.lng]]).pad(0.30)
+  );
+  setTimeout(() => mapaConfirmacion.invalidateSize(), 150);
+}
+
+function cerrarConfirmacionUbicacion(){
+  confirmUbicacionOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+/* "Corregir ubicacion" devuelve al formulario SIN borrar lo que ya
+   escribio el cliente (por eso no se llama a openPaymentForm). */
+document.getElementById("btnCorregirUbicacion").addEventListener("click", () => {
+  confirmUbicacionOverlay.classList.remove("open");
+  paymentFormOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+  if(mapa) setTimeout(() => mapa.invalidateSize(), 120);
+});
+
+document.getElementById("cerrarConfirmUbicacion").addEventListener("click", cerrarConfirmacionUbicacion);
+confirmUbicacionOverlay.addEventListener("click", (e) => {
+  if(e.target === confirmUbicacionOverlay) cerrarConfirmacionUbicacion();
+});
+
+document.getElementById("btnConfirmarPagar").addEventListener("click", async () => {
+  cerrarConfirmacionUbicacion();
   await iniciarPagoWompi();
 });
 
