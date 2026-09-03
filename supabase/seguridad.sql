@@ -98,36 +98,56 @@ create policy "personal actualiza pedidos"
 
 
 -- 4) BLINDAJE EXTRA CONTRA CAMBIOS DE DINERO ------------------------
--- El WITH CHECK de arriba ya lo cubre, pero un trigger deja la regla
--- escrita en la base de datos, independiente de las politicas: los
--- campos de dinero y de pago son inmutables para cualquiera que no
--- sea el servidor.
+-- La politica de UPDATE de arriba deja mover el pedido entre estados,
+-- pero una politica RLS no puede comparar el valor viejo con el nuevo.
+-- Por eso el dinero se protege con este trigger: es la UNICA barrera
+-- que impide que alguien con acceso al panel altere lo que se cobro.
+
+-- =================================================================
+-- ATENCION: ESTA FUNCION NO LLEVA "SECURITY DEFINER". NO SE LO PONGAS.
+-- -----------------------------------------------------------------
+-- Dentro de una funcion SECURITY DEFINER, current_user devuelve el
+-- DUENO de la funcion (postgres), no el rol de quien esta haciendo
+-- el cambio. Como 'postgres' esta en la lista de permitidos, el
+-- trigger dejaria pasar TODO y no protegeria nada.
+--
+-- Esto ya paso una vez: se probo en vivo y un usuario del panel pudo
+-- marcar como rechazado un pago aprobado, bajar el total a $1,
+-- suplantar el id de transaccion de Wompi y cambiar los productos.
+--
+-- Esta funcion no necesita permisos elevados: solo compara valores,
+-- no consulta ninguna tabla. Debe correr como SECURITY INVOKER (que
+-- es el modo por defecto) para poder saber QUIEN hace el cambio.
+-- =================================================================
 create or replace function public.proteger_campos_de_pago()
 returns trigger
 language plpgsql
-security definer
 set search_path = public
 as $$
 declare
   claims text := current_setting('request.jwt.claims', true);
   rol    text := null;
 begin
-  -- Quien hace el cambio? Se mira de dos formas para no depender de
-  -- auth.role(), que Supabase dejo obsoleta y en proyectos nuevos
-  -- puede no existir (romperia TODA actualizacion de pedidos).
+  -- Se identifica al autor del cambio de dos formas independientes,
+  -- para no depender de auth.role() (obsoleta en Supabase, y en
+  -- proyectos nuevos puede no existir).
   if claims is not null and claims <> '' then
     rol := (claims::jsonb) ->> 'role';
   end if;
 
-  -- El servidor (service_role) puede hacer cualquier cambio: es quien
+  -- El servidor (service_role) puede cambiar lo que sea: es quien
   -- confirma el pago desde el webhook de Wompi. 'postgres' es el
-  -- editor SQL del panel de Supabase, para poder corregir a mano.
+  -- editor SQL de Supabase, para poder corregir a mano.
   if current_user in ('service_role', 'postgres', 'supabase_admin')
      or rol = 'service_role' then
     return new;
   end if;
 
+  -- Para todos los demas (el panel incluido), el dinero y el
+  -- resultado del pago son de solo lectura.
   if new.total is distinct from old.total
+     or new.subtotal is distinct from old.subtotal
+     or new.costo_domicilio is distinct from old.costo_domicilio
      or new.estado_pago is distinct from old.estado_pago
      or new.items is distinct from old.items
      or new.referencia is distinct from old.referencia
