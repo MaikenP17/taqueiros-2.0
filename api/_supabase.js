@@ -108,8 +108,26 @@ async function consultarPedidos(filtro) {
   return JSON.parse(texto);
 }
 
+/* Borra los pedidos que nunca se pagaron y llevan mas de 'horas'
+   ahi. Devuelve cuantos borro. */
+async function limpiarHuerfanos(horas) {
+  const { url, key } = credenciales();
+  const resp = await fetch(`${url}/rest/v1/rpc/limpiar_pedidos_huerfanos`, {
+    method: "POST",
+    headers: cabeceras(key),
+    body: JSON.stringify({ horas: horas || 24 })
+  });
+
+  const texto = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Supabase limpieza fallo (${resp.status}): ${texto}`);
+  }
+  return JSON.parse(texto);
+}
+
 module.exports = {
   insertarPedido,
+  limpiarHuerfanos,
   buscarPedidoPorReferencia,
   actualizarPedidoPorReferencia,
   leerConfiguracion,

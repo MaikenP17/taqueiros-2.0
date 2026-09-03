@@ -1,4 +1,4 @@
-const { consultarPedidos } = require("./_supabase.js");
+const { consultarPedidos, limpiarHuerfanos } = require("./_supabase.js");
 
 /* =============================================================
    MANTENER DESPIERTO EL PROYECTO DE SUPABASE
@@ -29,8 +29,18 @@ module.exports = async (req, res) => {
     // La consulta mas liviana que existe: un solo id, una sola fila.
     await consultarPedidos("select=id&limit=1");
 
-    console.log("[KeepAlive] Supabase respondio, proyecto activo");
-    res.status(200).json({ ok: true, momento: new Date().toISOString() });
+    // De paso se barren los pedidos que nunca se pagaron y llevan
+    // mas de 24 horas ahi. Si la funcion no existe todavia, no pasa
+    // nada: el keep-alive sigue cumpliendo su trabajo.
+    let huerfanosBorrados = null;
+    try {
+      huerfanosBorrados = await limpiarHuerfanos();
+    } catch (err) {
+      console.warn("[KeepAlive] No se pudo limpiar huerfanos:", err.message);
+    }
+
+    console.log("[KeepAlive] Supabase respondio, proyecto activo. Huerfanos borrados:", huerfanosBorrados);
+    res.status(200).json({ ok: true, momento: new Date().toISOString(), huerfanosBorrados });
   } catch (err) {
     console.error("[KeepAlive] Supabase no respondio:", err.message);
     res.status(500).json({ ok: false, error: err.message });

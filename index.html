@@ -328,6 +328,19 @@
   .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
   .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
+  /* Pago rechazado */
+  .rechazo-motivo{
+    background:rgba(192,57,43,.09); border:1px solid rgba(192,57,43,.3);
+    border-radius:12px; padding:.8rem .9rem; margin:.9rem 0;
+    font-size:.88rem; color:#8a2820; line-height:1.55; text-align:center;
+  }
+  .rechazo-motivo strong{display:block; font-weight:800; margin-bottom:.2rem;}
+  .rechazo-tranquilo{
+    text-align:center; font-size:.85rem; font-weight:700; color:var(--verde);
+    background:rgba(92,122,59,.1); border-radius:10px; padding:.6rem;
+    margin-bottom:.4rem;
+  }
+
   /* Confirmacion del punto de entrega */
   #mapaConfirmacion{
     width:100%; height:190px; border-radius:14px;
@@ -786,6 +799,11 @@
       <div class="confirm-check" id="statusIcon"></div>
       <h3 style="text-align:center;" id="statusTitle"></h3>
       <p style="text-align:center; color:#5a4a3a;" id="statusMessage"></p>
+      <div id="statusExtra"></div>
+      <div id="statusBotones" hidden>
+        <button class="pay-btn" id="btnReintentarPago" style="margin-top:1rem;">🔄 Intentar de nuevo</button>
+        <button class="whatsapp-btn" id="btnRechazoWhatsapp" style="margin-top:.7rem;">📲 Pedir por WhatsApp</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1855,7 +1873,8 @@ function manejarResultadoPago(transaction, pedido){
   }else if(transaction.status === "PENDING"){
     mostrarEstadoPago("⏳", "Pago en proceso", "Tu pago está siendo confirmado. Te contactaremos apenas se apruebe. Si tienes dudas, escríbenos por WhatsApp.");
   }else{
-    mostrarEstadoPago("✕", "Pago no aprobado", `Tu pago no fue aprobado (estado: ${transaction.status}). Puedes intentar de nuevo o hacer tu pedido por WhatsApp.`);
+    // DECLINED, ERROR, VOIDED: pantalla con el motivo y como seguir
+    mostrarPagoRechazado(transaction);
   }
 }
 
@@ -1964,9 +1983,95 @@ document.getElementById("bannerPedidoCerrar").addEventListener("click", (e) => {
   document.getElementById("bannerPedido").classList.remove("show");
 });
 
+/* =========================================================
+   PAGO RECHAZADO
+
+   Wompi devuelve el motivo en 'status_message', casi siempre en
+   jerga bancaria. Aqui se traduce a algo que el cliente entienda y
+   pueda accionar.
+
+   El carrito NO se toca: el cliente debe poder reintentar sin
+   volver a armar el pedido.
+========================================================= */
+const MOTIVOS_RECHAZO = [
+  { busca:["insufficient","fondos","saldo"],
+    titulo:"Fondos insuficientes",
+    consejo:"Tu tarjeta no tiene saldo suficiente. Prueba con otra tarjeta o paga con Nequi." },
+  { busca:["expired","vencida","expirada"],
+    titulo:"Tarjeta vencida",
+    consejo:"La fecha de vencimiento de tu tarjeta ya pasó. Usa otra tarjeta." },
+  { busca:["invalid","incorrect","inválid","invalid_card","datos"],
+    titulo:"Datos incorrectos",
+    consejo:"Revisa el número, la fecha y el código de seguridad de tu tarjeta." },
+  { busca:["restricted","restringida","blocked","bloqueada"],
+    titulo:"Tarjeta restringida",
+    consejo:"Tu banco tiene bloqueada esta tarjeta para compras por internet. Llámalos o usa otro medio de pago." },
+  { busca:["limit","cupo","exceed"],
+    titulo:"Cupo excedido",
+    consejo:"Superaste el cupo de tu tarjeta. Prueba con otra o con un monto menor." },
+  { busca:["timeout","expiró","expired_session","abandon"],
+    titulo:"Se agotó el tiempo",
+    consejo:"La operación tardó demasiado y se cerró. Puedes intentarlo de nuevo." },
+  { busca:["declined","rechazada","denied"],
+    titulo:"Tu banco rechazó el pago",
+    consejo:"No nos dicen el motivo exacto. Prueba con otra tarjeta, con Nequi, o llama a tu banco." }
+];
+
+function traducirMotivo(transaction){
+  const crudo = String(
+    (transaction && (transaction.status_message || transaction.status)) || ""
+  ).toLowerCase();
+
+  const encontrado = MOTIVOS_RECHAZO.find(m => m.busca.some(palabra => crudo.includes(palabra)));
+  if(encontrado) return encontrado;
+
+  return {
+    titulo: "El pago no se completó",
+    consejo: "Puedes intentarlo de nuevo con otro medio de pago, o hacer tu pedido por WhatsApp."
+  };
+}
+
+function mostrarPagoRechazado(transaction){
+  const motivo = traducirMotivo(transaction);
+
+  const iconEl = document.getElementById("statusIcon");
+  iconEl.textContent = "!";
+  iconEl.style.background = "#c0392b";
+  iconEl.style.color = "var(--crema-suave)";
+
+  document.getElementById("statusTitle").textContent = "No se pudo procesar tu pago";
+  document.getElementById("statusMessage").textContent = "";
+
+  document.getElementById("statusExtra").innerHTML =
+    '<div class="rechazo-tranquilo">✅ No se te cobró nada</div>' +
+    '<div class="rechazo-motivo"><strong>' + motivo.titulo + '</strong>' + motivo.consejo + '</div>' +
+    '<p style="text-align:center; font-size:.82rem; color:#8a7a63;">Tu pedido sigue guardado en el carrito.</p>';
+
+  document.getElementById("statusBotones").hidden = false;
+  statusOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+/* Reintentar crea un pedido nuevo con los mismos datos: el
+   formulario conserva lo que el cliente escribio. */
+document.getElementById("btnReintentarPago").addEventListener("click", async () => {
+  statusOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+  await iniciarPagoWompi();
+});
+
+document.getElementById("btnRechazoWhatsapp").addEventListener("click", () => {
+  statusOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+  const text = buildWhatsAppMessage();
+  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+});
+
 /* ---- Modal genérico de estado (pendiente / rechazado) ---- */
 const statusOverlay = document.getElementById("paymentStatusOverlay");
 function mostrarEstadoPago(icono, titulo, mensaje){
+  document.getElementById("statusExtra").innerHTML = "";
+  document.getElementById("statusBotones").hidden = true;
   const iconEl = document.getElementById("statusIcon");
   iconEl.textContent = icono;
   iconEl.style.background = icono === "✕" ? "#c0392b" : "var(--mostaza)";
