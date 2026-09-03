@@ -53,53 +53,77 @@ const NOMBRES_TIPO = {
   local: "🍽️ En el local"
 };
 
-function formatoCOP(n) {
-  return "$" + Number(n).toLocaleString("es-CO");
+/* Precio SIN el simbolo "$", a proposito.
+   -------------------------------------------------------------
+   BUG QUE ESTO EVITA: CallMeBot entrega los mensajes recortando
+   el "$" junto con el digito que le sigue, asi que "$28.000"
+   llegaba al WhatsApp como "8.000" y "$5.000" como ".000".
+   Es la firma tipica de un texto usado como cadena de reemplazo
+   en una expresion regular, donde "$2", "$1", "$5"... se toman
+   como referencias a grupos de captura y se sustituyen por vacio.
+   Ocurre dentro del servidor de CallMeBot: nuestro mensaje sale
+   integro y con la codificacion correcta (verificado).
+
+   Como no podemos arreglar su servidor, aqui simplemente no se
+   manda el simbolo. El numero llega completo, que es lo que
+   importa para leer la comanda.
+
+   OJO: esto aplica SOLO al mensaje de WhatsApp. En panel.html y
+   pedido.html los precios siguen con "$" porque ahi se muestran
+   bien.
+------------------------------------------------------------- */
+function formatoPrecio(n) {
+  return Number(n).toLocaleString("es-CO");
 }
 
-/* Arma la comanda en texto plano, lista para leer en el celular. */
+/* Arma la comanda en texto plano, lista para leer en el celular.
+   Los asteriscos son el formato de negrita de WhatsApp. */
 function construirComanda(pedido) {
   const lineas = [];
 
-  lineas.push("🌮 *NUEVO PEDIDO PAGADO*");
-  lineas.push(`Pedido #${String(pedido.id).padStart(3, "0")} · ${pedido.referencia}`);
+  lineas.push("\u{1F32E} *NUEVO PEDIDO PAGADO*");
+  lineas.push(`Pedido #${String(pedido.id).padStart(3, "0")} \u00b7 ${pedido.referencia}`);
   lineas.push("");
-  lineas.push(`👤 ${pedido.cliente_nombre}`);
-  lineas.push(`📞 ${pedido.cliente_telefono}`);
+
+  lineas.push(`\u{1F464} ${pedido.cliente_nombre}`);
+  lineas.push(`\u{1F4DE} ${pedido.cliente_telefono}`);
   lineas.push(NOMBRES_TIPO[pedido.tipo_pedido] || pedido.tipo_pedido);
 
   if (pedido.tipo_pedido === "domicilio") {
-    lineas.push(`📍 ${pedido.direccion}, ${pedido.barrio}`);
+    lineas.push(`\u{1F4CD} ${pedido.direccion}, ${pedido.barrio}`);
   }
   if (pedido.indicaciones) {
-    lineas.push(`📝 ${pedido.indicaciones}`);
+    lineas.push(`\u{1F4DD} ${pedido.indicaciones}`);
   }
 
   lineas.push("");
+
   (pedido.items || []).forEach((it) => {
-    lineas.push(`${it.cantidad}x ${it.nombre} — ${formatoCOP(it.precio * it.cantidad)}`);
+    lineas.push(`${it.cantidad}x ${it.nombre} \u2014 ${formatoPrecio(it.precio * it.cantidad)}`);
   });
 
   if (pedido.tipo_pedido === "domicilio") {
     if (pedido.fuera_de_cobertura) {
       lineas.push("");
-      lineas.push("⚠️ FUERA DE ZONA"
+      lineas.push("\u26A0\uFE0F FUERA DE ZONA"
         + (pedido.distancia_km != null ? " (" + pedido.distancia_km + " km)" : "")
-        + " — cobrar el domicilio aparte");
+        + " \u2014 cobrar el domicilio aparte");
     } else if (Number(pedido.costo_domicilio) > 0) {
-      lineas.push("🛵 Domicilio"
+      lineas.push("\u{1F6F5} Domicilio"
         + (pedido.distancia_km != null ? " (" + pedido.distancia_km + " km)" : "")
-        + " — " + formatoCOP(pedido.costo_domicilio));
-    }
-    if (pedido.lat != null && pedido.lng != null) {
-      lineas.push("🗺️ https://www.google.com/maps/search/?api=1&query="
-        + pedido.lat + "," + pedido.lng);
+        + " \u2014 " + formatoPrecio(pedido.costo_domicilio));
     }
   }
 
   lineas.push("");
-  lineas.push(`💰 *TOTAL PAGADO: ${formatoCOP(pedido.total)}*`);
-  lineas.push("💳 Confirmado vía Wompi");
+  lineas.push(`\u{1F4B0} *TOTAL PAGADO: ${formatoPrecio(pedido.total)}*`);
+  lineas.push("\u{1F4B3} Confirmado v\u00eda Wompi");
+
+  // El mapa va al final: es lo que el domiciliario abre de un toque.
+  if (pedido.tipo_pedido === "domicilio" && pedido.lat != null && pedido.lng != null) {
+    lineas.push("\u{1F5FA}\uFE0F https://www.google.com/maps/search/?api=1&query="
+      + pedido.lat + "," + pedido.lng);
+  }
 
   return lineas.join("\n");
 }
