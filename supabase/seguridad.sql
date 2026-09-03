@@ -108,10 +108,22 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  claims text := current_setting('request.jwt.claims', true);
+  rol    text := null;
 begin
+  -- Quien hace el cambio? Se mira de dos formas para no depender de
+  -- auth.role(), que Supabase dejo obsoleta y en proyectos nuevos
+  -- puede no existir (romperia TODA actualizacion de pedidos).
+  if claims is not null and claims <> '' then
+    rol := (claims::jsonb) ->> 'role';
+  end if;
+
   -- El servidor (service_role) puede hacer cualquier cambio: es quien
-  -- confirma el pago desde el webhook de Wompi.
-  if auth.role() = 'service_role' then
+  -- confirma el pago desde el webhook de Wompi. 'postgres' es el
+  -- editor SQL del panel de Supabase, para poder corregir a mano.
+  if current_user in ('service_role', 'postgres', 'supabase_admin')
+     or rol = 'service_role' then
     return new;
   end if;
 
