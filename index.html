@@ -1233,12 +1233,10 @@ const PENDING_ORDER_KEY = "taqueiros-pending-order-v1";
 /* ---- COORDENADAS DEL RESTAURANTE ----
    Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta.
 
-   >>> PROVISIONAL: el geocodificador no pudo resolver esta
-   >>> dirección exacta. Para corregirlo: abre Google Maps, ubica
-   >>> el local, click derecho encima y copia las coordenadas del
-   >>> primer renglón del menú.
-   >>> Cámbialas aquí Y en api/_domicilio.js (deben ser iguales). */
-const RESTAURANTE = { lat: 7.8932961, lng: -72.4982540 };
+   Coordenadas confirmadas por el dueño desde Google Maps.
+   Si cambian, actualízalas aquí Y en api/_domicilio.js: deben ser
+   IDÉNTICAS en los dos archivos. */
+const RESTAURANTE = { lat: 7.8997382, lng: -72.4968525 };
 
 /* ---- TARIFAS POR DISTANCIA ----
    'hasta' = límite del rango en km. precio null = fuera de cobertura. */

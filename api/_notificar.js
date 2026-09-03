@@ -5,14 +5,43 @@
    los pedidos por Supabase Realtime. Esto es SOLO un respaldo por
    si nadie esta mirando el panel.
 
-   Se usa CallMeBot, un servicio gratuito de un tercero:
-     - No requiere cuenta de Meta Business ni verificacion.
-     - El numero que RECIBE los mensajes debe autorizar al bot una
-       sola vez y obtener su apikey (ver instrucciones en el README).
-   Limitaciones reales: es un servicio no oficial mantenido por un
-   particular, sin garantia de disponibilidad ni soporte, y con
-   limite de ~1 mensaje cada pocos segundos. Por eso NUNCA debe ser
-   el unico canal.
+   Se usa CallMeBot, un servicio gratuito de un tercero. No requiere
+   cuenta de Meta Business ni verificacion.
+
+   -------------------------------------------------------------
+   COMO ACTIVARLO CUANDO CAMBIE EL NUMERO DEL RESTAURANTE
+   -------------------------------------------------------------
+   La apikey queda atada al numero que autorizo al bot. Si el
+   restaurante cambia de numero, la apikey vieja DEJA DE SERVIR y
+   hay que repetir esto:
+
+     1. En el celular del NUEVO numero, guarda en contactos:
+            +34 623 78 95 80
+     2. Desde WhatsApp de ese numero, enviale este texto exacto:
+            I allow callmebot to send me messages
+     3. En un par de minutos responde:
+            "API Activated for your phone number. Your APIKEY is 123456"
+        Si no responde en ~10 minutos, hay que reintentar mas tarde
+        (el servicio a veces tarda o ignora el primer intento).
+     4. En Vercel -> Settings -> Environment Variables, actualiza:
+            CALLMEBOT_PHONE  = el numero nuevo en formato 57XXXXXXXXXX
+            CALLMEBOT_APIKEY = la apikey que respondio el bot
+     5. Vercel -> Deployments -> ... -> Redeploy.
+
+   NO hay que tocar codigo: ambos valores son variables de entorno.
+
+   OJO, son dos numeros distintos y no deben confundirse:
+     - CALLMEBOT_PHONE: quien RECIBE las comandas automaticas.
+     - WHATSAPP_NUMBER (en index.html): el numero de contacto que
+       ve el cliente en la pagina. Ese es otro y se cambia aparte.
+
+   -------------------------------------------------------------
+   LIMITACIONES REALES
+   -------------------------------------------------------------
+   Es un servicio no oficial mantenido por un particular, sin
+   garantia de disponibilidad ni soporte, y su licencia dice "solo
+   para uso personal". Por eso NUNCA debe ser el unico canal: el
+   canal principal es el panel de comandas.
 
    Si no hay variables configuradas, la funcion no hace nada y no
    rompe el webhook: simplemente se omite el respaldo.
@@ -76,7 +105,7 @@ function construirComanda(pedido) {
 }
 
 async function notificarWhatsApp(pedido) {
-  const telefono = process.env.CALLMEBOT_PHONE;      // ej: 573125249438
+  const telefono = process.env.CALLMEBOT_PHONE;      // formato: 57XXXXXXXXXX
   const apikey = process.env.CALLMEBOT_APIKEY;
 
   if (!telefono || !apikey) {

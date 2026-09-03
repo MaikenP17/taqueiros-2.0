@@ -13,16 +13,16 @@
    COORDENADAS DEL RESTAURANTE
    Cl 1AN #3E-7, Barrio La Ceiba, Cucuta, Norte de Santander.
 
-   >>> PROVISIONAL: el geocodificador de OpenStreetMap no pudo
-   >>> resolver esta direccion exacta. Este punto es una
-   >>> aproximacion dentro del casco urbano de Cucuta.
-   >>> Para corregirlo: abre Google Maps, ubica el local, haz
-   >>> click derecho encima y copia las coordenadas que aparecen
-   >>> de primeras en el menu. Pegalas aqui Y en index.html.
+   Coordenadas confirmadas por el dueno desde Google Maps.
+
+   Para cambiarlas: abre Google Maps, ubica el local, haz click
+   derecho encima y copia las coordenadas del primer renglon del
+   menu. Pegalas aqui Y en index.html: deben ser IDENTICAS en los
+   dos archivos, o el cliente vera un precio y se le cobrara otro.
 ------------------------------------------------------------- */
 const RESTAURANTE = {
-  lat: 7.8932961,
-  lng: -72.4982540
+  lat: 7.8997382,
+  lng: -72.4968525
 };
 
 /* -------------------------------------------------------------
