@@ -328,6 +328,49 @@
   .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
   .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
+  /* Link de seguimiento copiable */
+  .link-guardar{
+    margin-top:1rem; padding:.8rem .9rem; border-radius:12px;
+    background:rgba(0,0,0,.04); border:1px dashed rgba(0,0,0,.2);
+  }
+  .link-guardar .titulo{
+    font-size:.78rem; font-weight:800; color:#5a4a3a; margin-bottom:.4rem; text-align:center;
+  }
+  .link-guardar .url{
+    font-family:'Fredoka', sans-serif; font-size:.72rem; color:var(--rojo-oscuro);
+    word-break:break-all; line-height:1.4; text-align:center; margin-bottom:.6rem;
+  }
+  .btn-copiar-link{
+    width:100%; padding:.7rem; border-radius:10px;
+    background:var(--carbon); color:var(--crema-suave);
+    font-weight:800; font-size:.82rem;
+  }
+  .btn-copiar-link.copiado{background:var(--verde);}
+
+  /* Buscador de pedidos */
+  .buscar-pedido-link{
+    display:block; text-align:center; margin-top:1.2rem;
+    font-size:.85rem; color:var(--texto-secundario);
+    text-decoration:underline; cursor:pointer;
+  }
+  .buscar-pedido-link:hover{color:var(--mostaza);}
+  .resultado-pedido{
+    display:flex; align-items:center; gap:.7rem;
+    padding:.8rem; margin-top:.6rem; border-radius:12px;
+    background:#fff; border:1px solid rgba(0,0,0,.12);
+    text-decoration:none; color:var(--carbon);
+    transition:border-color .2s ease, transform .15s ease;
+  }
+  .resultado-pedido:hover{border-color:var(--rojo); transform:translateY(-2px);}
+  .resultado-pedido .info{flex:1; min-width:0;}
+  .resultado-pedido .num{font-weight:800; font-size:.95rem;}
+  .resultado-pedido .est{font-size:.78rem; color:#8a7a63; margin-top:.15rem;}
+  .resultado-pedido .flecha{color:var(--rojo); font-weight:800;}
+  .buscar-vacio{
+    text-align:center; color:#8a7a63; font-size:.85rem;
+    padding:1.2rem .5rem; line-height:1.55;
+  }
+
   /* Pago rechazado */
   .rechazo-motivo{
     background:rgba(192,57,43,.09); border:1px solid rgba(192,57,43,.3);
@@ -736,6 +779,33 @@
   </div>
 </div>
 
+<!-- ================= BUSCAR MI PEDIDO ================= -->
+<div class="modal-overlay" id="buscarPedidoOverlay">
+  <div class="product-modal" role="dialog" aria-modal="true" aria-label="Buscar mi pedido">
+    <button class="modal-close" id="cerrarBuscarPedido" aria-label="Cerrar">&times;</button>
+    <div class="modal-body">
+      <h3>¿Buscas tu pedido?</h3>
+      <p class="desc">Escribe el celular con el que pediste y el total que pagaste. Te mostramos tus pedidos de las últimas 24 horas.</p>
+
+      <form id="buscarPedidoForm" novalidate>
+        <div class="form-field" id="field-bp-telefono">
+          <label for="bp-telefono">Celular (10 dígitos)</label>
+          <input type="tel" id="bp-telefono" inputmode="numeric" placeholder="3XXXXXXXXX">
+          <span class="form-error"></span>
+        </div>
+        <div class="form-field" id="field-bp-total">
+          <label for="bp-total">Total que pagaste (solo números)</label>
+          <input type="text" id="bp-total" inputmode="numeric" placeholder="Ej: 49000">
+          <span class="form-error"></span>
+        </div>
+        <button type="submit" class="form-submit-btn" id="btnBuscarPedido">Buscar mi pedido 🔎</button>
+      </form>
+
+      <div id="resultadosBusqueda"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ================= CONFIRMAR PUNTO DE ENTREGA ================= -->
 <div class="modal-overlay" id="confirmUbicacionOverlay">
   <div class="product-modal" role="dialog" aria-modal="true" aria-label="Confirmar punto de entrega">
@@ -782,6 +852,12 @@
         <span>Total pagado</span>
         <span id="confirmTotal"></span>
       </div>
+      <div class="link-guardar">
+        <div class="titulo">Guarda este link para seguir tu pedido</div>
+        <div class="url" id="confirmLinkTexto"></div>
+        <button type="button" class="btn-copiar-link" id="btnCopiarLink">📋 Copiar link</button>
+      </div>
+
       <a class="btn-seguir" id="confirmSeguirBtn" href="#" target="_blank" rel="noopener">🛵 Seguir mi pedido</a>
       <button class="form-submit-btn" id="confirmBackBtn" style="margin-top:.7rem;">Volver al menú</button>
       <p class="confirm-copia">¿Quieres una copia de tu pedido?
@@ -847,6 +923,7 @@
       <ul id="footerHours"></ul>
     </div>
   </div>
+  <a class="buscar-pedido-link" id="abrirBuscarPedido">🔎 ¿Buscas tu pedido?</a>
   <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
 </footer>
 
@@ -1905,6 +1982,35 @@ function mostrarConfirmacion(pedido){
   document.getElementById("confirmSeguirBtn").href = urlSeguimiento;
   guardarSeguimiento(pedido.referencia);
 
+  // Link completo visible y copiable, por si cierra la pestana
+  const urlCompleta = location.origin + "/" + urlSeguimiento;
+  document.getElementById("confirmLinkTexto").textContent = urlCompleta;
+
+  const btnCopiar = document.getElementById("btnCopiarLink");
+  btnCopiar.textContent = "📋 Copiar link";
+  btnCopiar.classList.remove("copiado");
+  btnCopiar.onclick = async () => {
+    let copiado = false;
+    try{
+      await navigator.clipboard.writeText(urlCompleta);
+      copiado = true;
+    }catch(e){
+      // Respaldo para navegadores que bloquean el portapapeles
+      const ta = document.createElement("textarea");
+      ta.value = urlCompleta;
+      ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try{ copiado = document.execCommand("copy"); }catch(err){ copiado = false; }
+      document.body.removeChild(ta);
+    }
+    btnCopiar.textContent = copiado ? "✓ Link copiado" : "No se pudo copiar";
+    btnCopiar.classList.toggle("copiado", copiado);
+    setTimeout(() => {
+      btnCopiar.textContent = "📋 Copiar link";
+      btnCopiar.classList.remove("copiado");
+    }, 2000);
+  };
+
   document.getElementById("confirmWhatsappBtn").onclick = () => enviarPedidoPagadoPorWhatsApp(pedido);
   document.getElementById("confirmBackBtn").onclick = () => {
     cart = {};
@@ -2112,6 +2218,108 @@ statusOverlay.addEventListener("click", (e) => {
       window.history.replaceState({}, document.title, window.location.pathname);
     });
 })();
+
+/* =========================================================
+   BUSCAR MI PEDIDO
+
+   Se consulta la funcion buscar_mis_pedidos de Supabase, que exige
+   celular Y total exacto, mira solo las ultimas 24 horas y nunca
+   devuelve direccion, correo ni productos.
+========================================================= */
+const SUPABASE_URL_PUBLICO = "https://pzryobpriyewlxltditw.supabase.co";
+const SUPABASE_ANON_PUBLICO = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+
+const ESTADO_LEGIBLE = {
+  nuevo:          "✅ Recibido",
+  en_preparacion: "🔥 En preparación",
+  listo:          "🛵 Listo / en camino",
+  entregado:      "🎉 Entregado",
+  cancelado:      "❌ Cancelado"
+};
+
+const buscarPedidoOverlay = document.getElementById("buscarPedidoOverlay");
+const buscarPedidoForm = document.getElementById("buscarPedidoForm");
+
+document.getElementById("abrirBuscarPedido").addEventListener("click", () => {
+  buscarPedidoForm.reset();
+  document.getElementById("resultadosBusqueda").innerHTML = "";
+  fieldError("field-bp-telefono", "");
+  fieldError("field-bp-total", "");
+  buscarPedidoOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+});
+
+function cerrarBuscador(){
+  buscarPedidoOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+}
+document.getElementById("cerrarBuscarPedido").addEventListener("click", cerrarBuscador);
+buscarPedidoOverlay.addEventListener("click", (e) => {
+  if(e.target === buscarPedidoOverlay) cerrarBuscador();
+});
+
+buscarPedidoForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const telefono = document.getElementById("bp-telefono").value.trim();
+  const totalTexto = document.getElementById("bp-total").value.replace(/[^0-9]/g, "");
+  const total = parseInt(totalTexto, 10);
+  let valido = true;
+
+  if(!/^3\d{9}$/.test(telefono)){
+    fieldError("field-bp-telefono", "Escribe el celular con el que pediste (10 dígitos)");
+    valido = false;
+  }else{ fieldError("field-bp-telefono", ""); }
+
+  if(!Number.isInteger(total) || total <= 0){
+    fieldError("field-bp-total", "Escribe el total que pagaste, solo números");
+    valido = false;
+  }else{ fieldError("field-bp-total", ""); }
+
+  if(!valido) return;
+
+  const boton = document.getElementById("btnBuscarPedido");
+  const contenedor = document.getElementById("resultadosBusqueda");
+  boton.disabled = true;
+  boton.textContent = "Buscando…";
+  contenedor.innerHTML = "";
+
+  try{
+    const resp = await fetch(SUPABASE_URL_PUBLICO + "/rest/v1/rpc/buscar_mis_pedidos", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_PUBLICO,
+        "Authorization": "Bearer " + SUPABASE_ANON_PUBLICO,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ telefono: telefono, total_pagado: total })
+    });
+    if(!resp.ok) throw new Error("HTTP " + resp.status);
+    const pedidos = await resp.json();
+
+    if(!Array.isArray(pedidos) || pedidos.length === 0){
+      contenedor.innerHTML = '<div class="buscar-vacio">No encontramos pedidos con esos datos en las últimas 24 horas.<br>' +
+        'Revisa que el celular y el total sean exactamente los del pedido.</div>';
+      return;
+    }
+
+    contenedor.innerHTML = pedidos.map(p => {
+      const hora = new Date(p.creado_en).toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit", hour12:true });
+      return '<a class="resultado-pedido" href="pedido.html?ref=' + encodeURIComponent(p.referencia) + '">' +
+        '<div class="info">' +
+          '<div class="num">Pedido #' + String(p.numero).padStart(3,"0") + ' · ' + formatCOP(p.total) + '</div>' +
+          '<div class="est">' + (ESTADO_LEGIBLE[p.estado] || p.estado) + ' · ' + hora + '</div>' +
+        '</div><span class="flecha">Ver ›</span></a>';
+    }).join("");
+
+  }catch(err){
+    console.error(err);
+    contenedor.innerHTML = '<div class="buscar-vacio">No pudimos consultar en este momento. Revisa tu conexión e intenta de nuevo.</div>';
+  }finally{
+    boton.disabled = false;
+    boton.textContent = "Buscar mi pedido 🔎";
+  }
+});
 
 /* =========================================================
    ANIMACIÓN DE ENTRADA (Intersection Observer)

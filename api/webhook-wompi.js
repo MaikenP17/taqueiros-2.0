@@ -165,9 +165,16 @@ module.exports = async (req, res) => {
     // No se deja que un fallo aqui rompa el webhook: el pedido ya
     // esta guardado y visible en el panel, que es el canal principal.
     try {
-      await notificarWhatsApp(actualizado || pedido);
+      const aviso = await notificarWhatsApp(actualizado || pedido);
+
+      // Queda registrado en el propio pedido si se logro avisar, para
+      // poder revisar despues de cuales no se entero el restaurante.
+      await actualizarPedidoPorReferencia(referencia, { notificacion_ok: !!aviso.enviado });
     } catch (errNotif) {
       console.error("[Wompi] El pedido se guardo pero fallo la notificacion:", errNotif.message);
+      try {
+        await actualizarPedidoPorReferencia(referencia, { notificacion_ok: false });
+      } catch (e) { /* si tampoco se puede marcar, el pedido ya esta a salvo */ }
     }
 
     res.status(200).json({ received: true, ok: true });

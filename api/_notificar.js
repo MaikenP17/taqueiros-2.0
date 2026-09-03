@@ -36,6 +36,46 @@
        ve el cliente en la pagina. Ese es otro y se cambia aparte.
 
    -------------------------------------------------------------
+   CANAL DE RESPALDO: EVALUADO Y DESCARTADO POR AHORA
+   -------------------------------------------------------------
+   Se evaluo agregar un segundo canal que se disparara solo cuando
+   CallMeBot falle. Opciones y por que no se implemento ninguna:
+
+     * TELEGRAM (era la recomendacion tecnica). API oficial, gratis,
+       sin limites practicos, sin verificacion de Meta, y su
+       fiabilidad no depende de un particular. Se descarto porque
+       obliga al restaurante a instalar otra app, y en el momento de
+       la decision el proyecto aun no estaba aceptado por ellos:
+       anadia friccion a la presentacion.
+
+     * CORREO (Resend, gratis hasta 3.000/mes). Fiable, pero nadie en
+       una cocina revisa el correo en tiempo real. No resuelve el
+       problema que importa: enterarse YA de un pedido.
+
+     * WHATSAPP BUSINESS API (via Twilio). Lo mas solido y llega al
+       mismo WhatsApp, sin friccion. Cuesta ~USD 0,005 por mensaje y
+       exige verificar la empresa con Meta. Solo se justifica con
+       volumen.
+
+   COMO ACTIVAR TELEGRAM SI ALGUN DIA SE DECIDE:
+     1. En Telegram, escribirle a @BotFather -> /newbot -> queda un
+        token tipo 123456:AAG...
+     2. El restaurante le escribe algo al bot, y luego se consulta
+        https://api.telegram.org/bot<TOKEN>/getUpdates para sacar el
+        chat id de la conversacion.
+     3. Guardar TELEGRAM_TOKEN y TELEGRAM_CHAT_ID en Vercel.
+     4. Aqui abajo, en notificarWhatsApp, cuando el envio falle
+        (donde ya se llama a registrarSaludNotificacion con false),
+        hacer un GET a:
+        https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<ID>&text=<texto>
+        El texto ya viene armado en la variable 'texto', no hay que
+        construir nada nuevo.
+
+   Mientras tanto el aviso vive en el panel: si el ultimo envio
+   fallo, el restaurante ve una advertencia en la cabecera y sabe
+   que solo puede confiar en la pantalla.
+
+   -------------------------------------------------------------
    LIMITACIONES REALES
    -------------------------------------------------------------
    Es un servicio no oficial mantenido por un particular, sin
@@ -46,6 +86,8 @@
    Si no hay variables configuradas, la funcion no hace nada y no
    rompe el webhook: simplemente se omite el respaldo.
 ============================================================= */
+
+const { registrarSaludNotificacion } = require("./_supabase.js");
 
 const NOMBRES_TIPO = {
   domicilio: "🛵 Domicilio",
@@ -137,7 +179,7 @@ async function notificarWhatsApp(pedido, opciones) {
   const apikey = process.env.CALLMEBOT_APIKEY;
 
   if (!telefono || !apikey) {
-    console.log("[Notificar] CallMeBot no está configurado, se omite el respaldo por WhatsApp");
+    console.log("[Notificar] CallMeBot no esta configurado, se omite el respaldo por WhatsApp");
     return { enviado: false, motivo: "sin configurar" };
   }
 
@@ -152,19 +194,60 @@ async function notificarWhatsApp(pedido, opciones) {
   const control = new AbortController();
   const alarma = setTimeout(() => control.abort(), 8000);
 
+  let ok = false;
+  let detalleError = null;
+
   try {
     const resp = await fetch(url, { signal: control.signal });
     const cuerpo = await resp.text();
+    const limpio = cuerpo.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
-    if (!resp.ok) {
-      throw new Error(`CallMeBot respondió ${resp.status}: ${cuerpo.slice(0, 200)}`);
+    /* Como se sabe si de verdad se envio:
+         apikey valida   -> HTTP 200 + "Message queued. You will receive it..."
+         apikey invalida -> HTTP 203 + "APIKey is invalid..."
+
+       Dos trampas comprobadas en vivo:
+         1. Un fallo NO devuelve un codigo de error: devuelve 203, que
+            fetch considera exitoso. Por eso se compara con 200 exacto.
+         2. El texto "Message to: +57..." aparece en AMBAS respuestas
+            (es solo el eco de lo que se pidio), asi que NO sirve como
+            senal de exito.
+
+       Por eso se exige una senal POSITIVA de que quedo encolado, en
+       vez de intentar adivinar los mensajes de error. */
+    if (resp.status === 200 && /queued|message sent/i.test(limpio)) {
+      ok = true;
+    } else {
+      // La respuesta empieza repitiendo el mensaje que se quiso
+      // enviar y termina con el motivo real. Se toma el final, que es
+      // lo unico que sirve para diagnosticar.
+      const motivo = limpio.slice(-160).trim();
+      detalleError = `CallMeBot respondio ${resp.status}: ...${motivo}`;
     }
-
-    console.log("[Notificar] Comanda enviada al WhatsApp del restaurante:", pedido.referencia);
-    return { enviado: true };
+  } catch (err) {
+    detalleError = err.name === "AbortError"
+      ? "CallMeBot no respondio en 8 segundos"
+      : err.message;
   } finally {
     clearTimeout(alarma);
   }
+
+  if (ok) {
+    console.log("[Notificar] Comanda enviada al WhatsApp del restaurante:", pedido.referencia);
+  } else {
+    console.error("[Notificar] FALLO el envio:", pedido.referencia, "->", detalleError);
+  }
+
+  // Se deja constancia para que el panel pueda avisar. Un fallo aqui
+  // NUNCA debe tumbar el flujo del pedido: el pedido ya esta guardado
+  // y visible en el panel, que es el canal principal.
+  try {
+    await registrarSaludNotificacion(ok, detalleError);
+  } catch (err) {
+    console.error("[Notificar] No se pudo registrar la salud:", err.message);
+  }
+
+  return { enviado: ok, motivo: detalleError };
 }
 
 module.exports = { notificarWhatsApp, construirComanda };

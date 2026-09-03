@@ -125,8 +125,46 @@ async function limpiarHuerfanos(horas) {
   return JSON.parse(texto);
 }
 
+/* Registra como salio el ultimo envio de WhatsApp automatico.
+   El panel lee esta fila para avisar cuando el servicio esta caido. */
+async function registrarSaludNotificacion(ok, mensajeError) {
+  const { url, key } = credenciales();
+
+  // Los fallos se cuentan de forma acumulada; un envio bueno reinicia
+  // el contador. Asi el panel puede distinguir un fallo puntual de un
+  // servicio realmente caido.
+  let fallosSeguidos = 0;
+  if (!ok) {
+    try {
+      const actual = await fetch(`${url}/rest/v1/salud_notificaciones?id=eq.1&select=fallos_seguidos`, {
+        headers: cabeceras(key)
+      });
+      const filas = JSON.parse(await actual.text());
+      fallosSeguidos = (filas[0] ? filas[0].fallos_seguidos : 0) + 1;
+    } catch (e) {
+      fallosSeguidos = 1;
+    }
+  }
+
+  const resp = await fetch(`${url}/rest/v1/salud_notificaciones?id=eq.1`, {
+    method: "PATCH",
+    headers: cabeceras(key),
+    body: JSON.stringify({
+      ultimo_intento: new Date().toISOString(),
+      ultimo_ok: ok,
+      ultimo_error: ok ? null : String(mensajeError || "").slice(0, 300),
+      fallos_seguidos: fallosSeguidos
+    })
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Supabase salud fallo (${resp.status}): ${await resp.text()}`);
+  }
+}
+
 module.exports = {
   insertarPedido,
+  registrarSaludNotificacion,
   limpiarHuerfanos,
   buscarPedidoPorReferencia,
   actualizarPedidoPorReferencia,
