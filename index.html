@@ -1985,7 +1985,14 @@ async function iniciarPagoWompi(){
     ubicacion: ubicacionCliente
   };
 
-  const items = Object.keys(cart).map(id => ({ id, cantidad: cart[id] }));
+  /* Se manda tambien el precio QUE SE ESTA MOSTRANDO. El servidor lo
+     compara con el de la base: si el catalogo cacheado quedo viejo,
+     rechaza el pedido y avisa, en vez de cobrar un total distinto del
+     que el cliente vio en pantalla. */
+  const items = Object.keys(cart).map(id => {
+    const pr = findProduct(id);
+    return { id, cantidad: cart[id], precio: pr ? pr.price : undefined };
+  });
 
   paymentFormSubmitBtn.disabled = true;
   paymentFormSubmitBtn.textContent = "Generando pago...";
@@ -2006,6 +2013,19 @@ async function iniciarPagoWompi(){
     });
     if(!resp.ok){
       const detalle = await resp.json().catch(() => ({}));
+
+      /* El precio cambió mientras el cliente tenía el menú viejo en
+         pantalla. Se recarga el menú para que vea el total real y
+         pueda decidir, en vez de encontrarse otro número en Wompi. */
+      if(detalle.precioCambiado){
+        closePaymentForm();
+        await cargarMenu();          // trae los precios nuevos
+        renderQtyControls();
+        updateCartUI(false);
+        alert(detalle.error);
+        openDrawer();                // el carrito, ya con el total corregido
+        return;
+      }
 
       /* El producto se agotó mientras el cliente tenía el menú viejo
          en pantalla. Se quita del carrito y se refresca el menú, para

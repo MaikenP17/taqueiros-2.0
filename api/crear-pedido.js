@@ -99,7 +99,11 @@ module.exports = async (req, res) => {
       // 409 y no 400: no es que el cliente pidiera mal, es que el
       // menu cambio debajo de el. El front lo distingue para poder
       // quitar del carrito el producto agotado.
-      res.status(409).json({ error: revision.error, agotado: revision.agotado || null });
+      res.status(409).json({
+        error: revision.error,
+        agotado: revision.agotado || null,
+        precioCambiado: revision.precioCambiado || null
+      });
       return;
     }
 

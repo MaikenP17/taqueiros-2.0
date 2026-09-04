@@ -22,6 +22,10 @@ const { leerCatalogoParaCobrar } = require("./_menu.js");
    agotado, es gratis.
 ============================================================= */
 
+function formatoPesos(n) {
+  return "$" + Number(n).toLocaleString("es-CO");
+}
+
 /* Valida los productos de un pedido contra la base.
 
    Devuelve:
@@ -72,6 +76,43 @@ async function validarItems(items) {
 
     if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
       return { ok: false, error: `Cantidad inválida para "${producto.nombre}"` };
+    }
+
+    /* -------------------------------------------------------------
+       EL PRECIO QUE VIO EL CLIENTE DEBE SER EL QUE SE LE COBRA
+       -------------------------------------------------------------
+       El navegador manda el precio que tenia en pantalla. Si no
+       coincide con el de la base, NO se corrige en silencio: se
+       rechaza el pedido y se le avisa.
+
+       Por que importa: el catalogo se cachea 5 minutos. Si el dueno
+       sube la bandeja de 28.000 a 32.000, durante esos minutos el
+       cliente ve 56.000 por dos y se le abriria Wompi pidiendole
+       64.000, justo cuando ya saco la tarjeta.
+
+       La regla que no se rompe: al cliente NUNCA se le cobra algo
+       distinto de lo que vio, sin decirselo antes.
+
+       Se rechaza en las dos direcciones, tambien si BAJO. Cobrar
+       menos no le hace dano, pero un total que cambia solo genera
+       desconfianza, y el aviso de que bajo es buena noticia: solo
+       le cuesta un toque volver a intentar. */
+    const precioMostrado = Number(item && item.precio);
+
+    if (Number.isFinite(precioMostrado) && precioMostrado !== producto.precio) {
+      return {
+        ok: false,
+        precioCambiado: {
+          id,
+          nombre: producto.nombre,
+          precioViejo: precioMostrado,
+          precioNuevo: producto.precio,
+          subio: producto.precio > precioMostrado
+        },
+        error: producto.precio > precioMostrado
+          ? `El precio de "${producto.nombre}" cambió: ahora cuesta ${formatoPesos(producto.precio)} en vez de ${formatoPesos(precioMostrado)}. Actualizamos tu carrito para que revises el nuevo total antes de pagar.`
+          : `¡Buena noticia! "${producto.nombre}" bajó de precio: ahora cuesta ${formatoPesos(producto.precio)} en vez de ${formatoPesos(precioMostrado)}. Actualizamos tu carrito con el nuevo total.`
+      };
     }
 
     validados.push({

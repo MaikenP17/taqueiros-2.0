@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administrar Menú | Los Taqueiros</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+<meta name="theme-color" content="#C1272D">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --rojo:#C1272D;
+    --rojo-oscuro:#8A1B1F;
+    --rojo-brillo:#E14A42;
+    --crema:#F7ECD6;
+    --crema-suave:#FFF8EA;
+    --carbon:#1C1210;
+    --carbon-2:#241714;
+    --carbon-3:#2E1D19;
+    --mostaza:#E3A008;
+    --verde:#5C7A3B;
+    --verde-brillo:#7FA855;
+    --texto-claro:#F7ECD6;
+    --texto-secundario:#B9A88C;
+    --borde:rgba(247,236,214,.10);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'Libre Franklin', sans-serif;
+    background:var(--carbon);
+    color:var(--texto-claro);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:3rem;
+  }
+  button{font-family:inherit; cursor:pointer; border:none; -webkit-tap-highlight-color:transparent;}
+  h1,h2{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+
+  /* ---------- LOGIN ---------- */
+  .login-screen{
+    position:fixed; inset:0; z-index:900;
+    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+    background:
+      radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+      linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
+  }
+  .login-screen.hidden{display:none;}
+  .login-card{
+    width:min(400px, 100%); background:var(--carbon-2);
+    border:1px solid var(--borde); border-radius:20px;
+    padding:2.2rem 1.8rem; box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  .login-card img{width:70px; margin:0 auto 1.1rem; display:block; border-radius:14px; background:var(--crema); padding:6px;}
+  .login-card h1{font-size:1.35rem; text-align:center; margin-bottom:.4rem;}
+  .login-card p.sub{text-align:center; color:var(--texto-secundario); font-size:.85rem; margin-bottom:1.5rem;}
+  .login-card label{display:block; font-size:.75rem; font-weight:700; color:var(--texto-secundario); margin-bottom:.35rem; text-transform:uppercase; letter-spacing:.06em;}
+  .login-card input{
+    width:100%; font-family:inherit; font-size:16px; padding:.9rem;
+    border-radius:12px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro); margin-bottom:1rem;
+  }
+  .login-card input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .login-card button{
+    width:100%; background:var(--rojo); color:var(--crema-suave);
+    padding:1rem; border-radius:999px; font-weight:800; font-size:1rem;
+  }
+  .login-error{color:#ff8f85; font-size:.82rem; text-align:center; margin-top:.9rem; min-height:1.1em;}
+  .login-verificando{text-align:center; color:var(--texto-secundario); font-size:.9rem; padding:1rem 0;}
+  #loginForm[data-estado="verificando"] label,
+  #loginForm[data-estado="verificando"] input,
+  #loginForm[data-estado="verificando"] #loginBtn,
+  #loginForm[data-estado="verificando"] #loginError{display:none;}
+  #loginForm[data-estado="listo"] #loginVerificando{display:none;}
+
+  /* ---------- CABECERA ---------- */
+  header{
+    position:sticky; top:0; z-index:100;
+    display:flex; align-items:center; gap:.7rem;
+    padding:.85rem 1rem;
+    background:rgba(28,18,16,.97); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--borde);
+  }
+  header img{height:38px; width:38px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px; flex:none;}
+  header .txt{flex:1; min-width:0; line-height:1.2;}
+  header .txt strong{font-family:'Anton', sans-serif; font-size:1rem; display:block;}
+  header .txt small{color:var(--texto-secundario); font-size:.7rem;}
+  .btn-volver{
+    background:var(--carbon-2); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:999px;
+    padding:.6rem .9rem; font-size:.75rem; font-weight:800;
+    text-decoration:none; white-space:nowrap; flex:none;
+  }
+  .btn-volver:hover{background:var(--carbon-3);}
+
+  /* ---------- AVISO DEL CACHE ---------- */
+  .aviso-cache{
+    margin:1rem; padding:.85rem 1rem; border-radius:12px;
+    background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4);
+    color:var(--mostaza); font-size:.82rem; line-height:1.55;
+  }
+  .aviso-cache strong{display:block; margin-bottom:.2rem;}
+
+  /* ---------- CONTENIDO ---------- */
+  .contenido{padding:0 1rem; max-width:760px; margin:0 auto;}
+
+  .categoria{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:16px; margin-bottom:1rem; overflow:hidden;
+  }
+  .cat-cabecera{
+    display:flex; align-items:center; gap:.7rem;
+    padding:.9rem 1rem; border-bottom:1px solid var(--borde);
+    background:var(--carbon-3);
+  }
+  .cat-cabecera h2{font-size:.95rem; flex:1; min-width:0;}
+  .cat-cabecera .cuenta{color:var(--texto-secundario); font-size:.72rem; font-weight:700;}
+  .categoria.inactiva{opacity:.5;}
+  .categoria.inactiva .cat-cabecera{background:rgba(0,0,0,.3);}
+
+  /* Interruptor grande, pensado para el dedo */
+  .interruptor{
+    flex:none; width:58px; height:32px; border-radius:999px;
+    background:#5a3a38; position:relative; transition:background .2s ease;
+  }
+  .interruptor.si{background:var(--verde);}
+  .interruptor::after{
+    content:""; position:absolute; top:4px; left:4px;
+    width:24px; height:24px; border-radius:50%;
+    background:var(--crema-suave); transition:transform .2s ease;
+  }
+  .interruptor.si::after{transform:translateX(26px);}
+
+  /* ---------- PRODUCTO ---------- */
+  .producto{
+    padding:.9rem 1rem; border-bottom:1px solid rgba(247,236,214,.05);
+  }
+  .producto:last-child{border-bottom:none;}
+  .producto.agotado{background:rgba(0,0,0,.22);}
+
+  .prod-fila{display:flex; align-items:center; gap:.8rem;}
+  .prod-info{flex:1; min-width:0;}
+  .prod-nombre{font-size:.95rem; font-weight:700; line-height:1.3;}
+  .producto.agotado .prod-nombre{color:var(--texto-secundario); text-decoration:line-through;}
+  .prod-precio{
+    font-size:.9rem; font-weight:800; color:var(--verde-brillo); margin-top:.2rem;
+    font-variant-numeric:tabular-nums;
+  }
+  .prod-estado{
+    font-size:.7rem; font-weight:800; color:var(--mostaza);
+    text-transform:uppercase; letter-spacing:.05em; margin-top:.2rem;
+  }
+
+  .btn-editar{
+    flex:none; background:rgba(247,236,214,.07); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:10px;
+    width:44px; height:44px; font-size:1.1rem;
+  }
+  .btn-editar:hover{background:rgba(247,236,214,.15);}
+
+  /* ---------- FORMULARIO DE EDICION ---------- */
+  .editor{display:none; margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--borde);}
+  .producto.abierto .editor{display:block;}
+
+  .campo{margin-bottom:.8rem;}
+  .campo label{
+    display:block; font-size:.72rem; font-weight:800; color:var(--texto-secundario);
+    text-transform:uppercase; letter-spacing:.05em; margin-bottom:.35rem;
+  }
+  .campo input, .campo textarea{
+    width:100%; font-family:inherit; font-size:16px; padding:.85rem;
+    border-radius:10px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro); resize:vertical;
+  }
+  .campo input:focus, .campo textarea:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+
+  .acciones{display:flex; gap:.6rem; margin-top:.9rem;}
+  .acciones button{flex:1; padding:.95rem; border-radius:12px; font-weight:800; font-size:.9rem;}
+  .btn-guardar{background:var(--verde); color:var(--crema-suave);}
+  .btn-guardar:hover:not(:disabled){background:var(--verde-brillo);}
+  .btn-guardar:disabled{opacity:.5;}
+  .btn-cancelar{background:rgba(247,236,214,.08); color:var(--texto-claro);}
+
+  /* ---------- AVISO FLOTANTE ---------- */
+  .toast{
+    position:fixed; left:50%; bottom:1.5rem; transform:translate(-50%, 160%);
+    background:var(--verde); color:var(--crema-suave);
+    padding:.9rem 1.4rem; border-radius:999px; font-weight:800; font-size:.88rem;
+    box-shadow:0 14px 34px rgba(0,0,0,.5); z-index:500;
+    transition:transform .35s cubic-bezier(.2,.8,.3,1);
+    max-width:calc(100% - 2rem); text-align:center;
+  }
+  .toast.show{transform:translate(-50%, 0);}
+  .toast.error{background:var(--rojo);}
+
+  .cargando{text-align:center; padding:3rem 1rem; color:var(--texto-secundario);}
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div class="login-screen" id="loginScreen">
+  <form class="login-card" id="loginForm" data-estado="verificando">
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <h1>Administrar menú</h1>
+    <p class="sub">Acceso solo para el restaurante</p>
+
+    <div class="login-verificando" id="loginVerificando">Verificando sesión…</div>
+
+    <label for="loginEmail">Usuario</label>
+    <input type="email" id="loginEmail" autocomplete="username">
+
+    <label for="loginPassword">Contraseña</label>
+    <input type="password" id="loginPassword" autocomplete="current-password">
+
+    <button type="submit" id="loginBtn">Entrar</button>
+    <p class="login-error" id="loginError"></p>
+  </form>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app" hidden>
+  <header>
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <div class="txt">
+      <strong>ADMINISTRAR MENÚ</strong>
+      <small>Agotar productos y cambiar precios</small>
+    </div>
+    <a class="btn-volver" href="panel.html">← Comandas</a>
+  </header>
+
+  <div class="aviso-cache">
+    <strong>Cómo se ven los cambios en la página del cliente</strong>
+    Agotar o reactivar un producto se ve en <strong>unos 10 segundos</strong>.
+    Cambiar un precio, un nombre o una descripción puede tardar
+    <strong>hasta 5 minutos</strong> en verse, porque el menú se guarda en caché.
+    Nadie va a pagar el precio viejo: si cambia mientras alguien está pidiendo,
+    el sistema le avisa antes de cobrarle.
+  </div>
+
+  <div class="contenido" id="contenido">
+    <div class="cargando">Cargando el menú…</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* =========================================================
+   ADMINISTRACION DEL MENU
+
+   Pagina aparte, no una pestana dentro del panel de comandas:
+   esa pantalla se usa en plena hora pico y tiene que seguir
+   limpia. Ademas, asi este codigo no puede romper el tablero de
+   pedidos ni el indicador de conexion.
+
+   Comparte la sesion con panel.html: mismo origen y misma clave de
+   almacenamiento por defecto de Supabase, asi que si ya entraron al
+   panel, aqui no vuelven a escribir la contrasena.
+========================================================= */
+const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storage: window.localStorage
+  }
+});
+
+/* -------------------------------------------------------------
+   PROTECCION CONTRA EL DEDO GORDO EN LOS PRECIOS
+
+   Si escriben 2800 en vez de 28000 estan vendiendo a la decima
+   parte, y pueden darse cuenta cuando ya vendieron veinte.
+
+   Umbral: 50% de diferencia. Los ajustes reales de un restaurante
+   suelen ir del 5% al 25%, asi que un cambio asi no molesta con
+   confirmaciones. Un error de digito siempre es 10x arriba o abajo
+   (+900% o -90%), y esos caen todos dentro del umbral.
+------------------------------------------------------------- */
+const UMBRAL_CAMBIO = 0.5;
+
+let categorias = [];
+let productos = [];
+
+function formatoCOP(n){ return "$" + Number(n || 0).toLocaleString("es-CO"); }
+function escapar(t){
+  const d = document.createElement("div");
+  d.textContent = t == null ? "" : String(t);
+  return d.innerHTML;
+}
+
+let toastTimer = null;
+function avisar(mensaje, esError){
+  const t = document.getElementById("toast");
+  t.textContent = mensaje;
+  t.classList.toggle("error", !!esError);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+/* =========================================================
+   SESION
+========================================================= */
+const loginScreen = document.getElementById("loginScreen");
+const loginForm = document.getElementById("loginForm");
+const loginError = document.getElementById("loginError");
+
+function mostrarLogin(){
+  loginForm.dataset.estado = "listo";
+  loginScreen.classList.remove("hidden");
+  document.getElementById("app").hidden = true;
+}
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  loginError.textContent = "";
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Entrando…";
+
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById("loginEmail").value.trim(),
+    password: document.getElementById("loginPassword").value
+  });
+
+  btn.disabled = false; btn.textContent = "Entrar";
+  if(error){ loginError.textContent = "Usuario o contraseña incorrectos."; return; }
+  await entrar();
+});
+
+async function entrar(){
+  loginScreen.classList.add("hidden");
+  document.getElementById("app").hidden = false;
+  await cargar();
+}
+
+(async function comprobarSesion(){
+  try{
+    const { data } = await db.auth.getSession();
+    if(data && data.session){ await entrar(); return; }
+    mostrarLogin();
+  }catch(err){
+    console.error(err);
+    mostrarLogin();
+  }
+})();
+
+db.auth.onAuthStateChange((evento, sesion) => {
+  if(evento === "SIGNED_OUT" && !sesion) mostrarLogin();
+});
+
+/* =========================================================
+   CARGA
+========================================================= */
+async function cargar(){
+  const [rc, rp] = await Promise.all([
+    db.from("categorias").select("*").order("orden"),
+    db.from("productos").select("*").order("orden")
+  ]);
+
+  if(rc.error || rp.error){
+    console.error(rc.error || rp.error);
+    document.getElementById("contenido").innerHTML =
+      '<div class="cargando">No se pudo cargar el menú.<br>Revisa la conexión y recarga.</div>';
+    return;
+  }
+
+  categorias = rc.data || [];
+  productos = rp.data || [];
+  pintar();
+}
+
+function pintar(){
+  const cont = document.getElementById("contenido");
+
+  cont.innerHTML = categorias.map(cat => {
+    const suyos = productos.filter(p => p.categoria === cat.id);
+    const agotados = suyos.filter(p => !p.disponible).length;
+
+    return '<section class="categoria ' + (cat.activa === false ? "inactiva" : "") + '" data-cat="' + cat.id + '">' +
+      '<div class="cat-cabecera">' +
+        '<h2>' + escapar(cat.emoji || "") + ' ' + escapar(cat.nombre) + '</h2>' +
+        '<span class="cuenta">' + suyos.length + (agotados ? " · " + agotados + " agotados" : "") + '</span>' +
+        '<button class="interruptor ' + (cat.activa !== false ? "si" : "") + '" ' +
+          'data-cat-toggle="' + cat.id + '" ' +
+          'title="Mostrar u ocultar la categoría completa" ' +
+          'aria-label="Activar o desactivar ' + escapar(cat.nombre) + '"></button>' +
+      '</div>' +
+      suyos.map(pintarProducto).join("") +
+    '</section>';
+  }).join("");
+}
+
+function pintarProducto(p){
+  return '<div class="producto ' + (p.disponible ? "" : "agotado") + '" data-prod="' + p.id + '">' +
+    '<div class="prod-fila">' +
+      '<div class="prod-info">' +
+        '<div class="prod-nombre">' + escapar(p.nombre) + '</div>' +
+        '<div class="prod-precio">' + formatoCOP(p.precio) + '</div>' +
+        (p.disponible ? "" : '<div class="prod-estado">Agotado</div>') +
+      '</div>' +
+      '<button class="interruptor ' + (p.disponible ? "si" : "") + '" ' +
+        'data-toggle="' + p.id + '" ' +
+        'aria-label="Marcar ' + escapar(p.nombre) + ' como agotado o disponible"></button>' +
+      '<button class="btn-editar" data-editar="' + p.id + '" aria-label="Editar ' + escapar(p.nombre) + '">✏️</button>' +
+    '</div>' +
+
+    '<div class="editor">' +
+      '<div class="campo">' +
+        '<label>Nombre</label>' +
+        '<input type="text" data-campo="nombre" value="' + escapar(p.nombre) + '">' +
+      '</div>' +
+      '<div class="campo">' +
+        '<label>Precio (solo números)</label>' +
+        '<input type="text" inputmode="numeric" data-campo="precio" value="' + p.precio + '">' +
+      '</div>' +
+      '<div class="campo">' +
+        '<label>Descripción</label>' +
+        '<textarea rows="3" data-campo="descripcion">' + escapar(p.descripcion || "") + '</textarea>' +
+      '</div>' +
+      '<div class="acciones">' +
+        '<button class="btn-cancelar" data-cancelar="' + p.id + '">Cancelar</button>' +
+        '<button class="btn-guardar" data-guardar="' + p.id + '">Guardar</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/* =========================================================
+   ACCIONES
+========================================================= */
+document.getElementById("contenido").addEventListener("click", async (e) => {
+  const toggle = e.target.closest("[data-toggle]");
+  const catToggle = e.target.closest("[data-cat-toggle]");
+  const editar = e.target.closest("[data-editar]");
+  const cancelar = e.target.closest("[data-cancelar]");
+  const guardar = e.target.closest("[data-guardar]");
+
+  // ---- Agotar o reactivar: un solo toque, sin confirmacion ----
+  if(toggle){
+    const id = toggle.dataset.toggle;
+    const p = productos.find(x => x.id === id);
+    if(!p) return;
+
+    const nuevo = !p.disponible;
+    toggle.classList.toggle("si", nuevo);   // respuesta inmediata al dedo
+
+    const { error } = await db.from("productos").update({ disponible: nuevo }).eq("id", id);
+    if(error){
+      toggle.classList.toggle("si", p.disponible);   // se revierte
+      avisar("No se pudo guardar. Revisa la conexión.", true);
+      console.error(error);
+      return;
+    }
+
+    p.disponible = nuevo;
+    pintar();
+    avisar(nuevo
+      ? "✅ " + p.nombre + " vuelve al menú"
+      : "🚫 " + p.nombre + " marcado como agotado");
+    return;
+  }
+
+  // ---- Categoria completa ----
+  if(catToggle){
+    const id = catToggle.dataset.catToggle;
+    const c = categorias.find(x => x.id === id);
+    if(!c) return;
+
+    const nuevo = c.activa === false;
+    if(!nuevo && !confirm("¿Ocultar toda la categoría \"" + c.nombre + "\"?\n\nSus productos dejarán de verse en la página del cliente.")) return;
+
+    const { error } = await db.from("categorias").update({ activa: nuevo }).eq("id", id);
+    if(error){ avisar("No se pudo guardar", true); console.error(error); return; }
+
+    c.activa = nuevo;
+    pintar();
+    avisar(nuevo ? "✅ " + c.nombre + " visible" : "🚫 " + c.nombre + " oculta");
+    return;
+  }
+
+  // ---- Abrir o cerrar el editor ----
+  if(editar){
+    const caja = editar.closest(".producto");
+    document.querySelectorAll(".producto.abierto").forEach(o => {
+      if(o !== caja) o.classList.remove("abierto");
+    });
+    caja.classList.toggle("abierto");
+    return;
+  }
+
+  if(cancelar){
+    cancelar.closest(".producto").classList.remove("abierto");
+    pintar();
+    return;
+  }
+
+  // ---- Guardar nombre, precio y descripcion ----
+  if(guardar){
+    const id = guardar.dataset.guardar;
+    const p = productos.find(x => x.id === id);
+    const caja = guardar.closest(".producto");
+    if(!p || !caja) return;
+
+    const nombre = caja.querySelector('[data-campo="nombre"]').value.trim();
+    const descripcion = caja.querySelector('[data-campo="descripcion"]').value.trim();
+    const precioTexto = caja.querySelector('[data-campo="precio"]').value.replace(/[^0-9]/g, "");
+    const precio = parseInt(precioTexto, 10);
+
+    if(nombre.length < 2){ avisar("El nombre no puede quedar vacío", true); return; }
+    if(!Number.isInteger(precio) || precio <= 0){ avisar("El precio debe ser un número mayor que cero", true); return; }
+
+    /* Red contra el dedo gordo: si el precio nuevo se aleja mucho del
+       actual, se pregunta antes de guardar. */
+    if(precio !== p.precio){
+      const diferencia = Math.abs(precio - p.precio) / p.precio;
+      if(diferencia > UMBRAL_CAMBIO){
+        const ok = confirm(
+          "Vas a cambiar " + p.nombre + "\n\n" +
+          "de " + formatoCOP(p.precio) + "  a  " + formatoCOP(precio) + "\n\n" +
+          "Es un cambio del " + Math.round(diferencia * 100) + "%. ¿Es correcto?"
+        );
+        if(!ok) return;
+      }
+    }
+
+    guardar.disabled = true;
+    guardar.textContent = "Guardando…";
+
+    const { error } = await db.from("productos")
+      .update({ nombre, descripcion: descripcion || null, precio })
+      .eq("id", id);
+
+    guardar.disabled = false;
+    guardar.textContent = "Guardar";
+
+    if(error){ avisar("No se pudo guardar. Revisa la conexión.", true); console.error(error); return; }
+
+    Object.assign(p, { nombre, descripcion, precio });
+    caja.classList.remove("abierto");
+    pintar();
+
+    /* Se avisa siempre del retraso: aunque solo cambien el nombre o
+       la descripcion, tambien viajan en el catalogo cacheado. */
+    avisar("Guardado. Puede tardar hasta 5 minutos en verse en la página");
+  }
+});
+</script>
+</body>
+</html>
