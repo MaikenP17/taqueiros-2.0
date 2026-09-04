@@ -1009,6 +1009,7 @@
 ========================================================= */
 let CATEGORIES = [];
 let productosAgotados = new Set();
+let categoriasInactivas = new Set();
 
 /* Copia local del ultimo menu que se recibio bien. Es la ultima red
    de seguridad si Supabase y el servidor fallan a la vez: el cliente
@@ -1093,9 +1094,9 @@ async function cargarMenu(opciones){
   return true;
 }
 
-/* La lista de agotados va por su propio endpoint, que casi no se
-   cachea. Asi el catalogo puede cachearse 5 minutos sin que un
-   producto agotado tarde 5 minutos en desaparecer. */
+/* Que se puede pedir AHORA: agotados y categorias apagadas. Va por su
+   propio endpoint, que casi no se cachea, para que el catalogo pueda
+   cachearse 5 minutos sin que un agotado tarde 5 minutos en irse. */
 async function refrescarDisponibilidad(){
   try{
     const resp = await fetch("/api/disponibilidad", { cache: "no-store" });
@@ -1104,13 +1105,30 @@ async function refrescarDisponibilidad(){
     if(!datos.ok || !Array.isArray(datos.agotados)) return;
 
     productosAgotados = new Set(datos.agotados);
-    aplicarAgotados();
+    categoriasInactivas = new Set(datos.categoriasInactivas || []);
+    aplicarEstadoMenu();
   }catch(err){
     // Sin dato no se inventa nada: el menu se queda como esta y la
     // validacion del pago sigue impidiendo cobrar algo agotado.
     console.warn("[Menu] No se pudo consultar la disponibilidad:", err.message);
   }
 }
+
+/* Se pregunta cada 15 segundos mientras la pagina este a la vista.
+   Antes solo se preguntaba al cargar y al volver a la pestana, asi
+   que una pagina abierta en un PC no se enteraba NUNCA de que algo
+   se habia agotado. Ese era el grueso del retardo de 2 minutos.
+
+   No cuesta consultas a Supabase: estas peticiones las responde el
+   cache del borde de Vercel, que solo va a la base cada 10 segundos
+   como maximo, sin importar cuanta gente pregunte. */
+const REFRESCO_DISPONIBILIDAD_MS = 15000;
+
+setInterval(() => {
+  if(document.visibilityState !== "visible") return;   // pestana oculta: no se gasta
+  if(!CATEGORIES.length) return;
+  refrescarDisponibilidad();
+}, REFRESCO_DISPONIBILIDAD_MS);
 
 /* -------------------------------------------------------------
    APLICA LOS CAMBIOS QUE REPORTO EL SERVIDOR Y CUENTA QUE HIZO
@@ -1158,7 +1176,7 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados){
   saveCart();
   pintarMenu();
   renderQtyControls();
-  aplicarAgotados();
+  aplicarEstadoMenu();
   updateCartUI(false);
   observarTarjetas();
   observarSecciones();
@@ -1182,7 +1200,21 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados){
 
 /* Marca visualmente lo agotado SIN volver a pintar el menu, para no
    reiniciar la animacion de entrada de las tarjetas. */
-function aplicarAgotados(){
+function aplicarEstadoMenu(){
+  /* Categorias apagadas: se esconde la seccion entera y su boton de
+     la barra de navegacion. */
+  CATEGORIES.forEach(cat => {
+    const apagada = categoriasInactivas.has(cat.id);
+    const seccion = document.getElementById("cat-" + cat.id);
+    if(seccion) seccion.hidden = apagada;
+
+    const boton = catNav.querySelector('[data-target="' + cat.id + '"]');
+    if(boton) boton.hidden = apagada;
+
+    // Lo que hay dentro de una categoria apagada no se puede pedir
+    if(apagada) cat.products.forEach(p => productosAgotados.add(p.id));
+  });
+
   document.querySelectorAll(".card[data-id]").forEach(card => {
     const agotado = productosAgotados.has(card.dataset.id);
     card.classList.toggle("agotado", agotado);

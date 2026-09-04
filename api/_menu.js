@@ -30,8 +30,18 @@ let ultimoMenuBueno = null;      // { categorias, productos, momento }
 
 /* Menu completo, ordenado tal como debe pintarse. */
 async function leerMenu() {
+  /* Se traen TODAS las categorias, tambien las desactivadas.
+     Antes se filtraban aqui (activa=is.true) y eso causaba un fallo
+     feo: al desactivar una categoria, seguia viendose hasta que
+     vencia el cache de 5 minutos; y al reactivarla, justo entonces
+     vencia el cache y desaparecia. El cliente veia el pasado
+     llegando tarde.
+
+     Ahora el catalogo dice lo que las cosas SON y CUESTAN, y quien
+     decide que se puede pedir AHORA es /api/disponibilidad, que va
+     casi sin cache. */
   const [categorias, productos] = await Promise.all([
-    consultarTabla("categorias", "select=id,nombre,emoji,orden,activa&activa=is.true&order=orden.asc"),
+    consultarTabla("categorias", "select=id,nombre,emoji,orden,activa&order=orden.asc"),
     consultarTabla("productos", "select=id,nombre,descripcion,precio,categoria,orden,disponible,imagen&order=orden.asc")
   ]);
 
@@ -55,11 +65,27 @@ function menuDeRespaldo() {
   return ultimoMenuBueno;
 }
 
-/* Solo los ids agotados. Es la consulta mas barata posible y va casi
-   sin cache, para que agotar un producto se note en segundos. */
-async function leerAgotados() {
-  const filas = await consultarTabla("productos", "select=id&disponible=is.false");
-  return filas.map((f) => f.id);
+/* TODO lo que responde a "que se puede pedir ahora mismo":
+     - productos agotados
+     - categorias desactivadas
+
+   Van juntos y por el endpoint rapido a proposito. La disponibilidad
+   no tiene red de seguridad: si el cliente ve algo que el restaurante
+   apago, arma un pedido que no se puede cumplir. Los precios si
+   pueden ir en el catalogo lento, porque la validacion al pagar ya
+   los protege.
+
+   Sigue siendo la consulta mas barata posible: solo ids. */
+async function leerEstadoMenu() {
+  const [agotados, inactivas] = await Promise.all([
+    consultarTabla("productos", "select=id&disponible=is.false"),
+    consultarTabla("categorias", "select=id&activa=is.false")
+  ]);
+
+  return {
+    agotados: agotados.map((f) => f.id),
+    categoriasInactivas: inactivas.map((f) => f.id)
+  };
 }
 
 /* Precios y disponibilidad para validar un pedido.
@@ -77,4 +103,4 @@ async function leerCatalogoParaCobrar() {
   return mapa;
 }
 
-module.exports = { leerMenu, menuDeRespaldo, leerAgotados, leerCatalogoParaCobrar };
+module.exports = { leerMenu, menuDeRespaldo, leerEstadoMenu, leerCatalogoParaCobrar };
