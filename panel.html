@@ -7,6 +7,16 @@
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/png" href="Recursos/logo/logo.png">
 
+<!-- Instalable como aplicacion: sin barra de direcciones y sin
+     pestanas que cerrar por accidente -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#C1272D">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Comandas">
+<link rel="apple-touch-icon" href="/Recursos/logo/logo.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -72,6 +82,28 @@
   }
   .login-card button:hover:not(:disabled){background:var(--rojo-brillo); transform:translateY(-2px);}
   .login-card button:disabled{opacity:.5; cursor:not-allowed;}
+  #loginForm[data-estado="verificando"] label,
+  #loginForm[data-estado="verificando"] input,
+  #loginForm[data-estado="verificando"] #loginBtn,
+  #loginForm[data-estado="verificando"] #loginError{display:none;}
+  #loginForm[data-estado="listo"] #loginVerificando{display:none;}
+
+  .login-verificando{
+    text-align:center; color:var(--texto-secundario); font-size:.9rem;
+    padding:1rem 0 .4rem; line-height:1.6;
+  }
+  .login-verificando .punto{
+    display:inline-block; width:9px; height:9px; border-radius:50%;
+    background:var(--mostaza); margin-right:.4rem;
+    animation:latir-verif 1.1s ease-in-out infinite;
+  }
+  @keyframes latir-verif{0%,100%{opacity:.3;}50%{opacity:1;}}
+  .login-aviso{
+    background:rgba(227,160,8,.14); border:1px solid rgba(227,160,8,.45);
+    color:var(--mostaza); border-radius:12px; padding:.7rem .8rem;
+    font-size:.82rem; font-weight:700; line-height:1.5;
+    text-align:center; margin-bottom:1.1rem;
+  }
   .login-error{color:#ff8f85; font-size:.82rem; text-align:center; margin-top:.9rem; min-height:1.1em;}
 
   /* ---------- HEADER ---------- */
@@ -390,10 +422,16 @@
 
 <!-- ================= LOGIN ================= -->
 <div class="login-screen" id="loginScreen">
-  <form class="login-card" id="loginForm">
+  <form class="login-card" id="loginForm" data-estado="verificando">
     <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
     <h1>Panel de comandas</h1>
     <p class="sub">Acceso solo para el restaurante</p>
+
+    <div class="login-verificando" id="loginVerificando">
+      <span class="punto"></span>Verificando sesión…
+    </div>
+
+    <div class="login-aviso" id="loginAviso" hidden></div>
 
     <label for="loginEmail">Usuario</label>
     <input type="email" id="loginEmail" autocomplete="username" required>
@@ -426,7 +464,7 @@
       <span class="switch-pista"></span>
     </button>
     <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">🕓 Horario</button>
-    <button class="tool-btn peligro" id="logoutBtn">Salir</button>
+    <button class="tool-btn peligro" id="logoutBtn" title="Cierra la sesión del panel">🔒 Cerrar sesión</button>
   </header>
 
   <div class="banner-caido" id="bannerCaido">
@@ -470,7 +508,24 @@
 const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
 
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+/* La sesion del panel debe sobrevivir a que cierren la pestana, se
+   reinicie el equipo o se caiga el internet. En una cocina eso pasa
+   todo el tiempo, y cada vez el panel quedaba ciego hasta que alguien
+   se acordara de volver a entrar.
+
+   NOTA: supabase-js v2 ya trae persistSession y autoRefreshToken en
+   true por defecto (verificado en el bundle 2.45.4 que carga esta
+   pagina). Se dejan explicitos de todas formas: documentan la
+   intencion y protegen si un dia cambian los valores por defecto. */
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,      // guarda la sesion en localStorage
+    autoRefreshToken: true,    // renueva el token antes de que venza
+    detectSessionInUrl: false, // no se usan enlaces magicos ni OAuth
+    storage: window.localStorage,
+    storageKey: "taqueiros-panel-sesion"
+  }
+});
 
 /* Columnas del tablero, en orden */
 const COLUMNAS = [
@@ -552,10 +607,30 @@ const loginScreen = document.getElementById("loginScreen");
 const loginForm = document.getElementById("loginForm");
 const loginBtn = document.getElementById("loginBtn");
 const loginError = document.getElementById("loginError");
+const loginAviso = document.getElementById("loginAviso");
+
+/* Evita entrar dos veces al panel: getSession() y onAuthStateChange
+   pueden resolver casi a la vez al cargar la pagina. */
+let panelIniciado = false;
+
+/* Muestra el formulario, opcionalmente con un aviso arriba. */
+function mostrarLogin(aviso){
+  loginForm.dataset.estado = "listo";
+  loginScreen.classList.remove("hidden");
+  document.getElementById("app").hidden = true;
+
+  if(aviso){
+    loginAviso.hidden = false;
+    loginAviso.textContent = aviso;
+  }else{
+    loginAviso.hidden = true;
+  }
+}
 
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   loginError.textContent = "";
+  loginAviso.hidden = true;
   loginBtn.disabled = true;
   loginBtn.textContent = "Entrando…";
 
@@ -574,7 +649,11 @@ loginForm.addEventListener("submit", async (e) => {
   await entrarAlPanel();
 });
 
+/* Cerrar sesion. Se confirma porque, con la sesion guardada, salir
+   deja el panel ciego hasta que alguien vuelva a entrar con la
+   contrasena. */
 document.getElementById("logoutBtn").addEventListener("click", async () => {
+  if(!confirm("¿Cerrar sesión?\n\nEl panel dejará de recibir pedidos hasta que alguien vuelva a entrar con la contraseña.")) return;
   await db.auth.signOut();
   location.reload();
 });
@@ -583,6 +662,9 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
    ARRANQUE
 ========================================================= */
 async function entrarAlPanel(){
+  if(panelIniciado) return;
+  panelIniciado = true;
+
   loginScreen.classList.add("hidden");
   document.getElementById("app").hidden = false;
 
@@ -601,24 +683,55 @@ async function entrarAlPanel(){
   suscribirse();
 }
 
-/* Si ya había sesión abierta, entra directo */
+/* Se decide ANTES de mostrar nada: o entra directo, o pide la
+   contrasena. Nunca se ve el formulario un instante para luego
+   desaparecer, ni queda una pantalla a medias. */
 (async function comprobarSesion(){
-  const { data } = await db.auth.getSession();
-  if(data && data.session) await entrarAlPanel();
+  try{
+    const { data, error } = await db.auth.getSession();
+
+    if(error){
+      console.warn("[Sesion] getSession fallo:", error.message);
+      mostrarLogin("No pudimos verificar la sesión. Inicia sesión de nuevo.");
+      return;
+    }
+
+    if(data && data.session){
+      // Diagnostico util si algun dia la sesion se pierde de verdad
+      const vence = new Date(data.session.expires_at * 1000);
+      console.log("[Sesion] Restaurada. El token vence:", vence.toLocaleString("es-CO"));
+      await entrarAlPanel();
+      return;
+    }
+
+    console.log("[Sesion] No hay sesión guardada, se pide contraseña");
+    mostrarLogin();
+  }catch(err){
+    console.error("[Sesion] Error inesperado:", err);
+    mostrarLogin("Ocurrió un problema al abrir el panel. Inicia sesión de nuevo.");
+  }
 })();
 
-/* Si la sesión se cierra o caduca (aquí o en otra pestaña), el panel
-   se bloquea de inmediato y borra los pedidos que tenía en pantalla.
-   Sin sesión no queda ningún dato de clientes a la vista. */
+/* Ciclo de vida de la sesion.
+     TOKEN_REFRESHED -> el token se renovo solo, todo sigue igual.
+     SIGNED_OUT      -> se cerro sesion aqui, en otra pestana, o el
+                        refresh token vencio o fue revocado. En todos
+                        esos casos se cae limpiamente al login. */
 db.auth.onAuthStateChange((evento, sesion) => {
-  if(sesion) return;
-  if(evento === "SIGNED_OUT" || evento === "TOKEN_REFRESHED"){
+  if(evento === "TOKEN_REFRESHED"){
+    console.log("[Sesion] Token renovado automáticamente");
+    return;
+  }
+
+  if(evento === "SIGNED_OUT" || (!sesion && evento === "USER_UPDATED")){
+    // Se borra de pantalla todo dato de clientes
     pedidos = [];
+    panelIniciado = false;
+
     const app = document.getElementById("app");
     if(!app.hidden){
-      app.hidden = true;
-      loginScreen.classList.remove("hidden");
       render();
+      mostrarLogin("Tu sesión expiró. Vuelve a entrar para seguir recibiendo pedidos.");
     }
   }
 });
@@ -695,17 +808,83 @@ async function recuperarPedidosPerdidos(){
   }
 }
 
-/* navigator.onLine avisa antes que el websocket, pero no es fiable
-   por si solo: dice si hay red, no si Supabase responde. Por eso se
-   usa como senal complementaria, nunca como unica fuente. */
-window.addEventListener("offline", () => marcarConexion(false, "navigator.onLine"));
-window.addEventListener("online", async () => {
-  // La red volvio, pero el canal puede tardar en reconectar
-  await cargarPedidos();
+/* =========================================================
+   RECONEXION DEL CANAL EN VIVO
+
+   El problema que resuelve: si el equipo se suspende o se cae el
+   internet, el websocket muere. A veces Supabase avisa por el
+   callback de subscribe, pero cuando el equipo se duerme el socket
+   queda "colgado" sin avisar: el panel se ve normal, dice "En vivo"
+   y en realidad esta ciego.
+
+   Por eso no basta con escuchar eventos: hay que MIRAR el estado
+   real del canal y volver a suscribirse si hace falta.
+========================================================= */
+let canalPedidos = null;
+let reconectando = false;
+
+/* Revisa el canal y lo reconstruye si no esta unido.
+   Estados posibles de Supabase Realtime:
+     joined  -> todo bien
+     closed / errored / leaving -> hay que resuscribirse
+     joining -> esta en eso, se le da tiempo */
+async function asegurarConexion(motivo){
+  if(document.getElementById("app").hidden) return;  // sin sesion, nada que hacer
+  if(reconectando) return;
+
+  const estado = canalPedidos ? canalPedidos.state : "sin canal";
+
+  if(estado === "joined"){
+    // El canal dice estar bien; aun asi se recargan los pedidos por
+    // si entro alguno mientras la pestana estaba dormida.
+    await cargarPedidos();
+    return;
+  }
+  if(estado === "joining") return;   // ya se esta reconectando solo
+
+  console.warn("[Conexion] Canal en estado '" + estado + "' (" + motivo + "), resuscribiendo");
+  reconectando = true;
+  marcarConexion(false, "canal " + estado);
+
+  try{
+    if(canalPedidos){
+      try{ await db.removeChannel(canalPedidos); }catch(e){ /* ya estaba muerto */ }
+      canalPedidos = null;
+    }
+    suscribirse();
+  }finally{
+    reconectando = false;
+  }
+}
+
+/* Al volver de suspension o de bloqueo de pantalla */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible") asegurarConexion("volvio la pestaña");
 });
 
+/* navigator.onLine avisa antes que el websocket, pero no es fiable
+   por si solo: dice si hay red, no si Supabase responde. Se usa como
+   senal complementaria, nunca como unica fuente. */
+window.addEventListener("offline", () => marcarConexion(false, "navigator.onLine"));
+window.addEventListener("online", () => asegurarConexion("volvio la red"));
+
+/* Red de seguridad: con el panel abierto dias enteros, un socket
+   puede morir sin que se dispare ningun evento. Esta revision es
+   local y no cuesta nada: solo lee el estado del canal en memoria.
+   Solo sale a la red si encuentra algo roto. */
+setInterval(() => {
+  if(document.getElementById("app").hidden) return;
+  const estado = canalPedidos ? canalPedidos.state : "sin canal";
+  if(estado !== "joined" && estado !== "joining"){
+    asegurarConexion("revisión periódica");
+  }
+}, 30000);
+
 function suscribirse(){
-  db.channel("pedidos-panel")
+  // La referencia se guarda para poder consultar su estado y
+  // reconstruirlo si muere. Sin esto no hay forma de saber si el
+  // panel sigue realmente escuchando.
+  canalPedidos = db.channel("pedidos-panel")
     .on("postgres_changes", { event:"*", schema:"public", table:"pedidos" }, (payload) => {
       const fila = payload.new;
       if(!fila || !fila.id) return;
@@ -748,16 +927,10 @@ function suscribirse(){
     });
 }
 
-/* Si el equipo estuvo dormido o se cayó la red, al volver se
-   recargan los pedidos para no quedarse con datos viejos. */
-document.addEventListener("visibilitychange", () => {
-  if(document.visibilityState === "visible" && !document.getElementById("app").hidden){
-    cargarPedidos();
-  }
-});
-window.addEventListener("online", () => {
-  if(!document.getElementById("app").hidden) cargarPedidos();
-});
+/* (Los avisos de visibilitychange y online se manejan arriba, en
+   "RECONEXION DEL CANAL EN VIVO": ahi ademas de recargar los pedidos
+   se repara el websocket si murio. Antes habia dos listeners que solo
+   recargaban datos y dejaban el canal roto.) */
 
 /* =========================================================
    AVISO DE PEDIDO NUEVO (sonido + notificación)
@@ -1297,6 +1470,61 @@ function construirComanda(p){
   lineas.push("TOTAL: " + formatoCOP(p.total));
 
   return lineas.join("\n");
+}
+
+/* =========================================================
+   INSTALACION COMO APLICACION
+
+   El service worker existe solo para que el panel se pueda
+   instalar. NO cachea datos: los pedidos, la sesion y todo lo de
+   Supabase van siempre a la red (ver los comentarios de sw.js).
+
+   Estrategia de actualizacion: si hay un worker nuevo esperando, se
+   le ordena activarse de inmediato. Asi un despliegue nuevo no queda
+   atrapado detras de un worker viejo.
+========================================================= */
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js", {
+      scope: "/panel.html",   // solo el panel; no toca la pagina del cliente
+      updateViaCache: "none"  // el propio sw.js nunca se sirve cacheado
+    }).then((reg) => {
+      console.log("[SW] Registrado. El panel se puede instalar como aplicación.");
+
+      // Si ya hay uno esperando, que tome el control ya
+      if(reg.waiting) reg.waiting.postMessage("ACTIVAR_YA");
+
+      reg.addEventListener("updatefound", () => {
+        const nuevo = reg.installing;
+        if(!nuevo) return;
+        nuevo.addEventListener("statechange", () => {
+          if(nuevo.state === "installed" && navigator.serviceWorker.controller){
+            console.log("[SW] Versión nueva lista, activándola");
+            nuevo.postMessage("ACTIVAR_YA");
+          }
+        });
+      });
+
+      // Se busca actualizacion al volver a la pestana, por si el panel
+      // lleva dias abierto y hubo un despliegue entre tanto.
+      document.addEventListener("visibilitychange", () => {
+        if(document.visibilityState === "visible") reg.update();
+      });
+    }).catch((err) => {
+      // Sin service worker el panel funciona igual, solo no se instala
+      console.warn("[SW] No se pudo registrar:", err.message);
+    });
+  });
+
+  // Cuando el worker nuevo toma el control, se recarga UNA vez para
+  // quedar con el cascaron actualizado.
+  let yaRecargado = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if(yaRecargado) return;
+    yaRecargado = true;
+    console.log("[SW] Worker nuevo activo, recargando");
+    location.reload();
+  });
 }
 
 async function copiarComanda(p, boton){

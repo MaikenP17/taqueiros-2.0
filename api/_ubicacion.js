@@ -68,8 +68,16 @@ async function barrioSegunMapa(lat, lng) {
     const resp = await fetch(url, {
       signal: control.signal,
       headers: {
-        // Nominatim exige identificar la aplicacion que consulta
-        "User-Agent": "LosTaqueiros/1.0 (pedidos web; contacto: bycharles54@gmail.com)"
+        /* La politica de uso de Nominatim exige identificar la
+           aplicacion. Sin esto pueden bloquear el acceso sin avisar,
+           y perderiamos la verificacion de barrio sin enterarnos.
+
+           OJO: esto SOLO funciona desde el servidor. User-Agent es
+           un "forbidden header name" en los navegadores: si este
+           modulo se llamara desde el frontend, el navegador lo
+           ignoraria en silencio. Por eso _ubicacion.js lo usa
+           unicamente api/crear-pedido.js, que corre en Vercel. */
+        "User-Agent": "Taqueiros/1.0 (bycharles54@gmail.com)"
       }
     });
     if (!resp.ok) return null;
