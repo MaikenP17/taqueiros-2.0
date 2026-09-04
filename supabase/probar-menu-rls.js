@@ -67,23 +67,16 @@ async function j(r) { const t = await r.text(); try { return JSON.parse(t); } ca
   console.log("D) Anónimo intenta BORRARLO -> HTTP", r.status,
     " ", sigue.length === 1 ? "✅ BLOQUEADO" : "❌ LO BORRÓ");
 
-  console.log("\n========== COTEJO CONTRA api/_precios.js ==========");
-  const { PRECIOS } = require("d:/PAGINAS WEB!!!!!!/TAQUEIROS 2.0/api/_precios.js");
-  const enTabla = await j(await fetch(BASE + "/rest/v1/productos?select=id,nombre,precio", { headers: Hs }));
-  const mapa = new Map(enTabla.map(p => [p.id, p]));
+  console.log("\n========== SUMA DE CONTROL ==========");
+  /* Ya no se compara contra api/_precios.js: ese archivo dejó de
+     tener precios escritos a mano y ahora los lee de esta misma
+     tabla. Comparar la tabla consigo misma no probaría nada.
+     Se usa la suma verificada durante la migración. */
+  const enTabla = await j(await fetch(BASE + "/rest/v1/productos?select=id,precio", { headers: Hs }));
+  const suma = enTabla.reduce((a, p) => a + Number(p.precio), 0);
 
-  let fallos = 0;
-  for (const [id, esperado] of Object.entries(PRECIOS)) {
-    const real = mapa.get(id);
-    if (!real) { console.log("  ❌ FALTA en la tabla:", id); fallos++; continue; }
-    if (Number(real.precio) !== esperado.precio) {
-      console.log("  ❌ PRECIO DISTINTO:", id, "| _precios.js:", esperado.precio, "| tabla:", real.precio);
-      fallos++;
-    }
-  }
-  for (const p of enTabla) if (!PRECIOS[p.id]) { console.log("  ❌ SOBRA en la tabla:", p.id); fallos++; }
-
-  console.log(fallos === 0
-    ? "  ✅ Los " + Object.keys(PRECIOS).length + " productos coinciden uno a uno con api/_precios.js"
-    : "  ❌ " + fallos + " discrepancias");
+  console.log("  productos:", enTabla.length, "| suma de precios:", suma);
+  console.log("  ->", enTabla.length === 38 && suma === 586000
+    ? "✅ coincide con la suma verificada en la migración"
+    : "❌ no coincide: revisa si se cambió algún precio a propósito");
 })();

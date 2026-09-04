@@ -237,6 +237,53 @@
   .qty-control button:active{transform:scale(.85);}
   .qty-control .qty-num{color:var(--crema-suave); font-weight:800; min-width:16px; text-align:center;}
 
+  /* ---------- PRODUCTO AGOTADO ---------- */
+  /* Se MUESTRA agotado en vez de ocultarlo: si desapareciera, el
+     cliente que lo busca creeria que ya no lo venden. Asi sabe que
+     existe y que vuelva otro dia. */
+  .card.agotado{opacity:.55; cursor:default;}
+  .card.agotado .thumb img{filter:grayscale(.85);}
+  .card.agotado:hover .thumb img{transform:none;}
+  .etiqueta-agotado{
+    background:rgba(0,0,0,.08); color:#8a7a63;
+    border:1px solid rgba(0,0,0,.15); border-radius:999px;
+    padding:.4rem .8rem; font-size:.75rem; font-weight:800;
+    white-space:nowrap;
+  }
+
+  /* ---------- ESQUELETO MIENTRAS CARGA ---------- */
+  .card-esqueleto{
+    background:var(--crema); border-radius:var(--radio); overflow:hidden;
+    box-shadow:var(--sombra); opacity:.45;
+  }
+  .card-esqueleto .thumb-fantasma{aspect-ratio:4/3; background:#e2d4b4;}
+  .card-esqueleto .body{padding:1.1rem 1.2rem 1.3rem;}
+  .card-esqueleto .barra{
+    height:13px; border-radius:6px; background:#e2d4b4; margin-bottom:.6rem;
+  }
+  .card-esqueleto .barra.corta{width:45%;}
+  .card-esqueleto .barra.media{width:75%;}
+  .card-esqueleto, .card-esqueleto .barra, .card-esqueleto .thumb-fantasma{
+    animation:respirar 1.5s ease-in-out infinite;
+  }
+  @keyframes respirar{0%,100%{opacity:.45;}50%{opacity:.75;}}
+
+  /* ---------- MENU NO DISPONIBLE ---------- */
+  .menu-caido{
+    text-align:center; padding:4rem 1.5rem; max-width:460px; margin:0 auto;
+  }
+  .menu-caido .ic{font-size:3rem; margin-bottom:1rem;}
+  .menu-caido h3{font-size:1.4rem; color:var(--crema-suave); margin-bottom:.7rem;}
+  .menu-caido p{color:var(--texto-secundario); line-height:1.6; margin-bottom:1.5rem;}
+  .menu-caido .btn-primary, .menu-caido .btn-secondary{width:100%; justify-content:center;}
+
+  .menu-aviso{
+    max-width:1200px; margin:0 auto 1rem; padding:.8rem 1rem;
+    background:rgba(227,160,8,.14); border:1px solid rgba(227,160,8,.4);
+    border-radius:12px; color:var(--mostaza);
+    font-size:.85rem; font-weight:700; text-align:center; line-height:1.5;
+  }
+
   /* ---------- FLOATING ORDER BAR ---------- */
   .floating-bar{
     position:fixed; left:50%; bottom:1.4rem; transform:translate(-50%, 140%);
@@ -660,7 +707,19 @@
 <nav class="cat-nav" id="catNav"></nav>
 
 <!-- ================= MENU ================= -->
-<main class="menu" id="menu"></main>
+<div class="menu-aviso" id="menuAviso" hidden></div>
+<main class="menu" id="menu">
+  <!-- Esqueleto mientras llega el menú, para que no haya un salto
+       brusco ni una página en blanco. Lo reemplaza pintarMenu(). -->
+  <section class="category-section">
+    <div class="category-head"><h2>Cargando el menú…</h2></div>
+    <div class="grid">
+      <article class="card-esqueleto"><div class="thumb-fantasma"></div><div class="body"><div class="barra media"></div><div class="barra"></div><div class="barra corta"></div></div></article>
+      <article class="card-esqueleto"><div class="thumb-fantasma"></div><div class="body"><div class="barra media"></div><div class="barra"></div><div class="barra corta"></div></div></article>
+      <article class="card-esqueleto"><div class="thumb-fantasma"></div><div class="body"><div class="barra media"></div><div class="barra"></div><div class="barra corta"></div></div></article>
+    </div>
+  </section>
+</main>
 
 <!-- ================= FLOATING ORDER BAR ================= -->
 <div class="floating-bar" id="floatingBar">
@@ -934,100 +993,159 @@
 
 <script>
 /* =========================================================
-   DATOS DEL MENÚ
-   Para agregar un producto nuevo: añade un objeto más al
-   arreglo de la categoría correspondiente con id único,
-   nombre, descripción, precio (COP, número entero) e imagen
-   (ruta dentro de /recursos). El resto de la página (grid,
-   carrito, WhatsApp) se genera solo a partir de estos datos.
+   EL MENU VIENE DE LA BASE DE DATOS
+
+   Antes los 38 productos estaban escritos aqui a mano, y otra copia
+   vivia en api/_precios.js. Cambiar un precio en una sola de las dos
+   dejaba al cliente viendo un valor y pagando otro.
+
+   Ahora la unica fuente es la tabla 'productos' de Supabase, que se
+   lee por /api/menu. Para agregar, quitar o cambiar un producto ya
+   no se toca este archivo.
+
+   Los datos se traducen a la misma forma que usaba el arreglo viejo
+   ({id, name, desc, price, img}) para que el carrito, el modal y el
+   mensaje de WhatsApp sigan funcionando sin cambios.
 ========================================================= */
-/* Precios y descripciones reales tomados del menú físico de Los Taqueiros
-   (fotos enviadas por el cliente). Las 3 aguas frescas comparten precio de
-   $9.000 (16oz): en la foto solo Horchata mostraba el precio explícito para
-   ese tamaño, así que se replicó para Jamaica y Tamarindo. */
-/* PENDIENTE: confirmar precio individual de Jamaica y Tamarindo si difieren de Horchata */
-const CATEGORIES = [
-  {
-    id: "bandejas",
-    name: "Bandejas de Tacos",
-    emoji: "🌮",
-    products: [
-      { id:"bandeja-mixta", name:"Bandeja Mixta", desc:"2 tacos chingones y 2 tacos vergones.", price:28000, img:"Recursos/tacos/bandeja mixta.webp" },
-      { id:"bandeja-buchona", name:"Bandeja Buchona", desc:"Un taco de cada una de nuestras 4 bandejas: chichona, chingona, vergona y perrona.", price:29000, img:"Recursos/tacos/bandeja buchona.webp" },
-      { id:"bandeja-chichona-x2", name:"Bandeja Chichona x2", desc:"Tortilla de maíz, chicharrón carnudo, guacamole, cebolla y cilantro.", price:17000, img:"Recursos/tacos/bandeja chichona x2.jpeg" },
-      { id:"bandeja-chichona-x4", name:"Bandeja Chichona x4", desc:"Tortilla de maíz, chicharrón carnudo, guacamole, cebolla y cilantro.", price:31000, img:"Recursos/tacos/bandeja chichona x4.jpeg" },
-      { id:"bandeja-chingona-x2", name:"Bandeja Chingona x2", desc:"Tortilla de maíz, carne de birria, queso mozzarella, cebolla, cilantro y caldo de birria.", price:16000, img:"Recursos/tacos/bandeja chingona x2.jpeg" },
-      { id:"bandeja-chingona-x4", name:"Bandeja Chingona x4", desc:"Tortilla de maíz, carne de birria, queso mozzarella, cebolla, cilantro y caldo de birria.", price:27000, img:"Recursos/tacos/bandeja chingona x4.jpeg" },
-      { id:"bandeja-perrona-x2", name:"Bandeja Perrona x2", desc:"Tortilla de maíz, carne de birria, cebolla, cilantro y caldo de birria.", price:15000, img:"Recursos/tacos/bandeja perrona x2.jpeg" },
-      { id:"bandeja-perrona-x4", name:"Bandeja Perrona x4", desc:"Tortilla de maíz, carne de birria, cebolla, cilantro y caldo de birria.", price:26000, img:"Recursos/tacos/bandeja perrona x4.jpeg" },
-      { id:"bandeja-vergona-x2", name:"Bandeja Vergona x2", desc:"Tortilla de maíz, carne de birria, guacamole, cebolla, cilantro y caldo de birria.", price:17000, img:"Recursos/tacos/bandeja vergona x2.jpeg" },
-      { id:"bandeja-vergona-x4", name:"Bandeja Vergona x4", desc:"Tortilla de maíz, carne de birria, guacamole, cebolla, cilantro y caldo de birria.", price:28000, img:"Recursos/tacos/bandeja vergona x4.jpeg" }
-    ]
-  },
-  {
-    id: "con-birria",
-    name: "Con Birria",
-    emoji: "🔥",
-    products: [
-      { id:"doriloco", name:"Doriloco", desc:"Paquete 80g. Carne de birria, queso mozzarella, salsa dulce, guacamole, cebolla y cilantro.", price:26000, img:"Recursos/con birria/dorilocos.webp" },
-      { id:"doriloco-recargado", name:"Doriloco Recargado", desc:"Nuestro Doriloco con chorizo y maíz extra.", price:30000, img:"Recursos/con birria/doriloco recargado.webp" },
-      { id:"nachos-locos-p", name:"Nachos Locos Pequeño", desc:"Nachos, carne de birria, pico de gallo, guacamole y salsa dulce.", price:15000, img:"Recursos/con birria/nachos locos.webp" },
-      { id:"nachos-locos-g", name:"Nachos Locos Grande", desc:"Nachos, carne de birria, pico de gallo, guacamole y salsa dulce.", price:25000, img:"Recursos/con birria/nachos locos.webp" },
-      { id:"birriamen", name:"Birriamen", desc:"Vaso 24oz. Pasta ramen, carne, caldo de birria, queso mozzarella, cebolla y cilantro.", price:26000, img:"Recursos/con birria/birriamen.webp" },
-      { id:"birriaco", name:"Birriaco", desc:"Nuestro Birriamen + un taco perrón.", price:30000, img:"Recursos/con birria/birriaco.webp" }
-    ]
-  },
-  {
-    id: "especiales",
-    name: "Especiales",
-    emoji: "⭐",
-    products: [
-      { id:"hamburguesa-chida", name:"Hamburguesa La Chida", desc:"Pan brioche, croqueta de carne, carne de birria con queso mozzarella, queso philadelphia, cebolla y cilantro. Incluye nachos y caldo de birria.", price:28000, img:"Recursos/especiales/hamburguesa la chida.jpeg" },
-      { id:"nachos-padrisimos", name:"Nachos Padrísimos", desc:"Nachos, carne de birria, chicharrón, pechuga, maíz y pico de gallo.", price:32000, img:"Recursos/especiales/nachos padrisimos.jpeg" },
-      { id:"chicana-birria", name:"Chicana de Birria", desc:"Papas casco, carne de birria, chorizo, maduro, pico de gallo y salsa dulce.", price:30000, img:"Recursos/especiales/chicana de birria.jpeg" }
-    ]
-  },
-  {
-    id: "bebidas",
-    name: "Bebidas",
-    emoji: "🥤",
-    products: [
-      { id:"agua-brisa", name:"Agua", desc:"Agua sin gas, 400ml.", price:3000, img:"Recursos/bebidas/agua brisa.webp" },
-      { id:"cocacola", name:"Coca Cola", desc:"Coca Cola personal, ideal para bajar el picante.", price:5000, img:"Recursos/bebidas/cocacola.webp" },
-      { id:"coronita", name:"Coronita", desc:"Cerveza Corona mini.", price:7000, img:"Recursos/bebidas/coronita.webp" },
-      { id:"cerveza-sol", name:"Cerveza Sol", desc:"Cerveza clara bien fría.", price:5000, img:"Recursos/bebidas/cerveza sol.webp" }
-    ]
-  },
-  {
-    id: "aguas-frescas",
-    name: "Aguas Frescas",
-    emoji: "🍹",
-    products: [
-      { id:"agua-horchata", name:"Horchata", desc:"Bebida de arroz con canela. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de horchata.webp" },
-      { id:"agua-jamaica", name:"Flor de Jamaica", desc:"Bebida antioxidante con limón. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de jamaica.webp" },
-      { id:"agua-tamarindo", name:"Tamarindo", desc:"Bebida refrescante agridulce. 16 onzas.", price:9000, img:"Recursos/aguas frescas/agua de tamarindo.webp" }
-    ]
-  },
-  {
-    id: "adiciones",
-    name: "Adiciones",
-    emoji: "➕",
-    products: [
-      { id:"add-chicharron", name:"Chicharrón", desc:"Adición.", price:8000 },
-      { id:"add-chorizo", name:"Chorizo", desc:"Adición.", price:4000 },
-      { id:"add-pechuga", name:"Pechuga", desc:"Adición.", price:8000 },
-      { id:"add-carne-birria", name:"Carne de Birria", desc:"Adición.", price:7000 },
-      { id:"add-caldo-birria", name:"Caldo de Birria", desc:"Adición.", price:5000 },
-      { id:"add-queso", name:"Queso", desc:"Adición.", price:3000 },
-      { id:"add-nachos", name:"Nachos", desc:"Adición.", price:5000 },
-      { id:"add-tortillas", name:"Tortillas x3", desc:"Adición.", price:6000 },
-      { id:"add-papa-casco", name:"Papa Casco", desc:"Adición.", price:6000 },
-      { id:"add-pico-gallo", name:"Pico de Gallo", desc:"Adición.", price:4000 },
-      { id:"add-guacamole", name:"Guacamole", desc:"Adición.", price:5000 },
-      { id:"add-salsas", name:"Salsas", desc:"Salsa dulce o salsa picante.", price:2000 }
-    ]
+let CATEGORIES = [];
+let productosAgotados = new Set();
+
+/* Copia local del ultimo menu que se recibio bien. Es la ultima red
+   de seguridad si Supabase y el servidor fallan a la vez: el cliente
+   ve el menu de su visita anterior en lugar de una pagina vacia.
+   No es una copia escrita en el codigo, es lo ultimo que se sirvio. */
+const MENU_CACHE_KEY = "taqueiros-menu-v1";
+
+function traducirMenu(datos){
+  const porCategoria = new Map();
+  (datos.categorias || []).forEach(c => {
+    porCategoria.set(c.id, { id:c.id, name:c.nombre, emoji:c.emoji || "", products:[] });
+  });
+
+  (datos.productos || []).forEach(pr => {
+    const cat = porCategoria.get(pr.categoria);
+    if(!cat) return;   // producto de una categoria desactivada
+    cat.products.push({
+      id: pr.id,
+      name: pr.nombre,
+      desc: pr.descripcion || "",
+      price: Number(pr.precio),
+      img: pr.imagen || null,
+      disponible: pr.disponible !== false
+    });
+  });
+
+  return [...porCategoria.values()].filter(c => c.products.length > 0);
+}
+
+async function cargarMenu(){
+  let datos = null;
+
+  try{
+    const resp = await fetch("/api/menu", { cache: "no-store" });
+    if(!resp.ok) throw new Error("HTTP " + resp.status);
+    datos = await resp.json();
+    if(!datos.ok) throw new Error(datos.error || "respuesta sin datos");
+
+    // Se guarda como respaldo para la proxima vez
+    try{ localStorage.setItem(MENU_CACHE_KEY, JSON.stringify(datos)); }catch(e){}
+  }catch(err){
+    console.warn("[Menu] No se pudo cargar del servidor:", err.message);
+
+    try{
+      const guardado = localStorage.getItem(MENU_CACHE_KEY);
+      if(guardado){
+        datos = JSON.parse(guardado);
+        console.warn("[Menu] Usando la copia guardada de la visita anterior");
+        avisarMenuDesactualizado();
+      }
+    }catch(e){ /* sin copia */ }
   }
-];
+
+  if(!datos){
+    mostrarMenuNoDisponible();
+    return false;
+  }
+
+  CATEGORIES = traducirMenu(datos);
+  (datos.productos || []).forEach(pr => {
+    if(pr.disponible === false) productosAgotados.add(pr.id);
+  });
+
+  pintarNavCategorias();
+  pintarMenu();
+  renderQtyControls();
+  updateCartUI(false);
+  observarTarjetas();
+  observarSecciones();
+
+  // La disponibilidad real llega aparte, y casi sin cache
+  refrescarDisponibilidad();
+  return true;
+}
+
+/* La lista de agotados va por su propio endpoint, que casi no se
+   cachea. Asi el catalogo puede cachearse 5 minutos sin que un
+   producto agotado tarde 5 minutos en desaparecer. */
+async function refrescarDisponibilidad(){
+  try{
+    const resp = await fetch("/api/disponibilidad", { cache: "no-store" });
+    if(!resp.ok) return;
+    const datos = await resp.json();
+    if(!datos.ok || !Array.isArray(datos.agotados)) return;
+
+    productosAgotados = new Set(datos.agotados);
+    aplicarAgotados();
+  }catch(err){
+    // Sin dato no se inventa nada: el menu se queda como esta y la
+    // validacion del pago sigue impidiendo cobrar algo agotado.
+    console.warn("[Menu] No se pudo consultar la disponibilidad:", err.message);
+  }
+}
+
+/* Marca visualmente lo agotado SIN volver a pintar el menu, para no
+   reiniciar la animacion de entrada de las tarjetas. */
+function aplicarAgotados(){
+  document.querySelectorAll(".card[data-id]").forEach(card => {
+    const agotado = productosAgotados.has(card.dataset.id);
+    card.classList.toggle("agotado", agotado);
+    fillQtySlot(card.querySelector(".qty-slot"), card.dataset.id);
+  });
+
+  // Si algo del carrito se agoto, se saca y se avisa
+  const enCarritoAgotados = Object.keys(cart).filter(id => productosAgotados.has(id));
+  if(enCarritoAgotados.length){
+    const nombres = enCarritoAgotados.map(id => {
+      const pr = findProduct(id);
+      delete cart[id];
+      return pr ? pr.name : id;
+    });
+    saveCart();
+    renderQtyControls();
+    updateCartUI(false);
+    alert("Se nos acabó: " + nombres.join(", ") +
+          ".\nLo quitamos de tu carrito para que puedas seguir con el resto.");
+  }
+}
+
+function avisarMenuDesactualizado(){
+  const banner = document.getElementById("menuAviso");
+  if(!banner) return;
+  banner.hidden = false;
+  banner.textContent = "Estamos mostrando el menú de tu visita anterior. Puede que los precios o la disponibilidad hayan cambiado.";
+}
+
+function mostrarMenuNoDisponible(){
+  document.getElementById("menu").innerHTML =
+    '<div class="menu-caido">' +
+      '<div class="ic">\u{1F32E}</div>' +
+      '<h3>No pudimos cargar el menú</h3>' +
+      '<p>Estamos teniendo un problema técnico. Escríbenos por WhatsApp y te tomamos el pedido de una vez.</p>' +
+      '<a class="btn-primary" href="https://wa.me/' + WHATSAPP_NUMBER + '" target="_blank" rel="noopener">Pedir por WhatsApp</a>' +
+      '<button class="btn-secondary" onclick="location.reload()" style="margin-top:.7rem;">Reintentar</button>' +
+    '</div>';
+  document.getElementById("catNav").innerHTML = "";
+}
 
 /* Número de WhatsApp real de Los Taqueiros (extraído de la página oficial) */
 const WHATSAPP_NUMBER = "573125249438";
@@ -1074,22 +1192,28 @@ function cartTotal(){
    RENDER: NAV DE CATEGORÍAS
 ========================================================= */
 const catNav = document.getElementById("catNav");
-CATEGORIES.forEach(cat => {
-  const btn = document.createElement("button");
-  btn.textContent = `${cat.emoji} ${cat.name}`;
-  btn.dataset.target = cat.id;
-  btn.addEventListener("click", () => {
-    document.getElementById("cat-"+cat.id).scrollIntoView({behavior:"smooth"});
+
+function pintarNavCategorias(){
+  catNav.innerHTML = "";
+  CATEGORIES.forEach(cat => {
+    const btn = document.createElement("button");
+    btn.textContent = `${cat.emoji} ${cat.name}`;
+    btn.dataset.target = cat.id;
+    btn.addEventListener("click", () => {
+      document.getElementById("cat-"+cat.id).scrollIntoView({behavior:"smooth"});
+    });
+    catNav.appendChild(btn);
   });
-  catNav.appendChild(btn);
-});
+}
 
 /* =========================================================
    RENDER: MENÚ
 ========================================================= */
 const menuEl = document.getElementById("menu");
 
-CATEGORIES.forEach(cat => {
+function pintarMenu(){
+  menuEl.innerHTML = "";
+  CATEGORIES.forEach(cat => {
   const section = document.createElement("section");
   section.className = "category-section";
   section.id = "cat-"+cat.id;
@@ -1124,16 +1248,28 @@ CATEGORIES.forEach(cat => {
     grid.appendChild(card);
   });
 
-  section.appendChild(grid);
-  menuEl.appendChild(section);
-});
+    section.appendChild(grid);
+    menuEl.appendChild(section);
+  });
+}
 
 /* Llena un contenedor .qty-slot con el botón "+" o el control -/cantidad/+
    según lo que haya en el carrito para ese producto. Se usa tanto en las
    cards del grid como en el modal de producto. */
 function fillQtySlot(slot, id){
+  if(!slot) return;
   const qty = cart[id] || 0;
   slot.innerHTML = "";
+
+  // Agotado: se ve, pero no se puede agregar al carrito
+  if(productosAgotados.has(id)){
+    const etiqueta = document.createElement("span");
+    etiqueta.className = "etiqueta-agotado";
+    etiqueta.textContent = "Agotado";
+    slot.appendChild(etiqueta);
+    return;
+  }
+
   if(qty === 0){
     const btn = document.createElement("button");
     btn.className = "add-btn";
@@ -1871,6 +2007,21 @@ async function iniciarPagoWompi(){
     if(!resp.ok){
       const detalle = await resp.json().catch(() => ({}));
 
+      /* El producto se agotó mientras el cliente tenía el menú viejo
+         en pantalla. Se quita del carrito y se refresca el menú, para
+         que no vuelva a intentarlo con lo mismo. */
+      if(detalle.agotado){
+        delete cart[detalle.agotado];
+        saveCart();
+        productosAgotados.add(detalle.agotado);
+        aplicarAgotados();
+        renderQtyControls();
+        updateCartUI(false);
+        closePaymentForm();
+        alert(detalle.error);
+        return;
+      }
+
       // El servidor rechaza los pedidos fuera de horario
       if(detalle.cerrado){
         restauranteAbierto = false;
@@ -2333,24 +2484,29 @@ const observer = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.15 });
 
-document.querySelectorAll(".card").forEach(card => observer.observe(card));
+function observarTarjetas(){
+  document.querySelectorAll(".card").forEach(card => observer.observe(card));
+}
 
 /* =========================================================
    NAV ACTIVA SEGÚN SCROLL
 ========================================================= */
-const sections = CATEGORIES.map(c => document.getElementById("cat-"+c.id));
-const navButtons = Array.from(catNav.children);
-
 const sectionObserver = new IntersectionObserver((entries) => {
   entries.forEach(entry => {
     if(entry.isIntersecting){
       const id = entry.target.id.replace("cat-","");
-      navButtons.forEach(btn => btn.classList.toggle("active", btn.dataset.target === id));
+      Array.from(catNav.children).forEach(btn =>
+        btn.classList.toggle("active", btn.dataset.target === id));
     }
   });
 }, { rootMargin: "-140px 0px -70% 0px" });
 
-sections.forEach(sec => sectionObserver.observe(sec));
+function observarSecciones(){
+  CATEGORIES.forEach(c => {
+    const sec = document.getElementById("cat-"+c.id);
+    if(sec) sectionObserver.observe(sec);
+  });
+}
 
 /* =========================================================
    ESTADO DEL RESTAURANTE (lo decide el servidor)
@@ -2494,9 +2650,18 @@ function renderFooterHours(){
    INIT
 ========================================================= */
 document.getElementById("year").textContent = new Date().getFullYear();
-renderQtyControls();
 updateCartUI(false);
 renderFooterHours();
+
+/* El menú ya no está escrito en este archivo: se pide al servidor.
+   Hasta que llegue, se ve el esqueleto que trae el HTML. */
+cargarMenu();
+
+/* La disponibilidad se refresca al volver a la pestaña: si el cliente
+   dejó la página abierta y entre tanto se agotó algo, lo ve al volver. */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && CATEGORIES.length) refrescarDisponibilidad();
+});
 renderStatusBanner();
 mostrarBannerSeguimiento();
 

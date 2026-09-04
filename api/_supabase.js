@@ -162,8 +162,24 @@ async function registrarSaludNotificacion(ok, mensajeError) {
   }
 }
 
+/* Consulta generica a cualquier tabla, con filtro de PostgREST.
+   Ej: consultarTabla("productos", "select=*&order=orden") */
+async function consultarTabla(tabla, filtro) {
+  const { url, key } = credenciales();
+  const resp = await fetch(`${url}/rest/v1/${tabla}?${filtro}`, {
+    headers: cabeceras(key)
+  });
+
+  const texto = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`Supabase ${tabla} fallo (${resp.status}): ${texto}`);
+  }
+  return JSON.parse(texto);
+}
+
 module.exports = {
   insertarPedido,
+  consultarTabla,
   registrarSaludNotificacion,
   limpiarHuerfanos,
   buscarPedidoPorReferencia,

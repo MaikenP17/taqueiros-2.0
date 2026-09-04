@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { PRECIOS } = require("./_precios.js");
+const { validarItems } = require("./_precios.js");
 const { calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
 const { estadoRestaurante } = require("./_horario.js");
 const { verificarUbicacion } = require("./_ubicacion.js");
@@ -85,38 +85,27 @@ module.exports = async (req, res) => {
     }
 
     // ---- Validar items y calcular el total en el servidor -----
-    if (!Array.isArray(items) || items.length === 0) {
-      res.status(400).json({ error: "El pedido no tiene productos" });
+    /* Los productos se validan CONTRA LA BASE, en este instante:
+         - que existan
+         - que sigan disponibles
+         - y a que precio se cobran de verdad
+
+       El navegador solo manda ids y cantidades. Los precios que se
+       usan aqui son los de la base, nunca los que llegaron en la
+       peticion. */
+    const revision = await validarItems(items);
+
+    if (!revision.ok) {
+      // 409 y no 400: no es que el cliente pidiera mal, es que el
+      // menu cambio debajo de el. El front lo distingue para poder
+      // quitar del carrito el producto agotado.
+      res.status(409).json({ error: revision.error, agotado: revision.agotado || null });
       return;
     }
 
-    const itemsValidados = [];
-    let total = 0;
-
-    for (const item of items) {
-      const id = limpiar(item && item.id, 60);
-      const cantidad = Number(item && item.cantidad);
-
-      const producto = PRECIOS[id];
-      if (!producto) {
-        res.status(400).json({ error: `Producto desconocido: ${id}` });
-        return;
-      }
-      if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
-        res.status(400).json({ error: `Cantidad inválida para ${id}` });
-        return;
-      }
-
-      itemsValidados.push({
-        id,
-        nombre: producto.nombre,
-        cantidad,
-        precio: producto.precio
-      });
-      total += producto.precio * cantidad;
-    }
-
-    const subtotal = total;
+    const itemsValidados = revision.items;
+    let total = revision.subtotal;
+    const subtotal = revision.subtotal;
 
     if (subtotal <= 0) {
       res.status(400).json({ error: "Total inválido" });
