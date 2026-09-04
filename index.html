@@ -1038,11 +1038,20 @@ function traducirMenu(datos){
   return [...porCategoria.values()].filter(c => c.products.length > 0);
 }
 
-async function cargarMenu(){
+async function cargarMenu(opciones){
   let datos = null;
+  const forzar = opciones && opciones.forzar;
 
   try{
-    const resp = await fetch("/api/menu", { cache: "no-store" });
+    /* OJO con el cache: 'cache: no-store' solo evita el del NAVEGADOR.
+       El del borde de Vercel dura 5 minutos y no se salta con eso.
+
+       Para forzar de verdad hay que cambiar la URL, porque la clave de
+       cache incluye la query string. Solo se usa cuando hace falta ver
+       los precios al instante; las visitas normales siguen usando el
+       cache, que es lo que evita miles de consultas a Supabase. */
+    const url = forzar ? ("/api/menu?t=" + Date.now()) : "/api/menu";
+    const resp = await fetch(url, { cache: "no-store" });
     if(!resp.ok) throw new Error("HTTP " + resp.status);
     datos = await resp.json();
     if(!datos.ok) throw new Error(datos.error || "respuesta sin datos");
@@ -1101,6 +1110,74 @@ async function refrescarDisponibilidad(){
     // validacion del pago sigue impidiendo cobrar algo agotado.
     console.warn("[Menu] No se pudo consultar la disponibilidad:", err.message);
   }
+}
+
+/* -------------------------------------------------------------
+   APLICA LOS CAMBIOS QUE REPORTO EL SERVIDOR Y CUENTA QUE HIZO
+
+   El servidor manda HECHOS: que se agoto y que precios cambiaron,
+   con sus valores nuevos. Esta funcion los aplica y devuelve el
+   mensaje, para que el texto describa lo que de verdad ocurrio y no
+   una promesa escrita de antemano.
+
+   Clave: los precios nuevos vienen EN LA RESPUESTA. No se sale a la
+   red a buscarlos, asi que no hay forma de que el cache del borde
+   devuelva los viejos y deje el carrito igual.
+------------------------------------------------------------- */
+function aplicarCambiosDelMenu(agotados, preciosCambiados){
+  const lineas = [];
+
+  // --- Agotados: se sacan del carrito ---
+  (agotados || []).forEach(a => {
+    productosAgotados.add(a.id);
+    if(cart[a.id]){
+      delete cart[a.id];
+      lineas.push("\u{1F6AB} Se nos acabó " + a.nombre + ", lo quitamos del carrito.");
+    }else{
+      lineas.push("\u{1F6AB} Se nos acabó " + a.nombre + ".");
+    }
+  });
+
+  // --- Precios: se corrigen en el menú que ya está en memoria ---
+  let subieron = 0, bajaron = 0;
+  (preciosCambiados || []).forEach(c => {
+    let aplicado = false;
+    CATEGORIES.forEach(cat => {
+      const pr = cat.products.find(x => x.id === c.id);
+      if(pr){ pr.price = c.precioNuevo; aplicado = true; }
+    });
+
+    if(!aplicado) return;   // no se pudo: no se afirma que sí
+
+    if(c.subio) subieron++; else bajaron++;
+    lineas.push((c.subio ? "\u{1F53A} " : "\u{1F53B} ") + c.nombre +
+      ": " + formatCOP(c.precioViejo) + " \u2192 " + formatCOP(c.precioNuevo));
+  });
+
+  // Se repinta todo con los valores ya corregidos
+  saveCart();
+  pintarMenu();
+  renderQtyControls();
+  aplicarAgotados();
+  updateCartUI(false);
+  observarTarjetas();
+  observarSecciones();
+
+  /* Se pide el catálogo saltándose el caché del borde, para que el
+     resto del menú también quede al día. Va sin await: el carrito ya
+     está correcto y no hay por qué hacer esperar al cliente. */
+  cargarMenu({ forzar: true });
+
+  // --- El mensaje se arma con lo que se acaba de hacer ---
+  const cabecera = (subieron && !bajaron) ? "El menú cambió mientras pedías:"
+                 : (bajaron && !subieron) ? "\u00a1Buenas noticias!"
+                 : "El menú cambió mientras pedías:";
+
+  const cierre = Object.keys(cart).length
+    ? "\n\nTu carrito ya muestra los valores nuevos. Revísalo y dale a Pagar cuando quieras."
+    : "\n\nTu carrito quedó vacío.";
+
+  return cabecera + "\n\n" + lineas.join("\n") + cierre;
 }
 
 /* Marca visualmente lo agotado SIN volver a pintar el menu, para no
@@ -2014,31 +2091,15 @@ async function iniciarPagoWompi(){
     if(!resp.ok){
       const detalle = await resp.json().catch(() => ({}));
 
-      /* El precio cambió mientras el cliente tenía el menú viejo en
-         pantalla. Se recarga el menú para que vea el total real y
-         pueda decidir, en vez de encontrarse otro número en Wompi. */
-      if(detalle.precioCambiado){
-        closePaymentForm();
-        await cargarMenu();          // trae los precios nuevos
-        renderQtyControls();
-        updateCartUI(false);
-        alert(detalle.error);
-        openDrawer();                // el carrito, ya con el total corregido
-        return;
-      }
+      /* El menú cambió mientras el cliente lo tenía en pantalla.
+         Se aplican los cambios y se le cuenta lo que REALMENTE pasó. */
+      const huboAgotados = Array.isArray(detalle.agotados) && detalle.agotados.length;
+      const huboPrecios = Array.isArray(detalle.preciosCambiados) && detalle.preciosCambiados.length;
 
-      /* El producto se agotó mientras el cliente tenía el menú viejo
-         en pantalla. Se quita del carrito y se refresca el menú, para
-         que no vuelva a intentarlo con lo mismo. */
-      if(detalle.agotado){
-        delete cart[detalle.agotado];
-        saveCart();
-        productosAgotados.add(detalle.agotado);
-        aplicarAgotados();
-        renderQtyControls();
-        updateCartUI(false);
+      if(huboAgotados || huboPrecios){
         closePaymentForm();
-        alert(detalle.error);
+        alert(aplicarCambiosDelMenu(detalle.agotados, detalle.preciosCambiados));
+        openDrawer();     // el carrito, ya con los valores corregidos
         return;
       }
 

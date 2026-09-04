@@ -22,10 +22,6 @@ const { leerCatalogoParaCobrar } = require("./_menu.js");
    agotado, es gratis.
 ============================================================= */
 
-function formatoPesos(n) {
-  return "$" + Number(n).toLocaleString("es-CO");
-}
-
 /* Valida los productos de un pedido contra la base.
 
    Devuelve:
@@ -53,6 +49,19 @@ async function validarItems(items) {
     return { ok: false, error: "No pudimos confirmar los precios en este momento. Intenta de nuevo en unos segundos." };
   }
 
+  /* -------------------------------------------------------------
+     SE RECORREN TODOS LOS PRODUCTOS ANTES DE RESPONDER
+
+     Antes se devolvia al primer problema. Si habian cambiado dos
+     precios, el cliente arreglaba uno, reintentaba, y se encontraba
+     con el siguiente: un aviso por producto.
+
+     Ahora se juntan todos y se devuelven de una vez, para que el
+     cliente quede al dia en un solo paso.
+  ------------------------------------------------------------- */
+  const desconocidos = [];
+  const agotados = [];
+  const preciosCambiados = [];
   const validados = [];
   let subtotal = 0;
 
@@ -61,58 +70,34 @@ async function validarItems(items) {
     const cantidad = Number(item && item.cantidad);
 
     const producto = catalogo.get(id);
-    if (!producto) {
-      return { ok: false, error: `Uno de los productos ya no está en el menú. Actualiza la página e intenta de nuevo.` };
-    }
+    if (!producto) { desconocidos.push(id); continue; }
 
-    // Se agoto mientras el cliente tenia el menu viejo en pantalla
     if (!producto.disponible) {
-      return {
-        ok: false,
-        agotado: id,
-        error: `Se nos acabó "${producto.nombre}". Quítalo del carrito para continuar con el resto del pedido.`
-      };
+      agotados.push({ id, nombre: producto.nombre });
+      continue;
     }
 
     if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
       return { ok: false, error: `Cantidad inválida para "${producto.nombre}"` };
     }
 
-    /* -------------------------------------------------------------
-       EL PRECIO QUE VIO EL CLIENTE DEBE SER EL QUE SE LE COBRA
-       -------------------------------------------------------------
-       El navegador manda el precio que tenia en pantalla. Si no
-       coincide con el de la base, NO se corrige en silencio: se
-       rechaza el pedido y se le avisa.
+    /* El precio que el cliente tiene EN PANTALLA debe coincidir con el
+       de la base. Si no, no se corrige en silencio: se informa.
 
        Por que importa: el catalogo se cachea 5 minutos. Si el dueno
-       sube la bandeja de 28.000 a 32.000, durante esos minutos el
-       cliente ve 56.000 por dos y se le abriria Wompi pidiendole
-       64.000, justo cuando ya saco la tarjeta.
-
-       La regla que no se rompe: al cliente NUNCA se le cobra algo
-       distinto de lo que vio, sin decirselo antes.
-
-       Se rechaza en las dos direcciones, tambien si BAJO. Cobrar
-       menos no le hace dano, pero un total que cambia solo genera
-       desconfianza, y el aviso de que bajo es buena noticia: solo
-       le cuesta un toque volver a intentar. */
+       sube un producto, durante esos minutos el cliente veria un total
+       y se le abriria Wompi con otro, justo cuando ya saco la tarjeta. */
     const precioMostrado = Number(item && item.precio);
 
     if (Number.isFinite(precioMostrado) && precioMostrado !== producto.precio) {
-      return {
-        ok: false,
-        precioCambiado: {
-          id,
-          nombre: producto.nombre,
-          precioViejo: precioMostrado,
-          precioNuevo: producto.precio,
-          subio: producto.precio > precioMostrado
-        },
-        error: producto.precio > precioMostrado
-          ? `El precio de "${producto.nombre}" cambió: ahora cuesta ${formatoPesos(producto.precio)} en vez de ${formatoPesos(precioMostrado)}. Actualizamos tu carrito para que revises el nuevo total antes de pagar.`
-          : `¡Buena noticia! "${producto.nombre}" bajó de precio: ahora cuesta ${formatoPesos(producto.precio)} en vez de ${formatoPesos(precioMostrado)}. Actualizamos tu carrito con el nuevo total.`
-      };
+      preciosCambiados.push({
+        id,
+        nombre: producto.nombre,
+        precioViejo: precioMostrado,
+        precioNuevo: producto.precio,
+        subio: producto.precio > precioMostrado
+      });
+      continue;
     }
 
     validados.push({
@@ -122,6 +107,30 @@ async function validarItems(items) {
       precio: producto.precio      // el de la base, no el del navegador
     });
     subtotal += producto.precio * cantidad;
+  }
+
+  /* -------------------------------------------------------------
+     LA RESPUESTA DESCRIBE HECHOS, NO PROMESAS
+
+     Antes el mensaje decia "Actualizamos tu carrito", una afirmacion
+     escrita aqui sobre algo que ocurre en el navegador. Cuando el
+     navegador no lograba actualizarlo, el texto quedaba mintiendo y
+     el cliente entraba en un bucle: pagar, mismo aviso, pagar.
+
+     Ahora el servidor solo reporta QUE cambio y a cuanto. El mensaje
+     que ve el cliente lo arma el navegador DESPUES de aplicar los
+     cambios, contando lo que de verdad hizo.
+  ------------------------------------------------------------- */
+  if (desconocidos.length) {
+    return {
+      ok: false,
+      desconocidos,
+      error: "Uno de los productos ya no está en el menú. Actualiza la página e intenta de nuevo."
+    };
+  }
+
+  if (agotados.length || preciosCambiados.length) {
+    return { ok: false, agotados, preciosCambiados };
   }
 
   if (subtotal <= 0) {
