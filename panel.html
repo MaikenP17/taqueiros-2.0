@@ -789,91 +789,78 @@ async function cargarPedidos(){
    Al recuperarse, se recargan los pedidos que hayan entrado
    mientras estuvo caido y se avisa cuantos llegaron.
 ========================================================= */
-/* -------------------------------------------------------------
-   POR QUE ESTE BLOQUE SE REESCRIBIO
+/* =========================================================
+   ESTADO DE LA CONEXION
 
-   Sintoma: el panel decia "SIN CONEXION" con el banner rojo puesto
-   mientras los pedidos entraban con normalidad por Realtime.
+   -------------------------------------------------------------
+   POR QUE NO HAY NINGUNA VARIABLE CON EL ESTADO DE CONEXION
+   -------------------------------------------------------------
+   Hubo DOS fallos seguidos de la misma familia, los dos por llevar
+   una bandera aparte que se desincronizaba de la realidad:
 
-   Causa: el indicador era de UNA SOLA VIA. 'conexionViva' se ponia
-   en false por un evento (un CHANNEL_ERROR pasajero, el evento
-   'offline', o la propia reconexion antes de resuscribirse), pero
-   solo podia volver a true si el callback de subscribe() disparaba
-   SUBSCRIBED otra vez. Y supabase-js reconecta por su cuenta a nivel
-   de socket sin volver a disparar ese callback.
+   1. Una bandera que solo podia ponerse en rojo: nada la devolvia a
+      verde cuando supabase-js reconectaba por su cuenta.
 
-   Peor: el vigilante periodico solo actuaba cuando el canal NO
-   estaba unido. Con el canal en 'joined' y la bandera en false, NO
-   EXISTIA NINGUN CAMINO DE VUELTA. El banner quedaba mintiendo para
-   siempre, por construccion.
+   2. La bandera arrancaba en 'true' mientras el HTML del badge decia
+      "Conectando...". Al llegar SUBSCRIBED se llamaba a pintar con
+      'true', el codigo veia "es el mismo valor que ya tenia" y se
+      salia SIN PINTAR. El badge se quedaba en "Conectando..." para
+      siempre, con el canal perfectamente suscrito.
 
-   Solucion: el estado ya no se deduce de eventos sueltos. Se evalua
-   contra el estado REAL del canal, y la evaluacion corrige en las
-   DOS direcciones.
-------------------------------------------------------------- */
-let conexionViva = true;
+   La leccion: cualquier copia del estado se desincroniza tarde o
+   temprano. Aqui ya no hay copia.
+
+     * leerEstadoConexion() calcula el estado EN EL MOMENTO, leyendo
+       el canal de Supabase. No guarda nada.
+     * pintarConexion() pinta SIEMPRE, sin preguntar si "cambio".
+       Es idempotente: pintar dos veces lo mismo no molesta.
+     * Lo que hay en pantalla se lee de la propia pantalla
+       (conn.dataset.estado), no de una variable paralela.
+
+   Resultado: es imposible quedarse atascado en un estado. Aunque el
+   DOM se corrompiera, el siguiente ciclo lo repinta bien.
+========================================================= */
 let canalPedidos = null;
 let reconectando = false;
 let ciclosEnMalEstado = 0;
 
-/* Cada cuanto se revisa el estado real (lectura local, no sale a la
-   red salvo que encuentre algo roto). */
+/* Cada cuanto se revisa (lectura local; no sale a la red salvo que
+   encuentre el canal roto). */
 const REVISION_MS = 10000;
 
-/* Cuantas revisiones seguidas en mal estado antes de poner el banner.
-   Se prefiere un aviso que tarde ~20s pero que NUNCA mienta: un
-   banner rojo permanente entrena al restaurante a ignorarlo, y el
-   dia de la caida real tambien lo ignoraria. */
+/* Revisiones seguidas en mal estado antes de alarmar. Evita falsas
+   alarmas por parpadeos de los que supabase-js se recupera solo. */
 const CICLOS_PARA_AVISAR = 2;
 
+/* Diagnostico por ciclo. Se activa desde la consola con:
+     depurarConexion(true)
+   y queda guardado para las siguientes sesiones. */
+let DEPURAR_CONEXION = false;
+try{ DEPURAR_CONEXION = localStorage.getItem("taqueiros-depurar-conexion") === "1"; }catch(e){}
+
+window.depurarConexion = function(activar){
+  DEPURAR_CONEXION = activar !== false;
+  try{ localStorage.setItem("taqueiros-depurar-conexion", DEPURAR_CONEXION ? "1" : "0"); }catch(e){}
+  console.log("[Conexion] Diagnóstico por ciclo:", DEPURAR_CONEXION ? "ACTIVADO" : "apagado");
+  return DEPURAR_CONEXION;
+};
+
 /* El estado REAL del canal, tal como lo reporta Supabase.
-   Valores: joined | joining | closed | errored | leaving | sin canal */
+   joined | joining | closed | errored | leaving | sin canal */
 function estadoDelCanal(){
   return canalPedidos && canalPedidos.state ? canalPedidos.state : "sin canal";
 }
 
-/* Pinta el indicador. Solo actua en los CAMBIOS, y deja constancia en
-   la consola de a que estado paso y por que. */
-function marcarConexion(viva, motivo){
-  const conn = document.getElementById("conn");
-  const connTxt = document.getElementById("connTxt");
-  const banner = document.getElementById("bannerCaido");
-  const eraViva = conexionViva;
-
-  if(viva === eraViva){
-    return;   // sin cambio, no se repinta ni se ensucia la consola
-  }
-  conexionViva = viva;
-
-  conn.className = viva ? "conn online" : "conn offline";
-  connTxt.textContent = viva ? "En vivo" : "Desconectado";
-  banner.classList.toggle("visible", !viva);
-
-  console.log(
-    "[Conexion] " + (eraViva ? "EN VIVO" : "DESCONECTADO") +
-    " -> " + (viva ? "EN VIVO" : "DESCONECTADO") +
-    " | motivo: " + (motivo || "sin especificar") +
-    " | canal: " + estadoDelCanal() +
-    " | navegador " + (navigator.onLine ? "en linea" : "sin red")
-  );
-
-  if(!viva){
-    sonarInsistente();
-  }else{
-    recuperarPedidosPerdidos();
-  }
-}
-
-/* UNICA fuente de verdad del indicador.
-   Compara con el estado real y corrige en ambos sentidos:
-     - canal sano pero bandera en false  -> la corrige a true
-     - canal roto de forma sostenida     -> pone el banner
-   Devuelve true si el canal esta sano. */
-function evaluarConexion(motivo){
-  const estado = estadoDelCanal();
+/* -------------------------------------------------------------
+   UNICA FUENTE DE VERDAD
+   Lee la realidad y devuelve que hay que mostrar. No guarda nada,
+   no pinta nada, no tiene efectos secundarios.
+   Devuelve: { clave: "vivo"|"conectando"|"caido", canal, sinRed, socketVivo }
+------------------------------------------------------------- */
+function leerEstadoConexion(){
+  const canal = estadoDelCanal();
   const sinRed = navigator.onLine === false;
 
-  // El socket de Realtime, cuando la version de supabase-js lo expone
   let socketVivo = true;
   try{
     if(db.realtime && typeof db.realtime.isConnected === "function"){
@@ -881,27 +868,74 @@ function evaluarConexion(motivo){
     }
   }catch(e){ /* si no se puede consultar, no se penaliza */ }
 
-  const sano = estado === "joined" && socketVivo && !sinRed;
-
-  if(sano){
-    ciclosEnMalEstado = 0;
-    // Si el indicador se habia quedado mintiendo, aqui se corrige.
-    // Este es el camino de vuelta que antes no existia.
-    marcarConexion(true, motivo);
-    return true;
+  let clave;
+  if(canal === "joined" && socketVivo && !sinRed){
+    clave = "vivo";
+  }else if(canal === "joining" && !sinRed){
+    clave = "conectando";
+  }else{
+    clave = "caido";
   }
 
-  // 'joining' es transitorio: se le da tiempo sin alarmar
-  if(estado === "joining" && !sinRed){
-    return false;
+  return { clave, canal, sinRed, socketVivo };
+}
+
+/* Como se ve cada estado */
+const PINTURA = {
+  vivo:       { clase:"conn online",  texto:"En vivo",     banner:false },
+  conectando: { clase:"conn",         texto:"Conectando…", banner:false },
+  caido:      { clase:"conn offline", texto:"Desconectado",banner:true  }
+};
+
+/* -------------------------------------------------------------
+   PINTA SIEMPRE, a partir de leerEstadoConexion().
+   Nunca decide "no pinto porque no cambio": esa decision fue justo
+   la que dejo el badge atascado.
+------------------------------------------------------------- */
+function pintarConexion(motivo){
+  const conn = document.getElementById("conn");
+  const connTxt = document.getElementById("connTxt");
+  const banner = document.getElementById("bannerCaido");
+  if(!conn || !connTxt || !banner) return null;
+
+  const real = leerEstadoConexion();
+
+  // Contador de mal estado sostenido
+  if(real.clave === "caido") ciclosEnMalEstado++;
+  else ciclosEnMalEstado = 0;
+
+  /* Un mal estado que todavia no se confirma se muestra como
+     "Conectando...", no como caido. Se prefiere un aviso que tarde
+     ~20s a un banner rojo que mienta: un rojo permanente entrena al
+     restaurante a ignorarlo. */
+  let aMostrar = real.clave;
+  if(real.clave === "caido" && ciclosEnMalEstado < CICLOS_PARA_AVISAR){
+    aMostrar = "conectando";
   }
 
-  ciclosEnMalEstado++;
-  if(ciclosEnMalEstado >= CICLOS_PARA_AVISAR){
-    marcarConexion(false, motivo + " (canal " + estado +
-      (sinRed ? ", sin red" : "") + ", " + ciclosEnMalEstado + " revisiones seguidas)");
+  // Lo que hay en pantalla se lee DE LA PANTALLA, no de una variable
+  const enPantalla = conn.dataset.estado || "";
+
+  const pintura = PINTURA[aMostrar];
+  conn.className = pintura.clase;
+  connTxt.textContent = pintura.texto;
+  banner.classList.toggle("visible", pintura.banner);
+  conn.dataset.estado = aMostrar;
+
+  // Efectos secundarios solo en los cambios reales
+  if(enPantalla && enPantalla !== aMostrar){
+    console.log(
+      "[Conexion] " + enPantalla.toUpperCase() + " -> " + aMostrar.toUpperCase() +
+      " | motivo: " + (motivo || "sin especificar") +
+      " | canal: " + real.canal +
+      " | navegador " + (real.sinRed ? "sin red" : "en línea")
+    );
+
+    if(aMostrar === "caido") sonarInsistente();
+    if(enPantalla === "caido" && aMostrar === "vivo") recuperarPedidosPerdidos();
   }
-  return false;
+
+  return real;
 }
 
 async function recuperarPedidosPerdidos(){
@@ -923,17 +957,18 @@ async function asegurarConexion(motivo){
   if(document.getElementById("app").hidden) return;  // sin sesion, nada que hacer
   if(reconectando) return;
 
-  const sano = evaluarConexion(motivo);
+  const real = pintarConexion(motivo);
+  if(!real) return;
 
-  if(sano){
+  if(real.clave === "vivo"){
     // El canal responde; se recargan los pedidos por si entro alguno
     // mientras la pestana estaba dormida.
     await cargarPedidos();
     return;
   }
-  if(estadoDelCanal() === "joining") return;   // ya se esta reconectando solo
+  if(real.canal === "joining") return;   // ya se esta reconectando solo
 
-  console.warn("[Conexion] Reconstruyendo el canal (" + motivo + "), estado: " + estadoDelCanal());
+  console.warn("[Conexion] Reconstruyendo el canal (" + motivo + "), estado: " + real.canal);
   reconectando = true;
 
   try{
@@ -942,6 +977,7 @@ async function asegurarConexion(motivo){
       canalPedidos = null;
     }
     suscribirse();
+    pintarConexion("canal reconstruido");
   }finally{
     reconectando = false;
   }
@@ -956,27 +992,37 @@ document.addEventListener("visibilitychange", () => {
    por si solo: dice si hay red, no si Supabase responde. Se usa como
    senal complementaria, nunca como unica fuente. */
 window.addEventListener("offline", () => {
-  ciclosEnMalEstado = CICLOS_PARA_AVISAR;   // el navegador es claro: no hay red
-  evaluarConexion("el navegador reporta que no hay red");
+  ciclosEnMalEstado = CICLOS_PARA_AVISAR - 1;  // el navegador es claro
+  pintarConexion("el navegador reporta que no hay red");
 });
 window.addEventListener("online", () => asegurarConexion("volvió la red"));
 
-/* Vigilante: revisa el estado REAL cada pocos segundos y corrige el
-   indicador en ambas direcciones. Es una lectura en memoria, no
-   cuesta nada; solo sale a la red si encuentra el canal roto. */
+/* -------------------------------------------------------------
+   VIGILANTE
+   Repinta en CADA ciclo, aunque parezca que nada cambio. Si lo
+   pintado y la realidad divergieran, aqui se corrige solo. Por eso
+   ya no es posible quedarse atascado en ningun estado.
+------------------------------------------------------------- */
 setInterval(() => {
   if(document.getElementById("app").hidden) return;
 
-  const estado = estadoDelCanal();
-  if(estado === "joined"){
-    // Reconcilia: si la bandera quedo en false con el canal sano,
-    // esto la corrige. Sin esta linea el banner se quedaba pegado.
-    evaluarConexion("revisión periódica");
-    return;
-  }
-  if(estado === "joining") return;
+  const real = pintarConexion("revisión periódica");
+  if(!real) return;
 
-  asegurarConexion("revisión periódica");
+  if(DEPURAR_CONEXION){
+    console.log(
+      "[Conexion·ciclo] canal:", real.canal,
+      "| socket:", real.socketVivo ? "vivo" : "caído",
+      "| red:", real.sinRed ? "no" : "sí",
+      "| en pantalla:", document.getElementById("conn").dataset.estado,
+      "| ciclos en mal estado:", ciclosEnMalEstado
+    );
+  }
+
+  // Solo se sale a la red si de verdad hay algo roto
+  if(real.clave === "caido" && real.canal !== "joining"){
+    asegurarConexion("revisión periódica");
+  }
 }, REVISION_MS);
 
 function suscribirse(){
@@ -1023,20 +1069,23 @@ function suscribirse(){
     .subscribe((estado) => {
       console.log("[Conexion] El canal reporta:", estado);
 
-      if(estado === "SUBSCRIBED"){
-        ciclosEnMalEstado = 0;
-        marcarConexion(true, "el canal se suscribió (SUBSCRIBED)");
-        return;
-      }
+      if(estado === "SUBSCRIBED") ciclosEnMalEstado = 0;
 
-      /* CHANNEL_ERROR, TIMED_OUT y CLOSED no pintan el banner de
-         inmediato: pueden ser un parpadeo del que supabase-js se
-         recupera solo en segundos. Se deja que el vigilante confirme
-         contra el estado real antes de alarmar. */
-      if(estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED"){
-        evaluarConexion("el canal reportó " + estado);
-      }
+      /* Se repinta a partir del estado REAL, no del evento recibido.
+         El evento solo dice "algo pasó, vuelve a mirar".
+
+         Antes se llamaba a pintar pasandole 'true' como dato, y como
+         la bandera interna ya valia 'true' el pintado se saltaba: el
+         badge se quedaba en "Conectando..." con el canal suscrito.
+
+         CHANNEL_ERROR, TIMED_OUT y CLOSED tampoco pintan el banner de
+         golpe: pueden ser un parpadeo. El contador de ciclos decide. */
+      pintarConexion("el canal reportó " + estado);
     });
+
+  // Se pinta de inmediato para que el badge no se quede con el texto
+  // inicial del HTML mientras el canal termina de unirse.
+  pintarConexion("suscripción iniciada");
 }
 
 /* (Los avisos de visibilitychange y online se manejan arriba, en
