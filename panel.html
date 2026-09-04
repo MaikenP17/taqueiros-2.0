@@ -517,15 +517,31 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
    true por defecto (verificado en el bundle 2.45.4 que carga esta
    pagina). Se dejan explicitos de todas formas: documentan la
    intencion y protegen si un dia cambian los valores por defecto. */
+/* NO se define 'storageKey' a proposito.
+   -------------------------------------------------------------
+   Se habia puesto una clave propia ("taqueiros-panel-sesion") y eso
+   dejo DOS entradas en el almacenamiento del navegador: la nueva y
+   la oficial de Supabase, que quedo huerfana con un token viejo.
+
+   Dos copias del token es un problema real: supabase-js renueva solo
+   la que el mismo gestiona; la otra se queda vencida y confunde a
+   cualquiera que la lea.
+
+   Con la clave por defecto (sb-<proyecto>-auth-token) hay UNA sola
+   copia, y es la que supabase-js renueva cada hora.
+------------------------------------------------------------- */
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,      // guarda la sesion en localStorage
     autoRefreshToken: true,    // renueva el token antes de que venza
     detectSessionInUrl: false, // no se usan enlaces magicos ni OAuth
-    storage: window.localStorage,
-    storageKey: "taqueiros-panel-sesion"
+    storage: window.localStorage
   }
 });
+
+/* Limpieza del resto que dejo la clave propia. Se puede borrar esta
+   linea dentro de unas semanas, cuando ningun equipo la conserve. */
+try{ localStorage.removeItem("taqueiros-panel-sesion"); }catch(e){}
 
 /* Columnas del tablero, en orden */
 const COLUMNAS = [
@@ -650,10 +666,14 @@ loginForm.addEventListener("submit", async (e) => {
 });
 
 /* Cerrar sesion. Se confirma porque, con la sesion guardada, salir
-   deja el panel ciego hasta que alguien vuelva a entrar con la
-   contrasena. */
+   deja el panel ciego hasta que alguien vuelva a entrar.
+
+   El texto anterior decia que se dejarian de RECIBIR pedidos, y era
+   falso: los pedidos entran por el webhook y quedan guardados en
+   Supabase sin importar si el panel esta abierto o si hay sesion.
+   Lo unico que se pierde es la visibilidad. */
 document.getElementById("logoutBtn").addEventListener("click", async () => {
-  if(!confirm("¿Cerrar sesión?\n\nEl panel dejará de recibir pedidos hasta que alguien vuelva a entrar con la contraseña.")) return;
+  if(!confirm("¿Cerrar sesión?\n\nEl panel dejará de mostrar los pedidos hasta que alguien vuelva a entrar. Los pedidos seguirán llegando y quedarán guardados.")) return;
   await db.auth.signOut();
   location.reload();
 });
@@ -769,29 +789,119 @@ async function cargarPedidos(){
    Al recuperarse, se recargan los pedidos que hayan entrado
    mientras estuvo caido y se avisa cuantos llegaron.
 ========================================================= */
-let conexionViva = true;
+/* -------------------------------------------------------------
+   POR QUE ESTE BLOQUE SE REESCRIBIO
 
+   Sintoma: el panel decia "SIN CONEXION" con el banner rojo puesto
+   mientras los pedidos entraban con normalidad por Realtime.
+
+   Causa: el indicador era de UNA SOLA VIA. 'conexionViva' se ponia
+   en false por un evento (un CHANNEL_ERROR pasajero, el evento
+   'offline', o la propia reconexion antes de resuscribirse), pero
+   solo podia volver a true si el callback de subscribe() disparaba
+   SUBSCRIBED otra vez. Y supabase-js reconecta por su cuenta a nivel
+   de socket sin volver a disparar ese callback.
+
+   Peor: el vigilante periodico solo actuaba cuando el canal NO
+   estaba unido. Con el canal en 'joined' y la bandera en false, NO
+   EXISTIA NINGUN CAMINO DE VUELTA. El banner quedaba mintiendo para
+   siempre, por construccion.
+
+   Solucion: el estado ya no se deduce de eventos sueltos. Se evalua
+   contra el estado REAL del canal, y la evaluacion corrige en las
+   DOS direcciones.
+------------------------------------------------------------- */
+let conexionViva = true;
+let canalPedidos = null;
+let reconectando = false;
+let ciclosEnMalEstado = 0;
+
+/* Cada cuanto se revisa el estado real (lectura local, no sale a la
+   red salvo que encuentre algo roto). */
+const REVISION_MS = 10000;
+
+/* Cuantas revisiones seguidas en mal estado antes de poner el banner.
+   Se prefiere un aviso que tarde ~20s pero que NUNCA mienta: un
+   banner rojo permanente entrena al restaurante a ignorarlo, y el
+   dia de la caida real tambien lo ignoraria. */
+const CICLOS_PARA_AVISAR = 2;
+
+/* El estado REAL del canal, tal como lo reporta Supabase.
+   Valores: joined | joining | closed | errored | leaving | sin canal */
+function estadoDelCanal(){
+  return canalPedidos && canalPedidos.state ? canalPedidos.state : "sin canal";
+}
+
+/* Pinta el indicador. Solo actua en los CAMBIOS, y deja constancia en
+   la consola de a que estado paso y por que. */
 function marcarConexion(viva, motivo){
   const conn = document.getElementById("conn");
   const connTxt = document.getElementById("connTxt");
   const banner = document.getElementById("bannerCaido");
   const eraViva = conexionViva;
+
+  if(viva === eraViva){
+    return;   // sin cambio, no se repinta ni se ensucia la consola
+  }
   conexionViva = viva;
 
   conn.className = viva ? "conn online" : "conn offline";
   connTxt.textContent = viva ? "En vivo" : "Desconectado";
   banner.classList.toggle("visible", !viva);
 
-  if(!viva && eraViva){
-    console.warn("[Conexion] Se perdio la conexion:", motivo || "");
-    sonarInsistente();
-  }
+  console.log(
+    "[Conexion] " + (eraViva ? "EN VIVO" : "DESCONECTADO") +
+    " -> " + (viva ? "EN VIVO" : "DESCONECTADO") +
+    " | motivo: " + (motivo || "sin especificar") +
+    " | canal: " + estadoDelCanal() +
+    " | navegador " + (navigator.onLine ? "en linea" : "sin red")
+  );
 
-  // Al volver: recuperar lo que entro mientras estuvo caido
-  if(viva && !eraViva){
-    console.log("[Conexion] Restablecida, recargando pedidos");
+  if(!viva){
+    sonarInsistente();
+  }else{
     recuperarPedidosPerdidos();
   }
+}
+
+/* UNICA fuente de verdad del indicador.
+   Compara con el estado real y corrige en ambos sentidos:
+     - canal sano pero bandera en false  -> la corrige a true
+     - canal roto de forma sostenida     -> pone el banner
+   Devuelve true si el canal esta sano. */
+function evaluarConexion(motivo){
+  const estado = estadoDelCanal();
+  const sinRed = navigator.onLine === false;
+
+  // El socket de Realtime, cuando la version de supabase-js lo expone
+  let socketVivo = true;
+  try{
+    if(db.realtime && typeof db.realtime.isConnected === "function"){
+      socketVivo = db.realtime.isConnected();
+    }
+  }catch(e){ /* si no se puede consultar, no se penaliza */ }
+
+  const sano = estado === "joined" && socketVivo && !sinRed;
+
+  if(sano){
+    ciclosEnMalEstado = 0;
+    // Si el indicador se habia quedado mintiendo, aqui se corrige.
+    // Este es el camino de vuelta que antes no existia.
+    marcarConexion(true, motivo);
+    return true;
+  }
+
+  // 'joining' es transitorio: se le da tiempo sin alarmar
+  if(estado === "joining" && !sinRed){
+    return false;
+  }
+
+  ciclosEnMalEstado++;
+  if(ciclosEnMalEstado >= CICLOS_PARA_AVISAR){
+    marcarConexion(false, motivo + " (canal " + estado +
+      (sinRed ? ", sin red" : "") + ", " + ciclosEnMalEstado + " revisiones seguidas)");
+  }
+  return false;
 }
 
 async function recuperarPedidosPerdidos(){
@@ -808,43 +918,23 @@ async function recuperarPedidosPerdidos(){
   }
 }
 
-/* =========================================================
-   RECONEXION DEL CANAL EN VIVO
-
-   El problema que resuelve: si el equipo se suspende o se cae el
-   internet, el websocket muere. A veces Supabase avisa por el
-   callback de subscribe, pero cuando el equipo se duerme el socket
-   queda "colgado" sin avisar: el panel se ve normal, dice "En vivo"
-   y en realidad esta ciego.
-
-   Por eso no basta con escuchar eventos: hay que MIRAR el estado
-   real del canal y volver a suscribirse si hace falta.
-========================================================= */
-let canalPedidos = null;
-let reconectando = false;
-
-/* Revisa el canal y lo reconstruye si no esta unido.
-   Estados posibles de Supabase Realtime:
-     joined  -> todo bien
-     closed / errored / leaving -> hay que resuscribirse
-     joining -> esta en eso, se le da tiempo */
+/* Repara el canal cuando de verdad esta roto. */
 async function asegurarConexion(motivo){
   if(document.getElementById("app").hidden) return;  // sin sesion, nada que hacer
   if(reconectando) return;
 
-  const estado = canalPedidos ? canalPedidos.state : "sin canal";
+  const sano = evaluarConexion(motivo);
 
-  if(estado === "joined"){
-    // El canal dice estar bien; aun asi se recargan los pedidos por
-    // si entro alguno mientras la pestana estaba dormida.
+  if(sano){
+    // El canal responde; se recargan los pedidos por si entro alguno
+    // mientras la pestana estaba dormida.
     await cargarPedidos();
     return;
   }
-  if(estado === "joining") return;   // ya se esta reconectando solo
+  if(estadoDelCanal() === "joining") return;   // ya se esta reconectando solo
 
-  console.warn("[Conexion] Canal en estado '" + estado + "' (" + motivo + "), resuscribiendo");
+  console.warn("[Conexion] Reconstruyendo el canal (" + motivo + "), estado: " + estadoDelCanal());
   reconectando = true;
-  marcarConexion(false, "canal " + estado);
 
   try{
     if(canalPedidos){
@@ -859,32 +949,44 @@ async function asegurarConexion(motivo){
 
 /* Al volver de suspension o de bloqueo de pantalla */
 document.addEventListener("visibilitychange", () => {
-  if(document.visibilityState === "visible") asegurarConexion("volvio la pestaña");
+  if(document.visibilityState === "visible") asegurarConexion("volvió la pestaña");
 });
 
 /* navigator.onLine avisa antes que el websocket, pero no es fiable
    por si solo: dice si hay red, no si Supabase responde. Se usa como
    senal complementaria, nunca como unica fuente. */
-window.addEventListener("offline", () => marcarConexion(false, "navigator.onLine"));
-window.addEventListener("online", () => asegurarConexion("volvio la red"));
+window.addEventListener("offline", () => {
+  ciclosEnMalEstado = CICLOS_PARA_AVISAR;   // el navegador es claro: no hay red
+  evaluarConexion("el navegador reporta que no hay red");
+});
+window.addEventListener("online", () => asegurarConexion("volvió la red"));
 
-/* Red de seguridad: con el panel abierto dias enteros, un socket
-   puede morir sin que se dispare ningun evento. Esta revision es
-   local y no cuesta nada: solo lee el estado del canal en memoria.
-   Solo sale a la red si encuentra algo roto. */
+/* Vigilante: revisa el estado REAL cada pocos segundos y corrige el
+   indicador en ambas direcciones. Es una lectura en memoria, no
+   cuesta nada; solo sale a la red si encuentra el canal roto. */
 setInterval(() => {
   if(document.getElementById("app").hidden) return;
-  const estado = canalPedidos ? canalPedidos.state : "sin canal";
-  if(estado !== "joined" && estado !== "joining"){
-    asegurarConexion("revisión periódica");
+
+  const estado = estadoDelCanal();
+  if(estado === "joined"){
+    // Reconcilia: si la bandera quedo en false con el canal sano,
+    // esto la corrige. Sin esta linea el banner se quedaba pegado.
+    evaluarConexion("revisión periódica");
+    return;
   }
-}, 30000);
+  if(estado === "joining") return;
+
+  asegurarConexion("revisión periódica");
+}, REVISION_MS);
 
 function suscribirse(){
   // La referencia se guarda para poder consultar su estado y
   // reconstruirlo si muere. Sin esto no hay forma de saber si el
   // panel sigue realmente escuchando.
-  canalPedidos = db.channel("pedidos-panel")
+  // Nombre unico por suscripcion: si se reutiliza el mismo topic
+  // mientras el canal viejo sigue adjunto, Supabase puede responder
+  // CHANNEL_ERROR y dejar el panel creyendose caido.
+  canalPedidos = db.channel("pedidos-panel-" + Date.now())
     .on("postgres_changes", { event:"*", schema:"public", table:"pedidos" }, (payload) => {
       const fila = payload.new;
       if(!fila || !fila.id) return;
@@ -919,10 +1021,20 @@ function suscribirse(){
       }
     })
     .subscribe((estado) => {
+      console.log("[Conexion] El canal reporta:", estado);
+
       if(estado === "SUBSCRIBED"){
-        marcarConexion(true);
-      }else if(estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED"){
-        marcarConexion(false, estado);
+        ciclosEnMalEstado = 0;
+        marcarConexion(true, "el canal se suscribió (SUBSCRIBED)");
+        return;
+      }
+
+      /* CHANNEL_ERROR, TIMED_OUT y CLOSED no pintan el banner de
+         inmediato: pueden ser un parpadeo del que supabase-js se
+         recupera solo en segundos. Se deja que el vigilante confirme
+         contra el estado real antes de alarmar. */
+      if(estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED"){
+        evaluarConexion("el canal reportó " + estado);
       }
     });
 }
