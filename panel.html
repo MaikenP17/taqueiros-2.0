@@ -465,6 +465,7 @@
     </button>
     <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">🕓 Horario</button>
     <a class="tool-btn" href="menu-admin.html" title="Agotar productos y cambiar precios">🍽️ Menú</a>
+    <a class="tool-btn" href="historial.html" title="Pedidos anteriores y resumen del día">📊 Historial</a>
     <button class="tool-btn peligro" id="logoutBtn" title="Cierra la sesión del panel">🔒 Cerrar sesión</button>
   </header>
 
@@ -573,6 +574,21 @@ const VISTOS_KEY = "taqueiros-pedidos-vistos-v1";
 const SONIDO_KEY = "taqueiros-panel-sonido-v1";
 
 let pedidos = [];
+
+/* -------------------------------------------------------------
+   LA JORNADA DE TRABAJO
+
+   El tablero es una superficie de TRABAJO, no un archivo. Muestra
+   solo la jornada en curso; lo anterior sigue completo en la base y
+   se consulta desde historial.html.
+
+   OJO CON LA ZONA HORARIA: Supabase guarda en UTC y Cucuta es UTC-5.
+   Los limites NO se calculan aqui: los da la base con
+   limites_jornada(), que hace la conversion a hora de Colombia. Si
+   se calcularan en el navegador, la medianoche UTC caeria a las 7 de
+   la noche en Colombia y el tablero se limpiaria en plena cena.
+------------------------------------------------------------- */
+let jornada = null;   // { jornada, inicio, fin, corte, minutos_ocultar }
 let vistos = cargarVistos();
 let sonidoActivo = localStorage.getItem(SONIDO_KEY) !== "off";
 
@@ -760,13 +776,44 @@ db.auth.onAuthStateChange((evento, sesion) => {
 /* =========================================================
    DATOS
 ========================================================= */
+async function cargarJornada(){
+  const { data, error } = await db.rpc("limites_jornada").select();
+  if(error){
+    console.error("[Jornada] No se pudo leer:", error.message);
+    return false;
+  }
+  const fila = Array.isArray(data) ? data[0] : data;
+  if(!fila) return false;
+
+  const cambio = jornada && jornada.jornada !== fila.jornada;
+  jornada = fila;
+
+  const fechaEl = document.getElementById("fechaHoy");
+  if(fechaEl){
+    fechaEl.textContent = new Date(fila.inicio).toLocaleDateString("es-CO",
+      { weekday:"long", day:"numeric", month:"long", timeZone:"America/Bogota" });
+  }
+
+  if(cambio){
+    console.log("[Jornada] Empezó una jornada nueva:", fila.jornada);
+    avisar("🌅 Jornada nueva. El tablero arranca limpio.");
+  }
+  return true;
+}
+
 async function cargarPedidos(){
-  // Los 'pendiente_pago' NO se muestran: son intentos de pago
-  // que nunca se completaron.
+  if(!jornada && !(await cargarJornada())) return;
+
+  /* Solo la jornada en curso. Los pedidos anteriores NO se borran:
+     dejan de pintarse y siguen enteros en la base.
+     Los 'pendiente_pago' tampoco se muestran: son intentos de pago
+     que nunca se completaron. */
   const { data, error } = await db
     .from("pedidos")
     .select("*")
     .neq("estado", "pendiente_pago")
+    .gte("creado_en", jornada.inicio)
+    .lt("creado_en", jornada.fin)
     .order("creado_en", { ascending:false })
     .limit(200);
 
@@ -1338,9 +1385,31 @@ function dibujarTablero(){
   ).join("");
 }
 
+/* -------------------------------------------------------------
+   LO QUE YA TERMINO SALE SOLO DEL TABLERO
+
+   Un pedido entregado o cancelado se queda unos minutos para poder
+   verlo y despues desaparece. El tiempo lo decide la base
+   (minutos_ocultar_terminados), no un numero escrito aqui.
+
+   Se mide con 'estado_cambiado_en', que marca CUANDO paso a ese
+   estado. Usar 'creado_en' seria un error: un pedido creado a las 6
+   y entregado a las 8 se ocultaria al instante.
+------------------------------------------------------------- */
+function yaTermino(p){
+  if(p.estado !== "entregado" && p.estado !== "cancelado") return false;
+  if(!jornada) return false;
+
+  const desde = p.estado_cambiado_en || p.actualizado_en;
+  if(!desde) return false;
+
+  const minutos = (Date.now() - new Date(desde).getTime()) / 60000;
+  return minutos >= (jornada.minutos_ocultar || 15);
+}
+
 function render(){
   COLUMNAS.forEach(c => {
-    const delEstado = pedidos.filter(p => p.estado === c.estado);
+    const delEstado = pedidos.filter(p => p.estado === c.estado && !yaTermino(p));
     document.getElementById("cont-" + c.estado).textContent = delEstado.length;
 
     const cuerpo = document.getElementById("body-" + c.estado);
@@ -1526,6 +1595,25 @@ function sonarInsistente(){
 }
 
 setInterval(actualizarCronometros, 1000);
+
+/* Cada minuto se repinta para que lo terminado salga solo, y se
+   comprueba si empezo una jornada nueva.
+
+   No cuesta consultas: 'render()' trabaja con lo que ya esta en
+   memoria. Solo se va a la base cuando de verdad cambia la jornada,
+   como mucho una vez al dia. */
+setInterval(async () => {
+  if(document.getElementById("app").hidden) return;
+
+  const anterior = jornada ? jornada.jornada : null;
+  await cargarJornada();
+
+  if(jornada && jornada.jornada !== anterior){
+    await cargarPedidos();   // jornada nueva: el tablero arranca limpio
+  }else{
+    render();                // solo repinta, para ocultar lo terminado
+  }
+}, 60000);
 
 /* =========================================================
    ACCIONES SOBRE LAS TARJETAS

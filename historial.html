@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Historial y Resumen | Los Taqueiros</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+<meta name="theme-color" content="#C1272D">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --rojo:#C1272D; --rojo-oscuro:#8A1B1F; --rojo-brillo:#E14A42;
+    --crema:#F7ECD6; --crema-suave:#FFF8EA;
+    --carbon:#1C1210; --carbon-2:#241714; --carbon-3:#2E1D19;
+    --mostaza:#E3A008; --verde:#5C7A3B; --verde-brillo:#7FA855;
+    --texto-claro:#F7ECD6; --texto-secundario:#B9A88C;
+    --borde:rgba(247,236,214,.10);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    font-family:'Libre Franklin', sans-serif;
+    background:var(--carbon); color:var(--texto-claro);
+    min-height:100vh; -webkit-font-smoothing:antialiased; padding-bottom:3rem;
+  }
+  button{font-family:inherit; cursor:pointer; border:none; -webkit-tap-highlight-color:transparent;}
+  h1,h2{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+
+  /* ---------- LOGIN ---------- */
+  .login-screen{
+    position:fixed; inset:0; z-index:900;
+    display:flex; align-items:center; justify-content:center; padding:1.5rem;
+    background:radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+      linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
+  }
+  .login-screen.hidden{display:none;}
+  .login-card{
+    width:min(400px,100%); background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:20px; padding:2.2rem 1.8rem; box-shadow:0 24px 60px rgba(0,0,0,.5);
+  }
+  .login-card img{width:70px; margin:0 auto 1.1rem; display:block; border-radius:14px; background:var(--crema); padding:6px;}
+  .login-card h1{font-size:1.3rem; text-align:center; margin-bottom:1.4rem;}
+  .login-card label{display:block; font-size:.75rem; font-weight:700; color:var(--texto-secundario); margin-bottom:.35rem; text-transform:uppercase;}
+  .login-card input{
+    width:100%; font-family:inherit; font-size:16px; padding:.9rem;
+    border-radius:12px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro); margin-bottom:1rem;
+  }
+  .login-card button{width:100%; background:var(--rojo); color:var(--crema-suave); padding:1rem; border-radius:999px; font-weight:800; font-size:1rem;}
+  .login-error{color:#ff8f85; font-size:.82rem; text-align:center; margin-top:.9rem; min-height:1.1em;}
+  .login-verificando{text-align:center; color:var(--texto-secundario); font-size:.9rem; padding:1rem 0;}
+  #loginForm[data-estado="verificando"] label,
+  #loginForm[data-estado="verificando"] input,
+  #loginForm[data-estado="verificando"] #loginBtn{display:none;}
+  #loginForm[data-estado="listo"] #loginVerificando{display:none;}
+
+  /* ---------- CABECERA ---------- */
+  header{
+    position:sticky; top:0; z-index:100;
+    display:flex; align-items:center; gap:.7rem; padding:.85rem 1rem;
+    background:rgba(28,18,16,.97); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--borde);
+  }
+  header img{height:38px; width:38px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px; flex:none;}
+  header .txt{flex:1; min-width:0; line-height:1.2;}
+  header .txt strong{font-family:'Anton', sans-serif; font-size:1rem; display:block;}
+  header .txt small{color:var(--texto-secundario); font-size:.7rem;}
+  .btn-volver{
+    background:var(--carbon-2); color:var(--texto-claro); border:1px solid var(--borde);
+    border-radius:999px; padding:.6rem .9rem; font-size:.75rem; font-weight:800;
+    text-decoration:none; white-space:nowrap; flex:none;
+  }
+
+  .contenido{padding:1rem; max-width:760px; margin:0 auto;}
+
+  /* ---------- PESTAÑAS ---------- */
+  .pestanas{display:flex; gap:.5rem; margin-bottom:1.2rem;}
+  .pestanas button{
+    flex:1; padding:.9rem; border-radius:12px; font-weight:800; font-size:.88rem;
+    background:var(--carbon-2); color:var(--texto-secundario); border:1px solid var(--borde);
+  }
+  .pestanas button.activa{background:var(--rojo); color:var(--crema-suave); border-color:var(--rojo);}
+
+  /* ---------- RESUMEN ---------- */
+  .selector-dia{
+    display:flex; align-items:center; gap:.6rem; margin-bottom:1.2rem;
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:12px; padding:.7rem .9rem;
+  }
+  .selector-dia label{font-size:.72rem; font-weight:800; color:var(--texto-secundario); text-transform:uppercase; white-space:nowrap;}
+  .selector-dia select, .selector-dia input{
+    flex:1; min-width:0; font-family:inherit; font-size:16px; padding:.6rem;
+    border-radius:10px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro);
+  }
+
+  /* El número grande, que es lo que se mira primero */
+  .cifra-principal{
+    background:linear-gradient(160deg, rgba(92,122,59,.22), rgba(92,122,59,.06));
+    border:1px solid rgba(127,168,85,.4);
+    border-radius:18px; padding:1.6rem 1.2rem; text-align:center; margin-bottom:1rem;
+  }
+  .cifra-principal .etiqueta{
+    font-size:.75rem; font-weight:800; color:var(--verde-brillo);
+    text-transform:uppercase; letter-spacing:.08em; margin-bottom:.5rem;
+  }
+  .cifra-principal .valor{
+    font-family:'Anton', sans-serif; font-size:2.8rem; line-height:1;
+    color:var(--crema-suave); font-variant-numeric:tabular-nums;
+  }
+  .cifra-principal .nota{font-size:.75rem; color:var(--texto-secundario); margin-top:.6rem; line-height:1.5;}
+
+  .rejilla{display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin-bottom:1rem;}
+  .tarjeta{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:14px; padding:1rem; text-align:center;
+  }
+  .tarjeta .etiqueta{font-size:.68rem; font-weight:800; color:var(--texto-secundario); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.4rem; line-height:1.3;}
+  .tarjeta .valor{font-family:'Anton', sans-serif; font-size:1.6rem; color:var(--crema-suave); font-variant-numeric:tabular-nums;}
+  .tarjeta .valor.chico{font-size:1.05rem; font-family:'Libre Franklin'; font-weight:800; line-height:1.3;}
+  .tarjeta.aviso .valor{color:var(--mostaza);}
+
+  /* Horas: la única gráfica, porque una lista de números no deja ver
+     la forma de la noche de un vistazo */
+  .horas{background:var(--carbon-2); border:1px solid var(--borde); border-radius:14px; padding:1rem; margin-bottom:1rem;}
+  .horas h2{font-size:.8rem; color:var(--texto-secundario); margin-bottom:.9rem; letter-spacing:.05em;}
+  .barras{display:flex; align-items:flex-end; gap:3px; height:90px;}
+  .barra-hora{flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:.25rem; min-width:0;}
+  .barra-hora .barra{
+    width:100%; background:var(--rojo); border-radius:3px 3px 0 0; min-height:3px;
+    transition:background .2s ease;
+  }
+  .barra-hora.pico .barra{background:var(--mostaza);}
+  .barra-hora .h{font-size:.55rem; color:var(--texto-secundario); font-variant-numeric:tabular-nums;}
+  .horas .pie{font-size:.72rem; color:var(--texto-secundario); margin-top:.7rem; text-align:center;}
+
+  /* ---------- BUSQUEDA ---------- */
+  .buscador{background:var(--carbon-2); border:1px solid var(--borde); border-radius:14px; padding:1rem; margin-bottom:1rem;}
+  .campo{margin-bottom:.8rem;}
+  .campo label{display:block; font-size:.7rem; font-weight:800; color:var(--texto-secundario); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.35rem;}
+  .campo input{
+    width:100%; font-family:inherit; font-size:16px; padding:.85rem;
+    border-radius:10px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro);
+  }
+  .campo input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .dos{display:grid; grid-template-columns:1fr 1fr; gap:.6rem;}
+  .btn-buscar{width:100%; background:var(--rojo); color:var(--crema-suave); padding:.95rem; border-radius:12px; font-weight:800; font-size:.92rem;}
+  .btn-limpiar{width:100%; background:rgba(247,236,214,.07); color:var(--texto-claro); padding:.8rem; border-radius:12px; font-weight:700; font-size:.82rem; margin-top:.5rem;}
+
+  /* ---------- RESULTADOS ---------- */
+  .pedido{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:14px; margin-bottom:.8rem; overflow:hidden;
+  }
+  .ped-cab{display:flex; align-items:center; gap:.7rem; padding:.9rem 1rem; cursor:pointer;}
+  .ped-cab .num{font-family:'Anton', sans-serif; font-size:1.05rem;}
+  .ped-cab .info{flex:1; min-width:0;}
+  .ped-cab .cliente{font-size:.85rem; font-weight:700; line-height:1.3;}
+  .ped-cab .cuando{font-size:.72rem; color:var(--texto-secundario); margin-top:.15rem;}
+  .ped-cab .monto{font-weight:800; color:var(--verde-brillo); font-variant-numeric:tabular-nums; white-space:nowrap;}
+
+  .marca{font-size:.64rem; font-weight:800; padding:.2rem .45rem; border-radius:5px; text-transform:uppercase; white-space:nowrap;}
+  .marca.entregado{background:rgba(107,143,168,.2); color:#9cc4dd;}
+  .marca.cancelado{background:rgba(193,39,45,.2); color:var(--rojo-brillo);}
+  .marca.activo{background:rgba(227,160,8,.2); color:var(--mostaza);}
+
+  .ped-detalle{display:none; padding:0 1rem 1rem; border-top:1px solid var(--borde);}
+  .pedido.abierto .ped-detalle{display:block;}
+  .dato{display:flex; gap:.6rem; padding:.5rem 0; font-size:.85rem; border-bottom:1px solid rgba(247,236,214,.05);}
+  .dato .k{color:var(--texto-secundario); flex:none; min-width:85px; font-size:.78rem;}
+  .dato .v{flex:1; min-width:0; word-break:break-word;}
+  .dato a{color:var(--mostaza); font-weight:700; text-decoration:none;}
+  .items{margin:.8rem 0; padding:.8rem; background:rgba(0,0,0,.28); border-radius:10px; font-size:.85rem;}
+  .items .it{display:flex; justify-content:space-between; gap:.8rem; padding:.25rem 0;}
+  .items .cant{color:var(--mostaza); font-weight:800;}
+  .solo-lectura{
+    font-size:.7rem; color:var(--texto-secundario); text-align:center;
+    padding:.6rem; background:rgba(0,0,0,.2); border-radius:8px; margin-top:.5rem;
+  }
+
+  .vacio{text-align:center; padding:2.5rem 1rem; color:var(--texto-secundario); font-size:.9rem; line-height:1.6;}
+  .cargando{text-align:center; padding:2.5rem 1rem; color:var(--texto-secundario);}
+</style>
+</head>
+<body>
+
+<div class="login-screen" id="loginScreen">
+  <form class="login-card" id="loginForm" data-estado="verificando">
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <h1>Historial</h1>
+    <div class="login-verificando" id="loginVerificando">Verificando sesión…</div>
+    <label for="loginEmail">Usuario</label>
+    <input type="email" id="loginEmail" autocomplete="username">
+    <label for="loginPassword">Contraseña</label>
+    <input type="password" id="loginPassword" autocomplete="current-password">
+    <button type="submit" id="loginBtn">Entrar</button>
+    <p class="login-error" id="loginError"></p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <div class="txt">
+      <strong>HISTORIAL</strong>
+      <small>Resumen del día y pedidos anteriores</small>
+    </div>
+    <a class="btn-volver" href="panel.html">← Comandas</a>
+  </header>
+
+  <div class="contenido">
+    <div class="pestanas">
+      <button class="activa" data-vista="resumen">📊 Resumen</button>
+      <button data-vista="buscar">🔎 Buscar</button>
+    </div>
+
+    <!-- ===== RESUMEN ===== -->
+    <section id="vistaResumen">
+      <div class="selector-dia">
+        <label for="selJornada">Día</label>
+        <select id="selJornada"></select>
+      </div>
+      <div id="resumen"><div class="cargando">Calculando…</div></div>
+    </section>
+
+    <!-- ===== BUSQUEDA ===== -->
+    <section id="vistaBuscar" hidden>
+      <div class="buscador">
+        <div class="dos">
+          <div class="campo">
+            <label for="bDesde">Desde</label>
+            <input type="date" id="bDesde">
+          </div>
+          <div class="campo">
+            <label for="bHasta">Hasta</label>
+            <input type="date" id="bHasta">
+          </div>
+        </div>
+        <div class="campo">
+          <label for="bTelefono">Teléfono del cliente</label>
+          <input type="tel" id="bTelefono" inputmode="numeric" placeholder="3125249438">
+        </div>
+        <div class="campo">
+          <label for="bReferencia">Referencia del pedido</label>
+          <input type="text" id="bReferencia" placeholder="TAQ-...">
+        </div>
+        <button class="btn-buscar" id="btnBuscar">Buscar</button>
+        <button class="btn-limpiar" id="btnLimpiar">Limpiar filtros</button>
+      </div>
+      <div id="resultados"></div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+/* =========================================================
+   HISTORIAL Y RESUMEN
+
+   Pagina aparte, igual que menu-admin.html: la vista de comandas se
+   usa en hora pico y tiene que seguir limpia.
+
+   SOLO LECTURA. Desde aqui no se edita ni se borra nada. Un pedido
+   pagado es el registro contable de una venta.
+
+   Todos los calculos vienen agregados de la base (resumen_jornada).
+   No se traen los pedidos al navegador para sumarlos aqui.
+========================================================= */
+const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storage:window.localStorage }
+});
+
+const cop = (n) => "$" + Number(n || 0).toLocaleString("es-CO");
+function escapar(t){ const d=document.createElement("div"); d.textContent = t==null?"":String(t); return d.innerHTML; }
+function hora(iso){
+  return new Date(iso).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:true,timeZone:"America/Bogota"});
+}
+function fechaHora(iso){
+  return new Date(iso).toLocaleString("es-CO",
+    {day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true,timeZone:"America/Bogota"});
+}
+function fechaLarga(d){
+  // 'd' viene como 'YYYY-MM-DD'; se fija el mediodía para que el
+  // cambio de zona horaria no la corra un día.
+  return new Date(d + "T12:00:00").toLocaleDateString("es-CO",
+    {weekday:"long", day:"numeric", month:"long", timeZone:"America/Bogota"});
+}
+
+/* ---------------- SESION ---------------- */
+const loginScreen = document.getElementById("loginScreen");
+const loginForm = document.getElementById("loginForm");
+
+function mostrarLogin(){
+  loginForm.dataset.estado = "listo";
+  loginScreen.classList.remove("hidden");
+  document.getElementById("app").hidden = true;
+}
+
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("loginBtn");
+  btn.disabled = true; btn.textContent = "Entrando…";
+  const { error } = await db.auth.signInWithPassword({
+    email: document.getElementById("loginEmail").value.trim(),
+    password: document.getElementById("loginPassword").value
+  });
+  btn.disabled = false; btn.textContent = "Entrar";
+  if(error){ document.getElementById("loginError").textContent = "Usuario o contraseña incorrectos."; return; }
+  await entrar();
+});
+
+async function entrar(){
+  loginScreen.classList.add("hidden");
+  document.getElementById("app").hidden = false;
+  await cargarJornadas();
+}
+
+(async function comprobarSesion(){
+  const { data } = await db.auth.getSession();
+  if(data && data.session) await entrar(); else mostrarLogin();
+})();
+
+db.auth.onAuthStateChange((ev, ses) => { if(ev === "SIGNED_OUT" && !ses) mostrarLogin(); });
+
+/* ---------------- PESTAÑAS ---------------- */
+document.querySelectorAll(".pestanas button").forEach(b => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll(".pestanas button").forEach(o => o.classList.toggle("activa", o === b));
+    document.getElementById("vistaResumen").hidden = b.dataset.vista !== "resumen";
+    document.getElementById("vistaBuscar").hidden = b.dataset.vista !== "buscar";
+  });
+});
+
+/* ---------------- RESUMEN ---------------- */
+async function cargarJornadas(){
+  const { data, error } = await db.rpc("jornadas_con_pedidos", { limite: 60 });
+  const sel = document.getElementById("selJornada");
+
+  if(error || !data || !data.length){
+    sel.innerHTML = '<option value="">Sin jornadas registradas</option>';
+    document.getElementById("resumen").innerHTML = '<div class="vacio">Todavía no hay pedidos registrados.</div>';
+    if(error) console.error(error);
+    return;
+  }
+
+  sel.innerHTML = data.map((j, i) =>
+    '<option value="' + j.jornada + '">' + fechaLarga(j.jornada) +
+    "  ·  " + j.pedidos + " pedidos  ·  " + cop(j.ventas) + '</option>'
+  ).join("");
+
+  sel.addEventListener("change", () => cargarResumen(sel.value));
+  await cargarResumen(data[0].jornada);
+}
+
+async function cargarResumen(fecha){
+  const caja = document.getElementById("resumen");
+  caja.innerHTML = '<div class="cargando">Calculando…</div>';
+
+  const { data, error } = await db.rpc("resumen_jornada", { fecha });
+  if(error){ caja.innerHTML = '<div class="vacio">No se pudo calcular el resumen.</div>'; console.error(error); return; }
+
+  const r = data;
+  if(!r || !r.num_pedidos){
+    caja.innerHTML = '<div class="vacio">Ese día no hubo pedidos pagados.' +
+      (r && r.cancelados ? '<br>Hubo ' + r.cancelados + ' cancelado(s).' : '') + '</div>';
+    return;
+  }
+
+  const top = (r.top_productos || [])[0];
+  const horas = r.por_hora || [];
+  const maxPedidos = Math.max(...horas.map(h => h.pedidos), 1);
+  const horaPico = horas.reduce((a, h) => h.pedidos > (a ? a.pedidos : 0) ? h : a, null);
+
+  caja.innerHTML =
+    '<div class="cifra-principal">' +
+      '<div class="etiqueta">Ventas de la jornada</div>' +
+      '<div class="valor">' + cop(r.ventas_total) + '</div>' +
+      '<div class="nota">Solo pedidos pagados. No incluye cancelados ni pagos que no se completaron.</div>' +
+    '</div>' +
+
+    '<div class="rejilla">' +
+      '<div class="tarjeta"><div class="etiqueta">Productos</div><div class="valor">' + cop(r.ventas_productos) + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Domicilios</div><div class="valor">' + cop(r.ventas_domicilios) + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Pedidos</div><div class="valor">' + r.num_pedidos + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Ticket promedio</div><div class="valor">' + cop(r.ticket_promedio) + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Lo más vendido</div><div class="valor chico">' +
+        (top ? escapar(top.nombre) + '<br><span style="color:var(--mostaza);">' + top.unidades + ' unidades</span>' : '—') +
+      '</div></div>' +
+      '<div class="tarjeta ' + (r.cancelados ? 'aviso' : '') + '"><div class="etiqueta">Cancelados</div><div class="valor">' + r.cancelados + '</div></div>' +
+    '</div>' +
+
+    (horas.length > 1 ?
+    '<div class="horas">' +
+      '<h2>¿A qué horas entraron?</h2>' +
+      '<div class="barras">' +
+        horas.map(h =>
+          '<div class="barra-hora ' + (horaPico && h.hora === horaPico.hora ? 'pico' : '') + '">' +
+            '<div class="barra" style="height:' + Math.round((h.pedidos / maxPedidos) * 100) + '%" ' +
+              'title="' + h.pedidos + ' pedidos · ' + cop(h.ventas) + '"></div>' +
+            '<span class="h">' + h.hora + '</span>' +
+          '</div>'
+        ).join("") +
+      '</div>' +
+      '<div class="pie">Hora pico: <strong>' + (horaPico ? horaPico.hora + ":00 con " + horaPico.pedidos + " pedidos" : "—") + '</strong></div>' +
+    '</div>' : "");
+}
+
+/* ---------------- BUSQUEDA ---------------- */
+document.getElementById("btnBuscar").addEventListener("click", buscar);
+document.getElementById("btnLimpiar").addEventListener("click", () => {
+  ["bDesde","bHasta","bTelefono","bReferencia"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("resultados").innerHTML = "";
+});
+
+async function buscar(){
+  const caja = document.getElementById("resultados");
+  const btn = document.getElementById("btnBuscar");
+  btn.disabled = true; btn.textContent = "Buscando…";
+  caja.innerHTML = '<div class="cargando">Buscando…</div>';
+
+  const { data, error } = await db.rpc("buscar_historial", {
+    fecha_desde: document.getElementById("bDesde").value || null,
+    fecha_hasta: document.getElementById("bHasta").value || null,
+    telefono:    document.getElementById("bTelefono").value.replace(/[^0-9]/g, "") || null,
+    referencia:  document.getElementById("bReferencia").value.trim() || null
+  });
+
+  btn.disabled = false; btn.textContent = "Buscar";
+
+  if(error){ caja.innerHTML = '<div class="vacio">No se pudo buscar.</div>'; console.error(error); return; }
+  if(!data || !data.length){
+    caja.innerHTML = '<div class="vacio">No encontramos pedidos con esos filtros.<br>Prueba con menos datos.</div>';
+    return;
+  }
+
+  caja.innerHTML = '<div class="vacio" style="padding:.5rem;">' + data.length +
+    (data.length === 100 ? " pedidos (máximo mostrado)" : " pedido(s)") + '</div>' +
+    data.map(pintarPedido).join("");
+}
+
+function pintarPedido(p){
+  const marca = p.estado === "entregado" ? "entregado"
+              : p.estado === "cancelado" ? "cancelado" : "activo";
+
+  const items = (p.items || []).map(it =>
+    '<div class="it"><span><span class="cant">' + it.cantidad + '×</span> ' + escapar(it.nombre) + '</span>' +
+    '<span>' + cop(it.precio * it.cantidad) + '</span></div>').join("");
+
+  const dato = (k, v) => v ? '<div class="dato"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>' : "";
+
+  return '<article class="pedido" data-id="' + p.id + '">' +
+    '<div class="ped-cab">' +
+      '<span class="num">#' + String(p.id).padStart(3,"0") + '</span>' +
+      '<div class="info">' +
+        '<div class="cliente">' + escapar(p.cliente_nombre) + '</div>' +
+        '<div class="cuando">' + fechaHora(p.creado_en) + '</div>' +
+      '</div>' +
+      '<span class="marca ' + marca + '">' + escapar(p.estado.replace("_"," ")) + '</span>' +
+      '<span class="monto">' + cop(p.total) + '</span>' +
+    '</div>' +
+
+    '<div class="ped-detalle">' +
+      dato("Referencia", escapar(p.referencia)) +
+      dato("Teléfono", '<a href="tel:+57' + escapar(p.cliente_telefono) + '">' + escapar(p.cliente_telefono) + '</a>') +
+      dato("Correo", escapar(p.cliente_email)) +
+      dato("Entrega", escapar(p.tipo_pedido)) +
+      (p.tipo_pedido === "domicilio"
+        ? dato("Dirección", escapar(p.direccion) + (p.barrio ? ", " + escapar(p.barrio) : "")) : "") +
+      dato("Nota", escapar(p.indicaciones)) +
+      dato("Pago", escapar(p.estado_pago) + (p.wompi_metodo_pago ? " · " + escapar(p.wompi_metodo_pago) : "")) +
+      dato("Pagado", p.pagado_en ? fechaHora(p.pagado_en) : "") +
+
+      '<div class="items">' + items +
+        (Number(p.costo_domicilio) > 0
+          ? '<div class="it" style="border-top:1px solid rgba(247,236,214,.1); margin-top:.4rem; padding-top:.4rem;">' +
+            '<span>🛵 Domicilio' + (p.distancia_km ? " (" + p.distancia_km + " km)" : "") + '</span>' +
+            '<span>' + cop(p.costo_domicilio) + '</span></div>' : "") +
+        '<div class="it" style="border-top:1px solid rgba(247,236,214,.1); margin-top:.4rem; padding-top:.4rem; font-weight:800;">' +
+          '<span>Total</span><span>' + cop(p.total) + '</span></div>' +
+      '</div>' +
+
+      '<div class="solo-lectura">Solo lectura · los pedidos no se editan ni se borran</div>' +
+    '</div>' +
+  '</article>';
+}
+
+document.getElementById("resultados").addEventListener("click", (e) => {
+  const cab = e.target.closest(".ped-cab");
+  if(!cab || e.target.closest("a")) return;
+  cab.closest(".pedido").classList.toggle("abierto");
+});
+</script>
+</body>
+</html>
