@@ -128,14 +128,39 @@
      la forma de la noche de un vistazo */
   .horas{background:var(--carbon-2); border:1px solid var(--borde); border-radius:14px; padding:1rem; margin-bottom:1rem;}
   .horas h2{font-size:.8rem; color:var(--texto-secundario); margin-bottom:.9rem; letter-spacing:.05em;}
-  .barras{display:flex; align-items:flex-end; gap:3px; height:90px;}
-  .barra-hora{flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:.25rem; min-width:0;}
+  /* POR QUE HAY UN '.tubo' ENVOLVIENDO CADA BARRA
+     -----------------------------------------------------------
+     Antes la barra llevaba height en % y su padre no tenia altura
+     definida (el flex-end lo encogia a su contenido). Una altura en
+     porcentaje no se puede resolver contra una altura indefinida,
+     asi que TODAS las barras caian al min-height y se veian iguales,
+     como rayitas al pie del recuadro.
+
+     El '.tubo' tiene una altura fija en px, asi que el % de la barra
+     ya tiene contra que calcularse. */
+  .barras{display:flex; align-items:flex-end; gap:2px; overflow-x:auto; padding-bottom:.2rem;}
+  .barra-hora{flex:1 1 0; min-width:15px; display:flex; flex-direction:column; align-items:center; gap:.2rem;}
+  .barra-hora .tubo{width:100%; height:96px; display:flex; align-items:flex-end;}
   .barra-hora .barra{
-    width:100%; background:var(--rojo); border-radius:3px 3px 0 0; min-height:3px;
+    width:100%; background:var(--rojo); border-radius:3px 3px 0 0; min-height:2px;
     transition:background .2s ease;
   }
   .barra-hora.pico .barra{background:var(--mostaza);}
+  .barra-hora.vacia .barra{background:rgba(247,236,214,.09);}
+  .barra-hora .n{
+    font-size:.6rem; font-weight:800; color:var(--texto-claro);
+    font-variant-numeric:tabular-nums; height:.85rem; line-height:.85rem;
+  }
+  .barra-hora.pico .n{color:var(--mostaza);}
+  .barra-hora.vacia .n{color:transparent;}
   .barra-hora .h{font-size:.55rem; color:var(--texto-secundario); font-variant-numeric:tabular-nums;}
+
+  .sin-patron{
+    background:var(--carbon-2); border:1px solid var(--borde);
+    border-radius:14px; padding:1.1rem; margin-bottom:1rem;
+    font-size:.85rem; color:var(--texto-secundario); line-height:1.6; text-align:center;
+  }
+  .sin-patron strong{color:var(--texto-claro); display:block; margin-bottom:.3rem;}
   .horas .pie{font-size:.72rem; color:var(--texto-secundario); margin-top:.7rem; text-align:center;}
 
   /* ---------- BUSQUEDA ---------- */
@@ -376,7 +401,6 @@ async function cargarResumen(fecha){
 
   const top = (r.top_productos || [])[0];
   const horas = r.por_hora || [];
-  const maxPedidos = Math.max(...horas.map(h => h.pedidos), 1);
   const horaPico = horas.reduce((a, h) => h.pedidos > (a ? a.pedidos : 0) ? h : a, null);
 
   caja.innerHTML =
@@ -397,20 +421,71 @@ async function cargarResumen(fecha){
       '<div class="tarjeta ' + (r.cancelados ? 'aviso' : '') + '"><div class="etiqueta">Cancelados</div><div class="valor">' + r.cancelados + '</div></div>' +
     '</div>' +
 
-    (horas.length > 1 ?
-    '<div class="horas">' +
-      '<h2>¿A qué horas entraron?</h2>' +
-      '<div class="barras">' +
-        horas.map(h =>
-          '<div class="barra-hora ' + (horaPico && h.hora === horaPico.hora ? 'pico' : '') + '">' +
-            '<div class="barra" style="height:' + Math.round((h.pedidos / maxPedidos) * 100) + '%" ' +
-              'title="' + h.pedidos + ' pedidos · ' + cop(h.ventas) + '"></div>' +
-            '<span class="h">' + h.hora + '</span>' +
-          '</div>'
-        ).join("") +
-      '</div>' +
-      '<div class="pie">Hora pico: <strong>' + (horaPico ? horaPico.hora + ":00 con " + horaPico.pedidos + " pedidos" : "—") + '</strong></div>' +
-    '</div>' : "");
+    pintarHoras(horas, horaPico, r.num_pedidos);
+}
+
+/* -------------------------------------------------------------
+   LA GRAFICA DE HORAS
+
+   Es la unica grafica del resumen porque cuenta algo que un numero
+   suelto no cuenta: la FORMA de la noche. Saber que la hora pico fue
+   las 20:00 no dice si fue un pico agudo o un flujo parejo, y eso
+   cambia como se programa el personal.
+
+   UMBRAL: con menos de 5 pedidos no se dibuja.
+   Con 4 o menos, un solo pedido en una hora ya la convierte en "la
+   hora pico": eso es ruido, no un patron. Y visualmente serian dos
+   rayitas perdidas que hacen pensar que la pagina esta rota.
+------------------------------------------------------------- */
+const MINIMO_PARA_GRAFICA = 5;
+
+function pintarHoras(horas, horaPico, totalPedidos){
+  if(!horas.length) return "";
+
+  if(totalPedidos < MINIMO_PARA_GRAFICA){
+    return '<div class="sin-patron">' +
+      '<strong>Sin datos suficientes para ver un patrón</strong>' +
+      'Con ' + totalPedidos + (totalPedidos === 1 ? ' pedido' : ' pedidos') +
+      ' no se puede distinguir una hora pico de una casualidad.' +
+      (horaPico ? '<br>El pedido más movido entró a las ' + horaPico.hora + ':00.' : '') +
+    '</div>';
+  }
+
+  /* Se rellenan las horas sin pedidos.
+     Antes solo se pintaban las horas CON pedidos, asi que el grafico
+     saltaba de las 10 a las 22 como si fueran contiguas: parecia un
+     flujo parejo cuando en realidad hubo doce horas sin nada. */
+  const porHora = new Map(horas.map(h => [h.hora, h]));
+  const desde = Math.min(...horas.map(h => h.hora));
+  const hasta = Math.max(...horas.map(h => h.hora));
+
+  const serie = [];
+  for(let h = desde; h <= hasta; h++){
+    serie.push(porHora.get(h) || { hora:h, pedidos:0, ventas:0 });
+  }
+
+  const maximo = Math.max(...serie.map(h => h.pedidos), 1);
+
+  return '<div class="horas">' +
+    '<h2>¿A qué horas entraron?</h2>' +
+    '<div class="barras">' +
+      serie.map(h => {
+        const esPico = horaPico && h.hora === horaPico.hora;
+        const alto = h.pedidos ? Math.max(6, Math.round((h.pedidos / maximo) * 100)) : 0;
+        return '<div class="barra-hora ' + (esPico ? "pico" : "") + (h.pedidos ? "" : " vacia") + '">' +
+          '<span class="n">' + (h.pedidos || "0") + '</span>' +
+          '<div class="tubo">' +
+            '<div class="barra" style="height:' + alto + '%" ' +
+              'title="' + h.hora + ':00 · ' + h.pedidos + ' pedidos · ' + cop(h.ventas) + '"></div>' +
+          '</div>' +
+          '<span class="h">' + h.hora + '</span>' +
+        '</div>';
+      }).join("") +
+    '</div>' +
+    '<div class="pie">El número sobre cada barra son los pedidos de esa hora.' +
+      (horaPico ? ' Hora pico: <strong>' + horaPico.hora + ":00 con " + horaPico.pedidos + ' pedidos</strong>.' : '') +
+    '</div>' +
+  '</div>';
 }
 
 /* ---------------- BUSQUEDA ---------------- */
