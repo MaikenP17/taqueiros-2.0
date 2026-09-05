@@ -123,6 +123,11 @@
   .tarjeta .valor{font-family:'Anton', sans-serif; font-size:1.6rem; color:var(--crema-suave); font-variant-numeric:tabular-nums;}
   .tarjeta .valor.chico{font-size:1.05rem; font-family:'Libre Franklin'; font-weight:800; line-height:1.3;}
   .tarjeta.aviso .valor{color:var(--mostaza);}
+  /* Bajo la cifra: de donde sale, para que no haya que adivinar */
+  .tarjeta .pieta{
+    font-size:.62rem; color:var(--texto-secundario);
+    margin-top:.35rem; line-height:1.35; font-variant-numeric:tabular-nums;
+  }
 
   /* Horas: la única gráfica, porque una lista de números no deja ver
      la forma de la noche de un vistazo */
@@ -376,9 +381,16 @@ async function cargarJornadas(){
     return;
   }
 
-  sel.innerHTML = data.map((j, i) =>
+  /* El selector usa la MISMA cuenta que los recuadros (pedidos
+     vendidos, sin cancelados). Cuando hubo cancelaciones se dicen
+     aparte, para que no queden dos cifras distintas del mismo dia
+     sin nada que las explique. */
+  sel.innerHTML = data.map(j =>
     '<option value="' + j.jornada + '">' + fechaLarga(j.jornada) +
-    "  ·  " + j.pedidos + " pedidos  ·  " + cop(j.ventas) + '</option>'
+    "  ·  " + j.pedidos + (j.pedidos === 1 ? " pedido" : " pedidos") +
+    "  ·  " + cop(j.ventas) +
+    (j.cancelados ? "  ·  +" + j.cancelados + " cancelado" + (j.cancelados > 1 ? "s" : "") : "") +
+    '</option>'
   ).join("");
 
   sel.addEventListener("change", () => cargarResumen(sel.value));
@@ -407,18 +419,23 @@ async function cargarResumen(fecha){
     '<div class="cifra-principal">' +
       '<div class="etiqueta">Ventas de la jornada</div>' +
       '<div class="valor">' + cop(r.ventas_total) + '</div>' +
-      '<div class="nota">Solo pedidos pagados. No incluye cancelados ni pagos que no se completaron.</div>' +
+      '<div class="nota">' + r.num_pedidos + (r.num_pedidos === 1 ? ' pedido vendido' : ' pedidos vendidos') +
+        '. No incluye cancelados ni pagos que no se completaron.</div>' +
     '</div>' +
 
     '<div class="rejilla">' +
       '<div class="tarjeta"><div class="etiqueta">Productos</div><div class="valor">' + cop(r.ventas_productos) + '</div></div>' +
       '<div class="tarjeta"><div class="etiqueta">Domicilios</div><div class="valor">' + cop(r.ventas_domicilios) + '</div></div>' +
-      '<div class="tarjeta"><div class="etiqueta">Pedidos</div><div class="valor">' + r.num_pedidos + '</div></div>' +
-      '<div class="tarjeta"><div class="etiqueta">Ticket promedio</div><div class="valor">' + cop(r.ticket_promedio) + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Pedidos vendidos</div><div class="valor">' + r.num_pedidos + '</div></div>' +
+      '<div class="tarjeta"><div class="etiqueta">Ticket promedio</div><div class="valor">' + cop(r.ticket_promedio) + '</div>' +
+        '<div class="pieta">' + cop(r.ventas_total) + ' ÷ ' + r.num_pedidos + '</div></div>' +
       '<div class="tarjeta"><div class="etiqueta">Lo más vendido</div><div class="valor chico">' +
         (top ? escapar(top.nombre) + '<br><span style="color:var(--mostaza);">' + top.unidades + ' unidades</span>' : '—') +
       '</div></div>' +
-      '<div class="tarjeta ' + (r.cancelados ? 'aviso' : '') + '"><div class="etiqueta">Cancelados</div><div class="valor">' + r.cancelados + '</div></div>' +
+      '<div class="tarjeta ' + (r.cancelados ? 'aviso' : '') + '"><div class="etiqueta">Cancelados</div>' +
+        '<div class="valor">' + r.cancelados + '</div>' +
+        (r.ventas_canceladas ? '<div class="pieta">' + cop(r.ventas_canceladas) + ' cobrados, por devolver</div>' : '') +
+      '</div>' +
     '</div>' +
 
     pintarHoras(horas, horaPico, r.num_pedidos);

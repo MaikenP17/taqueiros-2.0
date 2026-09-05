@@ -6,10 +6,20 @@
 -- pedidos al navegador para sumarlos alli: es lento, gasta datos y
 -- empeora a medida que crece el historial.
 --
--- QUE CUENTA Y QUE NO
--- Las ventas SOLO incluyen pedidos con el pago aprobado. Un pedido
--- cancelado o que nunca se pago no suma un peso. Los cancelados se
--- reportan aparte, como cuenta, nunca dentro del dinero.
+-- ============ UNA SOLA DEFINICION DE "PEDIDO DE LA JORNADA" ============
+-- Se llama VENDIDO al pedido con el pago aprobado que NO fue
+-- cancelado. Esa es la unica definicion que usan todos los numeros:
+-- el total de ventas, la cuenta de pedidos, el ticket promedio, lo
+-- mas vendido y la grafica de horas. Ninguna cifra mezcla el dinero
+-- de un conjunto con la cuenta de otro.
+--
+-- POR QUE UN CANCELADO NO CUENTA COMO VENTA
+-- La plata entro (Wompi la tiene), pero la comida no salio: ese
+-- dinero esta pendiente de devolver. Contarlo como venta le diria al
+-- dueno que vendio algo que no vendio. Se reporta aparte, con su
+-- MONTO, que es justo lo que necesita para cuadrar con el banco.
+--
+-- Un pedido que nunca se pago no aparece en ningun conteo.
 --
 -- Seguro de re-ejecutar.
 -- =============================================================
@@ -28,10 +38,10 @@ begin
   select * into lim from public.limites_jornada(fecha);
 
   with
-  /* Base: solo lo que de verdad se vendio.
-     'aprobado' es el pago confirmado por Wompi. Un pedido cancelado
-     por la cocina DESPUES de cobrado sigue siendo dinero recibido,
-     por eso se excluye por estado, no por estado_pago. */
+  /* VENDIDOS: la definicion unica. Pago aprobado por Wompi y no
+     cancelado. De aqui salen TODAS las cifras del resumen, para que
+     ninguna mezcle el dinero de un conjunto con la cuenta de otro.
+     El dinero de los cancelados se reporta aparte, mas abajo. */
   vendidos as (
     select *
     from public.pedidos
@@ -40,8 +50,12 @@ begin
       and estado_pago = 'aprobado'
       and estado <> 'cancelado'
   ),
+  /* Los cancelados se cuentan Y se suman: sin el monto, el dueno no
+     puede cuadrar lo que ve con lo que aparece en Wompi. */
   cancelados as (
-    select count(*) as n
+    select
+      count(*) as n,
+      coalesce(sum(total) filter (where estado_pago = 'aprobado'), 0) as dinero
     from public.pedidos
     where creado_en >= lim.inicio
       and creado_en <  lim.fin
@@ -89,6 +103,7 @@ begin
     'num_pedidos',       t.num_pedidos,
     'ticket_promedio',   t.ticket_promedio,
     'cancelados',        (select n from cancelados),
+    'ventas_canceladas', (select dinero from cancelados),
     'top_productos',     coalesce((select jsonb_agg(jsonb_build_object('nombre', nombre, 'unidades', unidades)) from productos), '[]'::jsonb),
     'por_hora',          coalesce((select jsonb_agg(jsonb_build_object('hora', hora, 'pedidos', pedidos, 'ventas', ventas)) from por_hora), '[]'::jsonb)
   )
@@ -142,8 +157,14 @@ grant execute on function public.buscar_historial(date, date, text, text) to aut
 -- Para el selector de fecha del historial: solo se ofrecen dias en
 -- los que de verdad hubo movimiento.
 -- ---------------------------------------------------------------
+-- El selector contaba 'todos menos pendiente_pago', asi que incluia
+-- los cancelados: mostraba 4 mientras el recuadro mostraba 3, sin que
+-- nada explicara la diferencia. Ahora usa la MISMA definicion que el
+-- resumen, y los cancelados van en su propia columna.
+drop function if exists public.jornadas_con_pedidos(integer);
+
 create or replace function public.jornadas_con_pedidos(limite integer default 60)
-returns table (jornada date, pedidos bigint, ventas bigint)
+returns table (jornada date, pedidos bigint, ventas bigint, cancelados bigint)
 language sql
 stable
 security definer
@@ -151,8 +172,9 @@ set search_path = public
 as $$
   select
     public.jornada_de(creado_en, (select hora_corte_jornada from public.configuracion where id = 1)) as jornada,
-    count(*) filter (where estado <> 'pendiente_pago') as pedidos,
-    coalesce(sum(total) filter (where estado_pago = 'aprobado' and estado <> 'cancelado'), 0) as ventas
+    count(*) filter (where estado_pago = 'aprobado' and estado <> 'cancelado') as pedidos,
+    coalesce(sum(total) filter (where estado_pago = 'aprobado' and estado <> 'cancelado'), 0) as ventas,
+    count(*) filter (where estado = 'cancelado') as cancelados
   from public.pedidos
   where estado <> 'pendiente_pago'
   group by 1
