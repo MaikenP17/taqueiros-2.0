@@ -114,12 +114,12 @@
     border-radius:16px; margin-bottom:1rem; overflow:hidden;
   }
   .cat-cabecera{
-    display:flex; align-items:center; gap:.7rem;
-    padding:.9rem 1rem; border-bottom:1px solid var(--borde);
-    background:var(--carbon-3);
+    display:flex; align-items:center; gap:.6rem;
+    padding:.7rem 1rem; border-bottom:1px solid var(--borde);
+    background:var(--carbon-3); min-height:58px;
   }
-  .cat-cabecera h2{font-size:.95rem; flex:1; min-width:0;}
-  .cat-cabecera .cuenta{color:var(--texto-secundario); font-size:.72rem; font-weight:700;}
+  .cat-cabecera h2{font-size:.95rem; flex:1; min-width:0; line-height:1.15; overflow-wrap:anywhere;}
+  .cat-cabecera .cuenta{color:var(--texto-secundario); font-size:.72rem; font-weight:700; text-align:right;}
   .categoria.inactiva{opacity:.5;}
   .categoria.inactiva .cat-cabecera{background:rgba(0,0,0,.3);}
 
@@ -145,7 +145,7 @@
 
   .prod-fila{display:flex; align-items:center; gap:.8rem;}
   .prod-info{flex:1; min-width:0;}
-  .prod-nombre{font-size:.95rem; font-weight:700; line-height:1.3;}
+  .prod-nombre{font-size:.95rem; font-weight:700; line-height:1.3; overflow-wrap:anywhere;}
   .producto.agotado .prod-nombre{color:var(--texto-secundario); text-decoration:line-through;}
   .prod-precio{
     font-size:.9rem; font-weight:800; color:var(--verde-brillo); margin-top:.2rem;
@@ -163,7 +163,7 @@
   }
   .btn-editar:hover{background:rgba(247,236,214,.15);}
 
-  /* ---------- FORMULARIO DE EDICION ---------- */
+  /* ---------- FORMULARIO DE EDICION RAPIDA ---------- */
   .editor{display:none; margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--borde);}
   .producto.abierto .editor{display:block;}
 
@@ -191,14 +191,183 @@
     position:fixed; left:50%; bottom:1.5rem; transform:translate(-50%, 160%);
     background:var(--verde); color:var(--crema-suave);
     padding:.9rem 1.4rem; border-radius:999px; font-weight:800; font-size:.88rem;
-    box-shadow:0 14px 34px rgba(0,0,0,.5); z-index:500;
-    transition:transform .35s cubic-bezier(.2,.8,.3,1);
+    box-shadow:0 14px 34px rgba(0,0,0,.5); z-index:700;
+    transition:transform .35s cubic-bezier(.2,.8,.3,1), opacity .35s ease;
     max-width:calc(100% - 2rem); text-align:center;
+    opacity:0; pointer-events:none;   /* escondido de verdad: sin borde verde asomando */
   }
-  .toast.show{transform:translate(-50%, 0);}
+  .toast.show{transform:translate(-50%, 0); opacity:1;}
   .toast.error{background:var(--rojo);}
 
-  .cargando{text-align:center; padding:3rem 1rem; color:var(--texto-secundario);}
+  .cargando{text-align:center; padding:3rem 1rem; color:var(--texto-secundario); min-height:40vh;}
+
+  /* ---------- BUSCADOR Y AGREGAR ---------- */
+  .barra{display:flex; flex-wrap:wrap; gap:.7rem; margin:0 0 1rem;}
+  .buscador{position:relative; display:block; flex:1 1 240px; min-width:0;}
+  .buscador input{
+    width:100%; height:48px; font-family:inherit; font-size:16px;
+    padding:0 2.9rem; border-radius:12px; border:1px solid var(--borde);
+    background:var(--carbon-2); color:var(--texto-claro);
+    -webkit-appearance:none; appearance:none;
+  }
+  .buscador input::-webkit-search-cancel-button{display:none;}
+  .buscador input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .buscador .lupa{
+    position:absolute; left:.95rem; top:50%; width:18px; height:18px;
+    margin-top:-9px; color:var(--texto-secundario); pointer-events:none;
+  }
+  .buscador .limpiar{
+    position:absolute; right:.15rem; top:50%; margin-top:-22px;
+    width:44px; height:44px; background:none; color:var(--texto-secundario);
+    font-size:1.5rem; line-height:1; border-radius:50%;
+  }
+  .buscador .limpiar[hidden]{display:none;}
+  /* El boton NO usa width:100% en escritorio: aplastaba el buscador
+     (error que ya paso en el panel de Luna Rosa). */
+  .btn-agregar{
+    flex:0 0 auto; height:48px; padding:0 1.4rem; white-space:nowrap;
+    background:var(--rojo); color:var(--crema-suave);
+    border-radius:12px; font-weight:800; font-size:.95rem;
+  }
+  .btn-agregar:hover{background:var(--rojo-brillo);}
+  @media (max-width:559px){ .btn-agregar{flex:1 1 100%;} }
+  .sin-resultados{
+    text-align:center; padding:2.5rem 1rem; color:var(--texto-secundario);
+    font-size:.92rem; line-height:1.6;
+  }
+  .sin-resultados[hidden]{display:none;}
+  .cat-vacia{padding:1rem; color:var(--texto-secundario); font-size:.85rem;}
+
+  .btn-cat-editar{
+    flex:none; background:rgba(247,236,214,.07); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:10px;
+    width:44px; height:44px; font-size:1rem;
+  }
+  .btn-cat-editar:hover{background:rgba(247,236,214,.15);}
+
+  .prod-info[data-abrir]{cursor:pointer; min-height:44px; display:flex; flex-direction:column; justify-content:center;}
+  .prod-info[data-abrir]:focus-visible{outline:2px solid var(--rojo); outline-offset:2px; border-radius:8px;}
+  .prod-foto{font-size:.8rem; margin-left:.35rem; opacity:.75;}
+  .producto[hidden], .categoria[hidden]{display:none;}
+  .btn-mas{
+    width:100%; min-height:44px; margin-top:.2rem; border-radius:10px;
+    background:transparent; color:var(--mostaza); font-weight:800; font-size:.85rem;
+    border:1px dashed rgba(227,160,8,.45);
+  }
+
+  /* ---------- HOJA (formularios) ---------- */
+  .hoja-fondo{
+    position:fixed; inset:0; z-index:600; background:rgba(0,0,0,.62);
+    opacity:0; visibility:hidden; transition:opacity .2s ease, visibility 0s .2s;
+  }
+  .hoja-fondo.abierta{opacity:1; visibility:visible; transition:opacity .2s ease;}
+  .hoja{
+    position:fixed; z-index:610; left:0; right:0; bottom:0;
+    max-height:92vh; max-height:92dvh; display:flex; flex-direction:column;
+    background:var(--carbon-2); border:1px solid var(--borde); border-bottom:none;
+    border-radius:20px 20px 0 0; box-shadow:0 -20px 60px rgba(0,0,0,.55);
+    transform:translateY(100%); visibility:hidden;
+    transition:transform .28s cubic-bezier(.2,.8,.3,1), visibility 0s .28s;
+  }
+  .hoja.abierta{transform:none; visibility:visible; transition:transform .28s cubic-bezier(.2,.8,.3,1);}
+  .hoja-cab{
+    flex:none; display:flex; align-items:center; gap:.7rem;
+    padding:.8rem .8rem .8rem 1.1rem; border-bottom:1px solid var(--borde);
+  }
+  .hoja-cab h2{flex:1; font-size:1.05rem; min-width:0;}
+  .hoja-cab .cerrar{
+    flex:none; width:44px; height:44px; border-radius:50%;
+    background:rgba(247,236,214,.07); color:var(--texto-claro); font-size:1.4rem; line-height:1;
+  }
+  .hoja-cuerpo{
+    flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain;
+    padding:1rem 1.1rem 0; -webkit-overflow-scrolling:touch;
+  }
+  .hoja-pie{
+    position:sticky; bottom:0; margin:0 -1.1rem; padding:.8rem 1.1rem calc(.8rem + env(safe-area-inset-bottom));
+    background:var(--carbon-2); border-top:1px solid var(--borde);
+    display:flex; gap:.6rem;
+  }
+  .hoja-pie button{flex:1; min-height:48px; border-radius:12px; font-weight:800; font-size:.95rem;}
+  .hoja-pie .btn-guardar:disabled{opacity:.6;}
+  @media (min-width:700px){
+    .hoja{
+      left:50%; right:auto; bottom:auto; top:50%; width:520px; max-width:calc(100% - 2rem);
+      max-height:88vh; border-bottom:1px solid var(--borde); border-radius:20px;
+      transform:translate(-50%,-46%); opacity:0;
+      transition:transform .22s ease, opacity .22s ease, visibility 0s .22s;
+    }
+    .hoja.abierta{transform:translate(-50%,-50%); opacity:1; transition:transform .22s ease, opacity .22s ease;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .hoja, .hoja.abierta, .hoja-fondo, .hoja-fondo.abierta, .toast, .interruptor, .interruptor::after,
+    .progreso .pista i{transition:none !important;}
+  }
+
+  .hoja fieldset{border:0; min-width:0;}
+  .campo .fila-etiqueta{display:flex; justify-content:space-between; align-items:baseline; gap:.5rem;}
+  .campo .contador{font-size:.7rem; color:var(--texto-secundario); font-variant-numeric:tabular-nums; font-weight:600; letter-spacing:0; text-transform:none;}
+  .campo select{
+    width:100%; font-family:inherit; font-size:16px; padding:0 .85rem;
+    border-radius:10px; border:1px solid var(--borde);
+    background:var(--carbon); color:var(--texto-claro);
+  }
+  .campo select:focus{outline:2px solid var(--rojo); outline-offset:1px;}
+  .hoja .campo input, .hoja .campo select{min-height:48px;}
+  .campo .ayuda{font-size:.74rem; color:var(--texto-secundario); margin-top:.3rem;}
+  .precio-caja{position:relative;}
+  .precio-caja span{position:absolute; left:.9rem; top:50%; transform:translateY(-50%); font-weight:800; color:var(--verde-brillo); pointer-events:none;}
+  .precio-caja input{padding-left:1.8rem; font-variant-numeric:tabular-nums; font-weight:700;}
+  .enlace{
+    background:none; color:var(--mostaza); font-weight:800; font-size:.85rem;
+    min-height:44px; padding:0; text-align:left; text-decoration:underline; text-underline-offset:3px;
+  }
+  .caja-aviso, .caja-error{
+    border-radius:10px; padding:.75rem .9rem; font-size:.85rem; line-height:1.5; margin-bottom:.8rem;
+  }
+  .caja-aviso{background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4); color:var(--mostaza);}
+  .caja-error{background:rgba(193,39,45,.18); border:1px solid rgba(225,74,66,.55); color:#ffb3ab;}
+  .caja-aviso[hidden], .caja-error[hidden]{display:none;}
+
+  .foto-bloque{display:flex; gap:.9rem; align-items:center; margin-bottom:.4rem;}
+  .foto-prev{
+    flex:none; width:96px; height:96px; border-radius:14px; overflow:hidden;
+    background:var(--carbon); border:1px dashed var(--borde);
+    display:flex; align-items:center; justify-content:center; font-size:1.8rem; color:var(--texto-secundario);
+  }
+  .foto-prev img{width:100%; height:100%; object-fit:cover; display:block;}
+  .foto-acciones{flex:1; min-width:0; display:flex; flex-direction:column; gap:.5rem;}
+  .btn-sec{
+    min-height:44px; padding:0 1rem; border-radius:10px; font-weight:800; font-size:.88rem;
+    background:rgba(247,236,214,.1); color:var(--texto-claro); border:1px solid var(--borde);
+  }
+  .btn-sec:disabled{opacity:.45;}
+  .btn-sec.peligro{color:#ff8f85;}
+  .btn-sec[hidden]{display:none;}
+  .progreso{margin:.2rem 0 .8rem;}
+  .progreso .pista{height:8px; border-radius:99px; background:var(--carbon); overflow:hidden;}
+  .progreso .pista i{display:block; height:100%; width:100%; background:var(--verde-brillo); transform-origin:left center; transform:scaleX(0); transition:transform .15s linear;}
+  .progreso small{display:block; margin-top:.3rem; color:var(--texto-secundario); font-size:.74rem;}
+  .progreso[hidden]{display:none;}
+  .foto-nota{font-size:.78rem; color:var(--texto-secundario); margin-bottom:.8rem; min-height:1.1em; line-height:1.4;}
+  .foto-nota.mal{color:#ffb3ab;}
+
+  .crear-cat{background:var(--carbon); border:1px dashed var(--borde); border-radius:12px; padding:.8rem; margin-bottom:.8rem;}
+  .crear-cat[hidden]{display:none;}
+  .crear-cat .campo{margin-bottom:.4rem;}
+  .campo[hidden]{display:none;}
+
+  .zona-peligro{margin:.4rem 0 1rem; padding-top:.9rem; border-top:1px dashed var(--borde);}
+  .btn-eliminar{
+    width:100%; min-height:48px; border-radius:12px; font-weight:800; font-size:.9rem;
+    background:transparent; color:#ff8f85; border:1px solid rgba(225,74,66,.55);
+  }
+  .conf-eliminar{background:rgba(193,39,45,.14); border:1px solid rgba(225,74,66,.55); border-radius:12px; padding:.9rem;}
+  .conf-eliminar[hidden]{display:none;}
+  .conf-eliminar p{font-size:.88rem; line-height:1.5; margin-bottom:.8rem; overflow-wrap:anywhere;}
+  .conf-eliminar .botones{display:flex; gap:.6rem;}
+  .conf-eliminar .botones button{flex:1; min-height:48px; border-radius:12px; font-weight:800;}
+  .btn-rojo{background:var(--rojo); color:var(--crema-suave);}
 </style>
 </head>
 <body>
@@ -229,7 +398,7 @@
     <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
     <div class="txt">
       <strong>ADMINISTRAR MENÚ</strong>
-      <small>Agotar productos y cambiar precios</small>
+      <small>Productos, fotos, precios y agotados</small>
     </div>
     <a class="btn-volver" href="panel.html">← Comandas</a>
   </header>
@@ -238,18 +407,41 @@
     <strong>Cómo se ven los cambios en la página del cliente</strong>
     Agotar un producto o apagar una categoría se ve en
     <strong>menos de 30 segundos</strong> (medido: unos 20).
-    Cambiar un precio, un nombre o una descripción puede tardar
-    <strong>hasta 5 minutos</strong>, porque el menú se guarda en caché.
+    Un producto nuevo, una foto, un nombre o un precio puede tardar
+    <strong>hasta 1 minuto</strong>, porque el menú se guarda en caché.
     Aun así nadie paga el precio viejo: si cambia mientras alguien está
     pidiendo, el sistema le avisa y le corrige el carrito antes de cobrarle.
   </div>
 
-  <div class="contenido" id="contenido">
-    <div class="cargando">Cargando el menú…</div>
+  <div class="contenido">
+    <div class="barra">
+      <label class="buscador">
+        <svg class="lupa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+        <input type="search" id="buscador" placeholder="Buscar producto…" aria-label="Buscar producto"
+               autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search">
+        <button type="button" class="limpiar" id="buscadorLimpiar" aria-label="Borrar búsqueda" hidden>×</button>
+      </label>
+      <button type="button" class="btn-agregar" id="btnAgregar">+ Agregar producto</button>
+    </div>
+
+    <div id="contenido">
+      <div class="cargando">Cargando el menú…</div>
+    </div>
+    <div class="sin-resultados" id="sinResultados" hidden></div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<!-- Hoja de formularios (producto, categoria). En celular sube desde abajo. -->
+<div class="hoja-fondo" id="hojaFondo"></div>
+<section class="hoja" id="hoja" role="dialog" aria-modal="true" aria-labelledby="hojaTitulo" aria-hidden="true">
+  <div class="hoja-cab">
+    <h2 id="hojaTitulo"></h2>
+    <button type="button" class="cerrar" id="hojaCerrar" aria-label="Cerrar">×</button>
+  </div>
+  <div class="hoja-cuerpo" id="hojaCuerpo"></div>
+</section>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
@@ -264,6 +456,16 @@
    Comparte la sesion con panel.html: mismo origen y misma clave de
    almacenamiento por defecto de Supabase, asi que si ya entraron al
    panel, aqui no vuelven a escribir la contrasena.
+
+   Lo que hace:
+     * agotar productos y cambiar precios (un toque, como siempre)
+     * agregar, editar y eliminar productos, con foto opcional
+     * crear categorias nuevas y renombrar las existentes
+     * buscar por nombre
+
+   REGLA DE ORO DE LOS GUARDADOS: "Guardado" solo se muestra cuando
+   Supabase devolvio la fila escrita. Nada se pinta antes. Si falla,
+   el formulario queda tal cual y se dice por que, en espanol.
 ========================================================= */
 const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
@@ -290,48 +492,103 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 ------------------------------------------------------------- */
 const UMBRAL_CAMBIO = 0.5;
 
+/* Limites. La base de datos los vuelve a comprobar
+   (supabase/01-productos-fotos.sql); estos solo dan el aviso rapido.
+   Tope de precio: el producto mas caro hoy cuesta $32.000, asi que
+   $300.000 deja margen de sobra para combos y aun atrapa un dedo gordo. */
+const NOMBRE_MAX = 60;
+const DESC_MAX = 300;
+const CAT_MAX = 40;
+const PRECIO_MAX = 300000;
+
+/* Fotos */
+const BUCKET = "productos";
+const NUM_SQL = "01";
+const FALTA_SQL = "Falta ejecutar el SQL " + NUM_SQL + " en Supabase";
+const URL_PUBLICA = SUPABASE_URL + "/storage/v1/object/public/" + BUCKET + "/";
+const FOTO_LADO = 1000;                 // px del lado largo
+const FOTO_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const FOTO_ENTRADA_MAX = 40 * 1024 * 1024;
+
 let categorias = [];
 let productos = [];
+let fotosListas = null;   // false = el bucket no existe (falta el SQL). Se descubre al subir la primera foto
+
+const $ = (id) => document.getElementById(id);
 
 function formatoCOP(n){ return "$" + Number(n || 0).toLocaleString("es-CO"); }
+
+/* Escapa tambien las comillas: el texto se usa dentro de atributos
+   (value="...", aria-label="...") y sin esto un nombre con una comilla
+   rompe el HTML. */
 function escapar(t){
-  const d = document.createElement("div");
-  d.textContent = t == null ? "" : String(t);
-  return d.innerHTML;
+  return String(t == null ? "" : t)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+/* Para comparar nombres: sin mayusculas, sin tildes, sin espacios de mas.
+   Misma idea que norm_texto() en la base. */
+function norm(t){
+  return String(t == null ? "" : t).normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 let toastTimer = null;
 function avisar(mensaje, esError){
-  const t = document.getElementById("toast");
+  const t = $("toast");
   t.textContent = mensaje;
   t.classList.toggle("error", !!esError);
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+  toastTimer = setTimeout(() => t.classList.remove("show"), esError ? 5000 : 3200);
+}
+
+/* Errores en espanol llano. Nada de "PGRST116" ni "violates check". */
+function errorLegible(e){
+  const msg = String((e && e.message) || e || "");
+  const codigo = e && e.code;
+
+  if(e && e.faltaSql) return FALTA_SQL;
+  if(/Bucket not found/i.test(msg)) return FALTA_SQL + " (las fotos todavía no están activadas).";
+  if(/Failed to fetch|NetworkError|Load failed|RED_CAIDA|timeout/i.test(msg)) return "No hay conexión con el servidor. Revisa tu internet e intenta de nuevo.";
+  if(/JWT|expired|not authenticated|invalid claim|Auth session missing/i.test(msg)) return "Tu sesión venció. Recarga la página y vuelve a entrar.";
+  if(codigo === "42501" || /row-level security|permission denied|not authorized|unauthorized/i.test(msg)) return "Tu usuario no tiene permiso para hacer este cambio.";
+  if(codigo === "23505"){
+    if(/categorias/i.test(msg)) return "Ya existe una categoría con ese nombre.";
+    return "Ese producto ya existe. Intenta de nuevo.";
+  }
+  if(codigo === "23503") return "La categoría elegida ya no existe. Recarga la página.";
+  if(/exceeded the maximum allowed size|payload too large|413/i.test(msg)) return "La foto pesa más de 2 MB.";
+  if(/mime type|not supported|unsupported/i.test(msg)) return "Ese tipo de archivo no se puede subir. Usa una foto JPG, PNG o WebP.";
+  // Los mensajes que escribe la propia base (raise exception) ya vienen en espanol
+  if(codigo === "P0001" && msg) return msg;
+  if(e && e.legible) return msg;
+  return "No se pudo guardar. Revisa la conexión e intenta de nuevo.";
 }
 
 /* =========================================================
    SESION
 ========================================================= */
-const loginScreen = document.getElementById("loginScreen");
-const loginForm = document.getElementById("loginForm");
-const loginError = document.getElementById("loginError");
+const loginScreen = $("loginScreen");
+const loginForm = $("loginForm");
+const loginError = $("loginError");
 
 function mostrarLogin(){
   loginForm.dataset.estado = "listo";
   loginScreen.classList.remove("hidden");
-  document.getElementById("app").hidden = true;
+  $("app").hidden = true;
 }
 
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   loginError.textContent = "";
-  const btn = document.getElementById("loginBtn");
+  const btn = $("loginBtn");
   btn.disabled = true; btn.textContent = "Entrando…";
 
   const { error } = await db.auth.signInWithPassword({
-    email: document.getElementById("loginEmail").value.trim(),
-    password: document.getElementById("loginPassword").value
+    email: $("loginEmail").value.trim(),
+    password: $("loginPassword").value
   });
 
   btn.disabled = false; btn.textContent = "Entrar";
@@ -341,7 +598,7 @@ loginForm.addEventListener("submit", async (e) => {
 
 async function entrar(){
   loginScreen.classList.add("hidden");
-  document.getElementById("app").hidden = false;
+  $("app").hidden = false;
   await cargar();
 }
 
@@ -357,7 +614,10 @@ async function entrar(){
 })();
 
 db.auth.onAuthStateChange((evento, sesion) => {
-  if(evento === "SIGNED_OUT" && !sesion) mostrarLogin();
+  if(evento === "SIGNED_OUT" && !sesion){
+    cerrarHoja(true);
+    mostrarLogin();
+  }
 });
 
 /* =========================================================
@@ -371,7 +631,7 @@ async function cargar(){
 
   if(rc.error || rp.error){
     console.error(rc.error || rp.error);
-    document.getElementById("contenido").innerHTML =
+    $("contenido").innerHTML =
       '<div class="cargando">No se pudo cargar el menú.<br>Revisa la conexión y recarga.</div>';
     return;
   }
@@ -382,67 +642,115 @@ async function cargar(){
 }
 
 function pintar(){
-  const cont = document.getElementById("contenido");
+  const cont = $("contenido");
 
   cont.innerHTML = categorias.map(cat => {
     const suyos = productos.filter(p => p.categoria === cat.id);
     const agotados = suyos.filter(p => !p.disponible).length;
 
-    return '<section class="categoria ' + (cat.activa === false ? "inactiva" : "") + '" data-cat="' + cat.id + '">' +
+    return '<section class="categoria ' + (cat.activa === false ? "inactiva" : "") + '" data-cat="' + escapar(cat.id) + '">' +
       '<div class="cat-cabecera">' +
         '<h2>' + escapar(cat.emoji || "") + ' ' + escapar(cat.nombre) + '</h2>' +
         '<span class="cuenta">' + suyos.length + (agotados ? " · " + agotados + " agotados" : "") + '</span>' +
+        '<button class="btn-cat-editar" data-cat-renombrar="' + escapar(cat.id) + '" ' +
+          'title="Cambiar el nombre de la categoría" ' +
+          'aria-label="Cambiar el nombre de ' + escapar(cat.nombre) + '">✏️</button>' +
         '<button class="interruptor ' + (cat.activa !== false ? "si" : "") + '" ' +
-          'data-cat-toggle="' + cat.id + '" ' +
+          'data-cat-toggle="' + escapar(cat.id) + '" ' +
           'title="Mostrar u ocultar la categoría completa" ' +
           'aria-label="Activar o desactivar ' + escapar(cat.nombre) + '"></button>' +
       '</div>' +
-      suyos.map(pintarProducto).join("") +
+      (suyos.length ? suyos.map(pintarProducto).join("") : '<div class="cat-vacia">Esta categoría todavía no tiene productos.</div>') +
     '</section>';
   }).join("");
+
+  aplicarBusqueda();
 }
 
 function pintarProducto(p){
-  return '<div class="producto ' + (p.disponible ? "" : "agotado") + '" data-prod="' + p.id + '">' +
+  return '<div class="producto ' + (p.disponible ? "" : "agotado") + '" data-prod="' + escapar(p.id) + '" data-busq="' + escapar(norm(p.nombre)) + '">' +
     '<div class="prod-fila">' +
-      '<div class="prod-info">' +
+      '<div class="prod-info" data-abrir="' + escapar(p.id) + '" role="button" tabindex="0" ' +
+        'aria-label="Abrir ' + escapar(p.nombre) + ' para editar todo">' +
         '<div class="prod-nombre">' + escapar(p.nombre) + '</div>' +
-        '<div class="prod-precio">' + formatoCOP(p.precio) + '</div>' +
+        '<div class="prod-precio">' + formatoCOP(p.precio) + (p.imagen ? '<span class="prod-foto" title="Tiene foto">📷</span>' : '') + '</div>' +
         (p.disponible ? "" : '<div class="prod-estado">Agotado</div>') +
       '</div>' +
       '<button class="interruptor ' + (p.disponible ? "si" : "") + '" ' +
-        'data-toggle="' + p.id + '" ' +
+        'data-toggle="' + escapar(p.id) + '" ' +
         'aria-label="Marcar ' + escapar(p.nombre) + ' como agotado o disponible"></button>' +
-      '<button class="btn-editar" data-editar="' + p.id + '" aria-label="Editar ' + escapar(p.nombre) + '">✏️</button>' +
+      '<button class="btn-editar" data-editar="' + escapar(p.id) + '" aria-label="Editar precio de ' + escapar(p.nombre) + '">✏️</button>' +
     '</div>' +
 
     '<div class="editor">' +
       '<div class="campo">' +
         '<label>Nombre</label>' +
-        '<input type="text" data-campo="nombre" value="' + escapar(p.nombre) + '">' +
+        '<input type="text" maxlength="' + NOMBRE_MAX + '" data-campo="nombre" value="' + escapar(p.nombre) + '">' +
       '</div>' +
       '<div class="campo">' +
         '<label>Precio (solo números)</label>' +
-        '<input type="text" inputmode="numeric" data-campo="precio" value="' + p.precio + '">' +
+        '<input type="text" inputmode="numeric" data-campo="precio" value="' + escapar(p.precio) + '">' +
       '</div>' +
       '<div class="campo">' +
         '<label>Descripción</label>' +
-        '<textarea rows="3" data-campo="descripcion">' + escapar(p.descripcion || "") + '</textarea>' +
+        '<textarea rows="3" maxlength="' + DESC_MAX + '" data-campo="descripcion">' + escapar(p.descripcion || "") + '</textarea>' +
       '</div>' +
+      '<button type="button" class="btn-mas" data-abrir="' + escapar(p.id) + '">Foto, categoría y eliminar…</button>' +
       '<div class="acciones">' +
-        '<button class="btn-cancelar" data-cancelar="' + p.id + '">Cancelar</button>' +
-        '<button class="btn-guardar" data-guardar="' + p.id + '">Guardar</button>' +
+        '<button class="btn-cancelar" data-cancelar="' + escapar(p.id) + '">Cancelar</button>' +
+        '<button class="btn-guardar" data-guardar="' + escapar(p.id) + '">Guardar</button>' +
       '</div>' +
     '</div>' +
   '</div>';
 }
 
 /* =========================================================
-   ACCIONES
+   BUSCADOR
+   Filtra mientras se escribe, sin tildes ni mayusculas. No vuelve a
+   pintar: solo esconde, asi un editor abierto no se pierde.
 ========================================================= */
-document.getElementById("contenido").addEventListener("click", async (e) => {
+function aplicarBusqueda(){
+  const q = norm($("buscador").value);
+  $("buscadorLimpiar").hidden = !$("buscador").value;
+
+  let visibles = 0;
+  document.querySelectorAll("#contenido .categoria").forEach(sec => {
+    let enSeccion = 0;
+    sec.querySelectorAll(".producto").forEach(el => {
+      const coincide = !q || el.dataset.busq.includes(q);
+      el.hidden = !coincide;
+      if(coincide) enSeccion++;
+    });
+    // Mientras se busca, las categorias sin coincidencias se esconden
+    sec.hidden = !!q && enSeccion === 0;
+    visibles += enSeccion;
+  });
+
+  const aviso = $("sinResultados");
+  if(q && visibles === 0){
+    aviso.hidden = false;
+    aviso.textContent = 'No hay productos que se llamen "' + $("buscador").value.trim() + '".';
+  }else{
+    aviso.hidden = true;
+    aviso.textContent = "";
+  }
+}
+
+$("buscador").addEventListener("input", aplicarBusqueda);
+$("buscadorLimpiar").addEventListener("click", () => {
+  $("buscador").value = "";
+  aplicarBusqueda();
+  $("buscador").focus();
+});
+
+/* =========================================================
+   ACCIONES RAPIDAS (las de siempre)
+========================================================= */
+$("contenido").addEventListener("click", async (e) => {
   const toggle = e.target.closest("[data-toggle]");
   const catToggle = e.target.closest("[data-cat-toggle]");
+  const catRenombrar = e.target.closest("[data-cat-renombrar]");
+  const abrir = e.target.closest("[data-abrir]");
   const editar = e.target.closest("[data-editar]");
   const cancelar = e.target.closest("[data-cancelar]");
   const guardar = e.target.closest("[data-guardar]");
@@ -490,7 +798,19 @@ document.getElementById("contenido").addEventListener("click", async (e) => {
     return;
   }
 
-  // ---- Abrir o cerrar el editor ----
+  // ---- Renombrar categoria ----
+  if(catRenombrar){
+    abrirFormCategoria(catRenombrar.dataset.catRenombrar, catRenombrar);
+    return;
+  }
+
+  // ---- Formulario completo del producto (foto, categoria, eliminar) ----
+  if(abrir){
+    abrirFormProducto(abrir.dataset.abrir, abrir);
+    return;
+  }
+
+  // ---- Abrir o cerrar el editor rapido ----
   if(editar){
     const caja = editar.closest(".producto");
     document.querySelectorAll(".producto.abierto").forEach(o => {
@@ -506,7 +826,7 @@ document.getElementById("contenido").addEventListener("click", async (e) => {
     return;
   }
 
-  // ---- Guardar nombre, precio y descripcion ----
+  // ---- Guardar nombre, precio y descripcion (edicion rapida) ----
   if(guardar){
     const id = guardar.dataset.guardar;
     const p = productos.find(x => x.id === id);
@@ -519,7 +839,9 @@ document.getElementById("contenido").addEventListener("click", async (e) => {
     const precio = parseInt(precioTexto, 10);
 
     if(nombre.length < 2){ avisar("El nombre no puede quedar vacío", true); return; }
+    if(nombre.length > NOMBRE_MAX){ avisar("El nombre no puede pasar de " + NOMBRE_MAX + " caracteres", true); return; }
     if(!Number.isInteger(precio) || precio <= 0){ avisar("El precio debe ser un número mayor que cero", true); return; }
+    if(precio > PRECIO_MAX){ avisar("El precio no puede pasar de " + formatoCOP(PRECIO_MAX), true); return; }
 
     /* Red contra el dedo gordo: si el precio nuevo se aleja mucho del
        actual, se pregunta antes de guardar. */
@@ -545,7 +867,7 @@ document.getElementById("contenido").addEventListener("click", async (e) => {
     guardar.disabled = false;
     guardar.textContent = "Guardar";
 
-    if(error){ avisar("No se pudo guardar. Revisa la conexión.", true); console.error(error); return; }
+    if(error){ avisar(errorLegible(error), true); console.error(error); return; }
 
     Object.assign(p, { nombre, descripcion, precio });
     caja.classList.remove("abierto");
@@ -553,9 +875,767 @@ document.getElementById("contenido").addEventListener("click", async (e) => {
 
     /* Se avisa siempre del retraso: aunque solo cambien el nombre o
        la descripcion, tambien viajan en el catalogo cacheado. */
-    avisar("Guardado. Puede tardar hasta 5 minutos en verse en la página");
+    avisar("Guardado. Puede tardar hasta 1 minuto en verse en la página");
   }
 });
+
+// El area de nombre y precio se puede activar con teclado
+$("contenido").addEventListener("keydown", (e) => {
+  if((e.key === "Enter" || e.key === " ") && e.target.matches('.prod-info[data-abrir]')){
+    e.preventDefault();
+    abrirFormProducto(e.target.dataset.abrir, e.target);
+  }
+});
+
+/* =========================================================
+   HOJA (formularios)
+========================================================= */
+const hoja = $("hoja");
+const hojaFondo = $("hojaFondo");
+let hojaEstado = null;   // { sucio(), ocupado, regresarA }
+
+function abrirHoja(titulo, html, estado){
+  hojaEstado = estado || {};
+  hojaEstado.regresarA = document.activeElement;
+  $("hojaTitulo").textContent = titulo;
+  $("hojaCuerpo").innerHTML = html;
+  $("hojaCuerpo").scrollTop = 0;
+  hoja.classList.add("abierta");
+  hojaFondo.classList.add("abierta");
+  hoja.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
+
+function cerrarHoja(forzar){
+  if(!hoja.classList.contains("abierta")) return true;
+  if(!forzar){
+    if(hojaEstado && hojaEstado.ocupado) return false;
+    if(hojaEstado && hojaEstado.sucio && hojaEstado.sucio() &&
+       !confirm("Tienes cambios sin guardar. ¿Salir y descartarlos?")) return false;
+  }
+  hoja.classList.remove("abierta");
+  hojaFondo.classList.remove("abierta");
+  hoja.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  liberarFoto();
+  const volver = hojaEstado && hojaEstado.regresarA;
+  hojaEstado = null;
+  if(volver && volver.focus && document.contains(volver)) { try{ volver.focus({ preventScroll: true }); }catch(e){} }
+  return true;
+}
+
+$("hojaCerrar").addEventListener("click", () => cerrarHoja());
+hojaFondo.addEventListener("click", () => cerrarHoja());
+document.addEventListener("keydown", (e) => {
+  if(!hoja.classList.contains("abierta")) return;
+  if(e.key === "Escape"){ e.preventDefault(); cerrarHoja(); return; }
+  if(e.key === "Tab"){   // el foco no se escapa de la hoja
+    const f = [...hoja.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')]
+      .filter(x => x.offsetParent !== null);
+    if(!f.length) return;
+    const primero = f[0], ultimo = f[f.length - 1];
+    if(e.shiftKey && document.activeElement === primero){ e.preventDefault(); ultimo.focus(); }
+    else if(!e.shiftKey && document.activeElement === ultimo){ e.preventDefault(); primero.focus(); }
+  }
+});
+
+/* =========================================================
+   FOTOS: preparar (reducir y convertir) y subir
+========================================================= */
+let fotoActual = null;   // { blob, ext, url (vista previa), w, h }
+
+function liberarFoto(){
+  if(fotoActual && fotoActual.url) URL.revokeObjectURL(fotoActual.url);
+  fotoActual = null;
+}
+
+function aBlob(lienzo, tipo, calidad){
+  return new Promise(res => { try{ lienzo.toBlob(res, tipo, calidad); }catch(e){ res(null); } });
+}
+
+async function decodificar(archivo){
+  // 1) createImageBitmap (rapido, respeta la orientacion del celular)
+  try{
+    let bmp;
+    try{ bmp = await createImageBitmap(archivo, { imageOrientation: "from-image" }); }
+    catch(e){ bmp = await createImageBitmap(archivo); }
+    return { fuente: bmp, w: bmp.width, h: bmp.height, liberar: () => bmp.close && bmp.close() };
+  }catch(e){ /* se intenta con <img> */ }
+
+  // 2) <img> con URL temporal
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(archivo);
+    const img = new Image();
+    img.onload = () => res({ fuente: img, w: img.naturalWidth, h: img.naturalHeight, liberar: () => URL.revokeObjectURL(url) });
+    img.onerror = () => { URL.revokeObjectURL(url); rej(Object.assign(new Error("Ese archivo no es una foto válida. Elige una imagen JPG, PNG o WebP."), { legible: true })); };
+    img.src = url;
+  });
+}
+
+/* Lado largo maximo de 1000 px, WebP a calidad ~0.8 (JPEG si el
+   navegador no sabe WebP), y nunca mas de 2 MB. */
+async function prepararFoto(archivo){
+  if(!archivo) throw Object.assign(new Error("No se eligió ninguna foto."), { legible: true });
+  if(archivo.size > FOTO_ENTRADA_MAX) throw Object.assign(new Error("Esa foto es demasiado pesada. Elige otra."), { legible: true });
+
+  const img = await decodificar(archivo);
+  try{
+    if(!img.w || !img.h) throw Object.assign(new Error("Ese archivo no es una foto válida."), { legible: true });
+
+    let lado = FOTO_LADO;
+    for(let ronda = 0; ronda < 2; ronda++){
+      const esc = Math.min(1, lado / Math.max(img.w, img.h));
+      const w = Math.max(1, Math.round(img.w * esc));
+      const h = Math.max(1, Math.round(img.h * esc));
+
+      let lienzo = document.createElement("canvas");
+      lienzo.width = w; lienzo.height = h;
+      let ctx = lienzo.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img.fuente, 0, 0, w, h);
+
+      let calidad = 0.8;
+      let ext = "webp";
+      let blob = await aBlob(lienzo, "image/webp", calidad);
+
+      if(!blob || blob.type !== "image/webp"){
+        // Sin soporte de WebP: JPEG, con fondo blanco para no dejar negro lo transparente
+        lienzo = document.createElement("canvas");
+        lienzo.width = w; lienzo.height = h;
+        ctx = lienzo.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img.fuente, 0, 0, w, h);
+        calidad = 0.82; ext = "jpg";
+        blob = await aBlob(lienzo, "image/jpeg", calidad);
+      }
+      if(!blob) throw Object.assign(new Error("No se pudo preparar la foto. Prueba con otra."), { legible: true });
+
+      while(blob.size > FOTO_MAX_BYTES && calidad > 0.45){
+        calidad -= 0.1;
+        const otro = await aBlob(lienzo, blob.type, calidad);
+        if(!otro) break;
+        blob = otro;
+      }
+      if(blob.size <= FOTO_MAX_BYTES){
+        return { blob, ext, url: URL.createObjectURL(blob), w, h };
+      }
+      lado = 800;   // segunda ronda, mas chica
+    }
+    throw Object.assign(new Error("La foto sigue pesando más de 2 MB. Prueba con otra."), { legible: true });
+  } finally {
+    img.liberar();
+  }
+}
+
+function nombreDeArchivoSeguro(ext){
+  // Lo genera el codigo: nunca se usa el nombre que trae el archivo
+  const b = new Uint8Array(10);
+  crypto.getRandomValues(b);
+  return "p-" + Array.from(b, x => x.toString(16).padStart(2, "0")).join("") + "." + ext;
+}
+
+/* Sube con XMLHttpRequest para poder mostrar el avance real.
+   Es la misma peticion (multipart) que hace supabase-js por dentro. */
+async function subirFoto(foto, alAvanzar){
+  const { data } = await db.auth.getSession();
+  const token = data && data.session && data.session.access_token;
+  if(!token) throw Object.assign(new Error("Auth session missing"), {});
+
+  const nombre = nombreDeArchivoSeguro(foto.ext);
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", SUPABASE_URL + "/storage/v1/object/" + BUCKET + "/" + nombre);
+    xhr.setRequestHeader("Authorization", "Bearer " + token);
+    xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("x-upsert", "false");
+    xhr.timeout = 90000;
+
+    xhr.upload.onprogress = (ev) => { if(ev.lengthComputable && alAvanzar) alAvanzar(ev.loaded / ev.total); };
+    xhr.onload = () => {
+      if(xhr.status >= 200 && xhr.status < 300){
+        resolve({ path: nombre, url: URL_PUBLICA + nombre });
+        return;
+      }
+      let cuerpo = {};
+      try{ cuerpo = JSON.parse(xhr.responseText); }catch(e){}
+      const e = new Error(cuerpo.message || cuerpo.error || ("HTTP " + xhr.status));
+      e.status = xhr.status;
+      if(/Bucket not found/i.test(e.message)) e.faltaSql = true;
+      reject(e);
+    };
+    xhr.onerror = () => reject(new Error("RED_CAIDA"));
+    xhr.ontimeout = () => reject(new Error("RED_CAIDA timeout"));
+
+    const fd = new FormData();
+    fd.append("cacheControl", "31536000");   // el nombre nunca se reutiliza
+    fd.append("", foto.blob, nombre);
+    xhr.send(fd);
+  });
+}
+
+/* Ruta dentro del bucket de una URL nuestra; null si la foto es otra
+   cosa (por ejemplo las de /Recursos, que viven en el codigo y NO se
+   borran jamas). */
+function rutaEnBucket(url){
+  if(!url || !String(url).startsWith(URL_PUBLICA)) return null;
+  try{ return decodeURIComponent(String(url).slice(URL_PUBLICA.length)); }catch(e){ return null; }
+}
+
+async function borrarFotoDelBucket(url){
+  const ruta = rutaEnBucket(url);
+  if(!ruta) return;
+  try{
+    const { error } = await db.storage.from(BUCKET).remove([ruta]);
+    if(error) console.warn("[Fotos] No se pudo borrar", ruta, error);
+  }catch(e){ console.warn("[Fotos] No se pudo borrar", ruta, e); }
+}
+
+function urlParaMostrar(imagen){
+  if(!imagen) return "";
+  return /^https?:\/\//i.test(imagen) ? imagen : encodeURI(imagen);
+}
+
+/* =========================================================
+   FORMULARIO DE PRODUCTO (agregar y editar)
+========================================================= */
+let f = null;   // estado del formulario abierto
+
+function opcionesCategoria(seleccionada){
+  return '<option value=""' + (seleccionada ? "" : " selected") + ' disabled>Elige una categoría…</option>' +
+    categorias.map(c =>
+      '<option value="' + escapar(c.id) + '"' + (c.id === seleccionada ? " selected" : "") + '>' +
+        escapar((c.emoji ? c.emoji + " " : "") + c.nombre) + (c.activa === false ? " (oculta)" : "") +
+      '</option>').join("");
+}
+
+function abrirFormProducto(id, origen){
+  const p = id ? productos.find(x => x.id === id) : null;
+  if(id && !p) return;
+
+  f = {
+    modo: p ? "editar" : "nuevo",
+    id: p ? p.id : null,
+    imagenOriginal: p ? (p.imagen || null) : null,
+    quitarFoto: false,
+    catNueva: false,
+    duplicadoVisto: false,
+    guardando: false,
+    inicial: null
+  };
+  liberarFoto();
+
+  const html =
+    '<form id="fForm" novalidate>' +
+    '<fieldset id="fCampos">' +
+      '<div class="campo">' +
+        '<label>Foto (opcional)</label>' +
+        '<div class="foto-bloque">' +
+          '<div class="foto-prev" id="fFotoPrev"></div>' +
+          '<div class="foto-acciones">' +
+            '<button type="button" class="btn-sec" id="fFotoElegir"></button>' +
+            '<button type="button" class="btn-sec peligro" id="fFotoQuitar" hidden>Quitar foto</button>' +
+          '</div>' +
+        '</div>' +
+        '<input type="file" id="fFotoInput" accept="image/*" hidden>' +
+        '<div class="progreso" id="fProgreso" hidden>' +
+          '<div class="pista"><i id="fProgresoBarra"></i></div><small id="fProgresoTexto"></small>' +
+        '</div>' +
+        '<p class="foto-nota" id="fFotoNota"></p>' +
+      '</div>' +
+
+      '<div class="campo">' +
+        '<div class="fila-etiqueta"><label for="fNombre">Nombre</label><span class="contador" id="fNombreCont"></span></div>' +
+        '<input type="text" id="fNombre" maxlength="' + NOMBRE_MAX + '" autocomplete="off" enterkeyhint="next">' +
+      '</div>' +
+
+      '<div class="campo">' +
+        '<label for="fPrecio">Precio en pesos</label>' +
+        '<div class="precio-caja"><span>$</span>' +
+          '<input type="text" id="fPrecio" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="0" enterkeyhint="next">' +
+        '</div>' +
+        '<p class="ayuda">Solo números. Máximo ' + formatoCOP(PRECIO_MAX) + '.</p>' +
+      '</div>' +
+
+      '<div class="campo">' +
+        '<div class="fila-etiqueta"><label for="fDesc">Descripción (opcional)</label><span class="contador" id="fDescCont"></span></div>' +
+        '<textarea id="fDesc" rows="3" maxlength="' + DESC_MAX + '"></textarea>' +
+      '</div>' +
+
+      '<div class="campo" id="fCatCampo">' +
+        '<label for="fCategoria">Categoría</label>' +
+        '<select id="fCategoria"></select>' +
+      '</div>' +
+      '<button type="button" class="enlace" id="fCatToggle">+ Crear categoría nueva</button>' +
+      '<div class="crear-cat" id="fCatNuevaCaja" hidden>' +
+        '<div class="campo">' +
+          '<div class="fila-etiqueta"><label for="fCatNueva">Nombre de la categoría nueva</label><span class="contador" id="fCatNuevaCont"></span></div>' +
+          '<input type="text" id="fCatNueva" maxlength="' + CAT_MAX + '" autocomplete="off">' +
+        '</div>' +
+        '<p class="ayuda">Se crea junto con este producto.</p>' +
+      '</div>' +
+
+      '<div class="caja-aviso" id="fAviso" role="status" hidden></div>' +
+      '<div class="caja-error" id="fError" role="alert" hidden></div>' +
+
+      (p ? '<div class="zona-peligro">' +
+             '<button type="button" class="btn-eliminar" id="fEliminar">Eliminar producto</button>' +
+             '<div class="conf-eliminar" id="fConfEliminar" hidden>' +
+               '<p id="fConfTexto"></p>' +
+               '<div class="botones">' +
+                 '<button type="button" class="btn-cancelar" id="fConfNo">No, volver</button>' +
+                 '<button type="button" class="btn-rojo" id="fConfSi">Sí, eliminar</button>' +
+               '</div>' +
+             '</div>' +
+           '</div>' : '') +
+    '</fieldset>' +
+
+    '<div class="hoja-pie">' +
+      '<button type="button" class="btn-cancelar" id="fCancelar">Cancelar</button>' +
+      '<button type="submit" class="btn-guardar" id="fGuardar">' + (p ? "Guardar cambios" : "Guardar producto") + '</button>' +
+    '</div>' +
+    '</form>';
+
+  abrirHoja(p ? "Editar producto" : "Agregar producto", html, {
+    sucio: () => f && !f.guardando && snapshotForm() !== f.inicial
+  });
+
+  // Valores iniciales (por propiedad, no por HTML: cualquier texto es seguro)
+  $("fCategoria").innerHTML = opcionesCategoria(p ? p.categoria : "");
+  $("fNombre").value = p ? p.nombre : "";
+  $("fPrecio").value = p ? Number(p.precio).toLocaleString("es-CO") : "";
+  $("fDesc").value = p ? (p.descripcion || "") : "";
+  actualizarContadores();
+  pintarFoto();
+  f.inicial = snapshotForm();
+
+  // Fotos desactivadas si ya se comprobo que falta el SQL
+  if(fotosListas === false){
+    avisarFaltaSql();
+    $("fFotoNota").textContent = FALTA_SQL + " para poder subir fotos. Todo lo demás funciona.";
+  }
+
+  enlazarFormProducto();
+  setTimeout(() => { if(f && f.modo === "nuevo") $("fNombre").focus(); }, 60);
+}
+
+function snapshotForm(){
+  if(!f || !$("fNombre")) return "";
+  return JSON.stringify([
+    $("fNombre").value, $("fPrecio").value, $("fDesc").value,
+    $("fCategoria").value, f.catNueva, $("fCatNueva").value,
+    !!fotoActual, f.quitarFoto
+  ]);
+}
+
+function actualizarContadores(){
+  $("fNombreCont").textContent = $("fNombre").value.length + "/" + NOMBRE_MAX;
+  $("fDescCont").textContent = $("fDesc").value.length + "/" + DESC_MAX;
+  $("fCatNuevaCont").textContent = $("fCatNueva").value.length + "/" + CAT_MAX;
+}
+
+function pintarFoto(){
+  const prev = $("fFotoPrev");
+  let src = "";
+  if(fotoActual) src = fotoActual.url;
+  else if(!f.quitarFoto && f.imagenOriginal) src = urlParaMostrar(f.imagenOriginal);
+
+  prev.textContent = "";
+  if(src){
+    const img = document.createElement("img");
+    img.alt = "Vista previa de la foto";
+    img.src = src;
+    prev.appendChild(img);
+  }else{
+    prev.textContent = "📷";
+  }
+  $("fFotoElegir").textContent = src ? "Cambiar foto" : "Elegir foto";
+  $("fFotoQuitar").hidden = !src;
+}
+
+function mostrarAviso(texto){
+  const a = $("fAviso");
+  a.hidden = !texto;
+  a.textContent = texto || "";
+}
+function mostrarError(texto){
+  const e = $("fError");
+  e.hidden = !texto;
+  e.textContent = texto || "";
+  if(texto) e.scrollIntoView({ block: "nearest" });
+}
+
+function enlazarFormProducto(){
+  $("fNombre").addEventListener("input", () => { f.duplicadoVisto = false; mostrarAviso(""); actualizarContadores(); });
+  $("fDesc").addEventListener("input", actualizarContadores);
+  $("fCatNueva").addEventListener("input", actualizarContadores);
+  $("fCategoria").addEventListener("change", () => { f.duplicadoVisto = false; mostrarAviso(""); });
+
+  // Precio: solo digitos, con puntos de miles mientras se escribe
+  $("fPrecio").addEventListener("input", () => {
+    const d = $("fPrecio").value.replace(/\D/g, "").replace(/^0+/, "").slice(0, 7);
+    $("fPrecio").value = d ? Number(d).toLocaleString("es-CO") : "";
+  });
+
+  $("fCatToggle").addEventListener("click", () => {
+    f.catNueva = !f.catNueva;
+    f.duplicadoVisto = false; mostrarAviso("");
+    $("fCatNuevaCaja").hidden = !f.catNueva;
+    $("fCatCampo").hidden = f.catNueva;
+    $("fCatToggle").textContent = f.catNueva ? "← Usar una categoría que ya existe" : "+ Crear categoría nueva";
+    if(f.catNueva) $("fCatNueva").focus(); else $("fCategoria").focus();
+  });
+
+  $("fFotoElegir").addEventListener("click", () => $("fFotoInput").click());
+  $("fFotoInput").addEventListener("change", alElegirFoto);
+  $("fFotoQuitar").addEventListener("click", () => {
+    liberarFoto();
+    f.quitarFoto = true;
+    $("fFotoInput").value = "";
+    $("fFotoNota").textContent = ""; $("fFotoNota").classList.remove("mal");
+    pintarFoto();
+  });
+
+  $("fCancelar").addEventListener("click", () => cerrarHoja());
+  $("fForm").addEventListener("submit", (e) => { e.preventDefault(); guardarProducto(); });
+
+  if(f.modo === "editar"){
+    $("fEliminar").addEventListener("click", () => {
+      const p = productos.find(x => x.id === f.id);
+      $("fConfTexto").textContent = "¿Eliminar \"" + (p ? p.nombre : "este producto") + "\"? " +
+        "Desaparece del menú y no se puede deshacer. Los pedidos que ya se hicieron no se tocan.";
+      $("fEliminar").hidden = true;
+      $("fConfEliminar").hidden = false;
+      $("fConfNo").focus();
+    });
+    $("fConfNo").addEventListener("click", () => {
+      $("fConfEliminar").hidden = true;
+      $("fEliminar").hidden = false;
+      $("fEliminar").focus();
+    });
+    $("fConfSi").addEventListener("click", eliminarProducto);
+  }
+}
+
+async function alElegirFoto(){
+  const archivo = $("fFotoInput").files && $("fFotoInput").files[0];
+  if(!archivo) return;
+  const nota = $("fFotoNota");
+  nota.classList.remove("mal");
+  nota.textContent = "Preparando la foto…";
+  $("fFotoElegir").disabled = true;
+  try{
+    const lista = await prepararFoto(archivo);
+    liberarFoto();
+    fotoActual = lista;
+    f.quitarFoto = false;
+    nota.textContent = "Foto lista: " + lista.w + "×" + lista.h + " px, " + Math.max(1, Math.round(lista.blob.size / 1024)) + " KB (" + lista.ext.toUpperCase() + ").";
+    pintarFoto();
+  }catch(err){
+    nota.textContent = (err && err.legible) ? err.message : "No se pudo preparar esa foto. Prueba con otra.";
+    nota.classList.add("mal");
+    if(!(err && err.legible)) console.error(err);
+  }finally{
+    $("fFotoElegir").disabled = (fotosListas === false);
+    $("fFotoInput").value = "";   // permite elegir la misma foto otra vez
+  }
+}
+
+function bloquearFormulario(si){
+  f.guardando = si;
+  if(hojaEstado) hojaEstado.ocupado = si;
+  $("fCampos").disabled = si;
+  $("fGuardar").disabled = si;
+  $("fCancelar").disabled = si;
+  $("hojaCerrar").disabled = si;
+}
+
+function leerPrecio(){
+  const d = $("fPrecio").value.replace(/\D/g, "");
+  return d ? parseInt(d, 10) : NaN;
+}
+
+function slug(t){
+  return norm(t).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "");
+}
+function sufijo(){
+  return Math.floor(Math.random() * 36 ** 4).toString(36).padStart(4, "0");
+}
+
+async function guardarProducto(){
+  if(!f || f.guardando) return;
+  mostrarError("");
+
+  // ---- Validacion ----
+  const nombre = $("fNombre").value.trim();
+  const descripcion = $("fDesc").value.trim();
+  const precio = leerPrecio();
+  const catElegida = $("fCategoria").value;
+  const catNombre = $("fCatNueva").value.trim();
+
+  if(!nombre){ mostrarError("Escribe el nombre del producto."); $("fNombre").focus(); return; }
+  if(nombre.length > NOMBRE_MAX){ mostrarError("El nombre no puede pasar de " + NOMBRE_MAX + " caracteres."); $("fNombre").focus(); return; }
+  if(!Number.isInteger(precio) || precio <= 0){ mostrarError("Escribe un precio mayor que cero, solo con números."); $("fPrecio").focus(); return; }
+  if(precio > PRECIO_MAX){ mostrarError("El precio no puede pasar de " + formatoCOP(PRECIO_MAX) + "."); $("fPrecio").focus(); return; }
+  if(descripcion.length > DESC_MAX){ mostrarError("La descripción no puede pasar de " + DESC_MAX + " caracteres."); $("fDesc").focus(); return; }
+
+  if(f.catNueva){
+    if(!catNombre){ mostrarError("Escribe el nombre de la categoría nueva."); $("fCatNueva").focus(); return; }
+    if(catNombre.length > CAT_MAX){ mostrarError("El nombre de la categoría no puede pasar de " + CAT_MAX + " caracteres."); $("fCatNueva").focus(); return; }
+    const repetida = categorias.find(c => norm(c.nombre) === norm(catNombre));
+    if(repetida){ mostrarError("Ya existe la categoría \"" + repetida.nombre + "\". Elígela de la lista."); $("fCatNueva").focus(); return; }
+  }else if(!catElegida){
+    mostrarError("Elige una categoría."); $("fCategoria").focus(); return;
+  }
+
+  /* Sobre el precio de un producto que ya existe: la misma red contra el
+     dedo gordo que usa la edicion rapida. */
+  const previo = f.modo === "editar" ? productos.find(x => x.id === f.id) : null;
+  if(previo && precio !== previo.precio){
+    const dif = Math.abs(precio - previo.precio) / previo.precio;
+    if(dif > UMBRAL_CAMBIO &&
+       !confirm("Vas a cambiar " + previo.nombre + "\n\nde " + formatoCOP(previo.precio) + "  a  " + formatoCOP(precio) +
+                "\n\nEs un cambio del " + Math.round(dif * 100) + "%. ¿Es correcto?")) return;
+  }
+
+  // ---- Mismo nombre en la misma categoria: se avisa y se deja decidir ----
+  if(!f.catNueva && !f.duplicadoVisto){
+    const igual = productos.find(x => x.id !== f.id && x.categoria === catElegida && norm(x.nombre) === norm(nombre));
+    if(igual){
+      f.duplicadoVisto = true;
+      mostrarAviso("Ya existe \"" + igual.nombre + "\" en esa categoría. Si es otro producto, toca de nuevo \"Guardar igual\".");
+      $("fGuardar").textContent = "Guardar igual";
+      $("fAviso").scrollIntoView({ block: "nearest" });
+      return;
+    }
+  }
+
+  // ---- Guardado: sin pintar nada hasta que Supabase confirme ----
+  bloquearFormulario(true);
+  $("fGuardar").textContent = "Guardando…";
+
+  let categoriaCreada = null;
+  let fotoSubida = null;
+
+  try{
+    let categoriaId = catElegida;
+
+    if(f.catNueva){
+      const idBase = slug(catNombre) || "categoria";
+      let idCat = idBase;
+      if(categorias.some(c => c.id === idCat)) idCat = idBase + "-" + sufijo();
+      const orden = categorias.reduce((m, c) => Math.max(m, c.orden || 0), -1) + 1;
+
+      const { data, error } = await db.from("categorias")
+        .insert({ id: idCat, nombre: catNombre, emoji: "🍽️", orden, activa: true })
+        .select().single();
+      if(error) throw error;
+      if(!data) throw new Error("La categoría no se confirmó");
+      categoriaCreada = data;
+      categoriaId = data.id;
+    }
+
+    // Foto
+    let imagen = f.imagenOriginal;
+    let cambiaFoto = false;
+    if(fotoActual){
+      $("fProgreso").hidden = false;
+      $("fProgresoTexto").textContent = "Subiendo foto… 0%";
+      fotoSubida = await subirFoto(fotoActual, (frac) => {
+        $("fProgresoBarra").style.transform = "scaleX(" + frac.toFixed(3) + ")";
+        $("fProgresoTexto").textContent = "Subiendo foto… " + Math.round(frac * 100) + "%";
+      });
+      $("fProgresoTexto").textContent = "Guardando el producto…";
+      imagen = fotoSubida.url;
+      cambiaFoto = true;
+    }else if(f.quitarFoto){
+      imagen = null;
+      cambiaFoto = true;
+    }
+
+    let fila;
+    if(f.modo === "nuevo"){
+      const ids = new Set(productos.map(x => x.id));
+      let idProd = (slug(nombre) || "producto") + "-" + sufijo();
+      while(ids.has(idProd)) idProd = (slug(nombre) || "producto") + "-" + sufijo();
+      const orden = productos.filter(x => x.categoria === categoriaId).reduce((m, x) => Math.max(m, x.orden || 0), -1) + 1;
+
+      const { data, error } = await db.from("productos")
+        .insert({ id: idProd, nombre, descripcion: descripcion || null, precio, categoria: categoriaId, orden, disponible: true, imagen: imagen || null })
+        .select().single();
+      if(error) throw error;
+      fila = data;
+    }else{
+      const cambios = { nombre, descripcion: descripcion || null, precio, categoria: categoriaId };
+      if(cambiaFoto) cambios.imagen = imagen;
+      const { data, error } = await db.from("productos").update(cambios).eq("id", f.id).select();
+      if(error) throw error;
+      // RLS puede dejar pasar la peticion sin tocar ninguna fila: eso NO es guardado
+      if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
+      fila = data[0];
+    }
+    if(!fila || !fila.id) throw new Error("El producto no se confirmó");
+
+    // ---- Confirmado por Supabase: recien ahora se refleja ----
+    if(categoriaCreada) categorias.push(categoriaCreada);
+    if(f.modo === "nuevo") productos.push(fila);
+    else Object.assign(productos.find(x => x.id === f.id), fila);
+
+    const fotoVieja = (cambiaFoto && f.modo === "editar") ? f.imagenOriginal : null;
+    const era = f.modo;
+    const idFinal = fila.id;
+
+    bloquearFormulario(false);
+    cerrarHoja(true);
+
+    // Si una busqueda lo escondiera, se limpia para que se vea
+    const q = norm($("buscador").value);
+    if(q && !norm(fila.nombre).includes(q)) $("buscador").value = "";
+    pintar();
+    const el = document.querySelector('[data-prod="' + (window.CSS && CSS.escape ? CSS.escape(idFinal) : idFinal) + '"]');
+    if(el) el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+
+    avisar(era === "nuevo" ? "Guardado. Puede tardar hasta 1 minuto en verse en la página"
+                           : "Guardado. Puede tardar hasta 1 minuto en verse en la página");
+
+    // La foto anterior ya no la usa nadie: se borra (solo si era del bucket)
+    if(fotoVieja) borrarFotoDelBucket(fotoVieja);
+  }catch(err){
+    console.error(err);
+
+    // Deshacer lo que alcanzo a hacerse, para no dejar basura
+    if(fotoSubida) await borrarFotoDelBucket(fotoSubida.url);
+    if(categoriaCreada){
+      try{ await db.from("categorias").delete().eq("id", categoriaCreada.id); }catch(e){ console.warn(e); }
+    }
+
+    bloquearFormulario(false);
+    $("fProgreso").hidden = true;
+    $("fProgresoBarra").style.transform = "scaleX(0)";
+    $("fGuardar").textContent = f.duplicadoVisto ? "Guardar igual" : (f.modo === "editar" ? "Guardar cambios" : "Guardar producto");
+    const texto = errorLegible(err);
+    mostrarError(texto);
+    avisar(texto, true);
+
+    /* Si lo que fallo es que el bucket no existe, no tiene sentido seguir
+       ofreciendo fotos: el resto del panel sigue funcionando. Detectarlo
+       aqui y no con una consulta al abrir la pagina evita una peticion
+       fallida (y su error en consola) en cada carga. */
+    if(err && (err.faltaSql || /Bucket not found/i.test(err.message || ""))){
+      fotosListas = false;
+      avisarFaltaSql();
+    }
+  }
+}
+
+function avisarFaltaSql(){
+  if(!$("fFotoElegir")) return;
+  $("fFotoElegir").disabled = true;
+  $("fFotoNota").textContent = FALTA_SQL + " para poder subir fotos. Toca \"Quitar foto\" para guardar el producto sin ella; todo lo demás funciona.";
+  $("fFotoNota").classList.add("mal");
+}
+
+async function eliminarProducto(){
+  if(!f || f.guardando) return;
+  const p = productos.find(x => x.id === f.id);
+  if(!p) return;
+
+  bloquearFormulario(true);
+  mostrarError("");
+  try{
+    const { data, error } = await db.from("productos").delete().eq("id", p.id).select("id");
+    if(error) throw error;
+    if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
+
+    // Confirmado
+    productos = productos.filter(x => x.id !== p.id);
+    const foto = p.imagen;
+    bloquearFormulario(false);
+    cerrarHoja(true);
+    pintar();
+    avisar("Producto eliminado");
+    if(foto) borrarFotoDelBucket(foto);   // las fotos de /Recursos no se tocan
+  }catch(err){
+    console.error(err);
+    bloquearFormulario(false);
+    const texto = errorLegible(err);
+    mostrarError(texto);
+    avisar(texto, true);
+  }
+}
+
+$("btnAgregar").addEventListener("click", () => abrirFormProducto(null, $("btnAgregar")));
+
+/* =========================================================
+   RENOMBRAR CATEGORIA
+========================================================= */
+function abrirFormCategoria(id, origen){
+  const c = categorias.find(x => x.id === id);
+  if(!c) return;
+
+  f = { modo: "categoria", id: c.id, guardando: false, inicial: null };
+  const html =
+    '<form id="cForm" novalidate>' +
+    '<fieldset id="cCampos">' +
+      '<div class="campo">' +
+        '<div class="fila-etiqueta"><label for="cNombre">Nombre de la categoría</label><span class="contador" id="cCont"></span></div>' +
+        '<input type="text" id="cNombre" maxlength="' + CAT_MAX + '" autocomplete="off">' +
+      '</div>' +
+      '<div class="caja-error" id="cError" role="alert" hidden></div>' +
+    '</fieldset>' +
+    '<div class="hoja-pie">' +
+      '<button type="button" class="btn-cancelar" id="cCancelar">Cancelar</button>' +
+      '<button type="submit" class="btn-guardar" id="cGuardar">Guardar nombre</button>' +
+    '</div>' +
+    '</form>';
+
+  abrirHoja("Cambiar nombre de categoría", html, {
+    sucio: () => f && $("cNombre") && $("cNombre").value.trim() !== c.nombre
+  });
+  $("cNombre").value = c.nombre;
+  const contar = () => { $("cCont").textContent = $("cNombre").value.length + "/" + CAT_MAX; };
+  contar();
+  $("cNombre").addEventListener("input", contar);
+  $("cCancelar").addEventListener("click", () => cerrarHoja());
+  setTimeout(() => { $("cNombre").focus(); $("cNombre").select(); }, 60);
+
+  $("cForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if(f.guardando) return;
+    const nombre = $("cNombre").value.trim();
+    const err = $("cError");
+    err.hidden = true;
+
+    const fallo = (t) => { err.textContent = t; err.hidden = false; };
+    if(!nombre){ fallo("Escribe el nombre de la categoría."); return; }
+    if(nombre.length > CAT_MAX){ fallo("El nombre no puede pasar de " + CAT_MAX + " caracteres."); return; }
+    const otra = categorias.find(x => x.id !== c.id && norm(x.nombre) === norm(nombre));
+    if(otra){ fallo("Ya existe la categoría \"" + otra.nombre + "\"."); return; }
+    if(nombre === c.nombre){ cerrarHoja(true); return; }
+
+    f.guardando = true; hojaEstado.ocupado = true;
+    $("cCampos").disabled = true; $("cGuardar").disabled = true; $("cCancelar").disabled = true; $("hojaCerrar").disabled = true;
+    $("cGuardar").textContent = "Guardando…";
+    try{
+      const { data, error } = await db.from("categorias").update({ nombre }).eq("id", c.id).select();
+      if(error) throw error;
+      if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
+
+      Object.assign(c, data[0]);
+      f.guardando = false; hojaEstado.ocupado = false;
+      $("hojaCerrar").disabled = false;
+      cerrarHoja(true);
+      pintar();
+      avisar("Guardado. Puede tardar hasta 1 minuto en verse en la página");
+    }catch(e2){
+      console.error(e2);
+      f.guardando = false; hojaEstado.ocupado = false;
+      $("cCampos").disabled = false; $("cGuardar").disabled = false; $("cCancelar").disabled = false; $("hojaCerrar").disabled = false;
+      $("cGuardar").textContent = "Guardar nombre";
+      fallo(errorLegible(e2));
+    }
+  });
+}
 </script>
 </body>
 </html>
