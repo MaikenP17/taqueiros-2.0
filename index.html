@@ -1017,6 +1017,17 @@ let categoriasInactivas = new Set();
    No es una copia escrita en el codigo, es lo ultimo que se sirvio. */
 const MENU_CACHE_KEY = "taqueiros-menu-v1";
 
+/* El nombre, la descripcion y las categorias los escribe el dueno desde
+   el panel, asi que NUNCA se pegan como HTML crudo: un nombre como
+   <img onerror=...> se ejecutaria en el navegador de cada cliente.
+   Todo lo que va dentro de un innerHTML pasa por aqui (tambien escapa
+   las comillas, para que sea seguro dentro de atributos como alt="..."). */
+function esc(t){
+  return String(t == null ? "" : t)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function traducirMenu(datos){
   const porCategoria = new Map();
   (datos.categorias || []).forEach(c => {
@@ -1041,6 +1052,7 @@ function traducirMenu(datos){
 
 async function cargarMenu(opciones){
   let datos = null;
+  let desdeServidor = false;
   const forzar = opciones && opciones.forzar;
 
   try{
@@ -1056,6 +1068,7 @@ async function cargarMenu(opciones){
     if(!resp.ok) throw new Error("HTTP " + resp.status);
     datos = await resp.json();
     if(!datos.ok) throw new Error(datos.error || "respuesta sin datos");
+    desdeServidor = !datos.deRespaldo;
 
     // Se guarda como respaldo para la proxima vez
     try{ localStorage.setItem(MENU_CACHE_KEY, JSON.stringify(datos)); }catch(e){}
@@ -1081,6 +1094,13 @@ async function cargarMenu(opciones){
   (datos.productos || []).forEach(pr => {
     if(pr.disponible === false) productosAgotados.add(pr.id);
   });
+
+  /* El dueno puede eliminar productos. Si el carrito de este cliente
+     todavia tiene uno, se saca: sin esto el producto fantasma no se ve
+     en ningun lado, pero sigue contando en el carrito y el servidor
+     rechaza cada intento de pago. Solo con un menu que acaba de llegar
+     del servidor; la copia vieja del navegador no es prueba de nada. */
+  if(desdeServidor) purgarCarritoHuerfano();
 
   pintarNavCategorias();
   pintarMenu();
@@ -1142,8 +1162,16 @@ setInterval(() => {
    red a buscarlos, asi que no hay forma de que el cache del borde
    devuelva los viejos y deje el carrito igual.
 ------------------------------------------------------------- */
-function aplicarCambiosDelMenu(agotados, preciosCambiados){
+function aplicarCambiosDelMenu(agotados, preciosCambiados, desconocidos){
   const lineas = [];
+
+  // --- Eliminados del menu: se sacan del carrito ---
+  (desconocidos || []).forEach(id => {
+    if(!cart[id]) return;
+    const pr = findProduct(id);
+    delete cart[id];
+    lineas.push("\u{1F6AB} " + (pr ? pr.name : "Un producto") + " ya no está en el menú, lo quitamos del carrito.");
+  });
 
   // --- Agotados: se sacan del carrito ---
   (agotados || []).forEach(a => {
@@ -1196,6 +1224,16 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados){
     : "\n\nTu carrito quedó vacío.";
 
   return cabecera + "\n\n" + lineas.join("\n") + cierre;
+}
+
+/* Saca del carrito los ids que ya no existen en el menu cargado. */
+function purgarCarritoHuerfano(){
+  const huerfanos = Object.keys(cart).filter(id => !findProduct(id));
+  if(!huerfanos.length) return;
+  huerfanos.forEach(id => delete cart[id]);
+  saveCart();
+  // Despues de pintar el menu, para no dejar la pagina en blanco detras del aviso
+  setTimeout(() => alert("Algún producto de tu carrito ya no está en el menú y lo quitamos.\nRevisa tu pedido antes de pagar."), 400);
 }
 
 /* Marca visualmente lo agotado SIN volver a pintar el menu, para no
@@ -1329,7 +1367,7 @@ function pintarMenu(){
 
   const head = document.createElement("div");
   head.className = "category-head";
-  head.innerHTML = `<h2>${cat.emoji} ${cat.name}</h2><span class="count">${cat.products.length} opciones</span>`;
+  head.innerHTML = `<h2>${esc(cat.emoji)} ${esc(cat.name)}</h2><span class="count">${cat.products.length} opciones</span>`;
   section.appendChild(head);
 
   const grid = document.createElement("div");
@@ -1340,10 +1378,10 @@ function pintarMenu(){
     card.className = p.img ? "card" : "card no-image";
     card.dataset.id = p.id;
     card.innerHTML = `
-      ${p.img ? `<div class="thumb"><img src="${encodeURI(p.img)}" alt="${p.name}" loading="lazy"></div>` : ""}
+      ${p.img ? `<div class="thumb"><img src="${esc(encodeURI(p.img))}" alt="${esc(p.name)}" loading="lazy"></div>` : ""}
       <div class="body">
-        <h3>${p.name}</h3>
-        <p class="desc">${p.desc}</p>
+        <h3>${esc(p.name)}</h3>
+        <p class="desc">${esc(p.desc)}</p>
         <div class="foot">
           <span class="price">${formatCOP(p.price)}</span>
           <div class="qty-slot"></div>
@@ -1472,10 +1510,10 @@ function renderDrawerItems(){
     const row = document.createElement("div");
     row.className = "drawer-item";
     row.innerHTML = `
-      ${p.img ? `<img src="${encodeURI(p.img)}" alt="${p.name}">` : `<div class="drawer-item-icon">➕</div>`}
+      ${p.img ? `<img src="${esc(encodeURI(p.img))}" alt="${esc(p.name)}">` : `<div class="drawer-item-icon">➕</div>`}
       <div class="meta">
         <div class="top">
-          <h4>${p.name}</h4>
+          <h4>${esc(p.name)}</h4>
           <span class="subtotal">${formatCOP(p.price*qty)}</span>
         </div>
         <div class="unit">${formatCOP(p.price)} c/u</div>
@@ -1535,7 +1573,7 @@ function openProductModal(id){
   currentModalProductId = id;
 
   document.getElementById("modalImg").innerHTML = p.img
-    ? `<img src="${encodeURI(p.img)}" alt="${p.name}">`
+    ? `<img src="${esc(encodeURI(p.img))}" alt="${esc(p.name)}">`
     : "";
   document.getElementById("modalImg").style.display = p.img ? "block" : "none";
   document.getElementById("modalName").textContent = p.name;
@@ -2127,10 +2165,11 @@ async function iniciarPagoWompi(){
          Se aplican los cambios y se le cuenta lo que REALMENTE pasó. */
       const huboAgotados = Array.isArray(detalle.agotados) && detalle.agotados.length;
       const huboPrecios = Array.isArray(detalle.preciosCambiados) && detalle.preciosCambiados.length;
+      const huboEliminados = Array.isArray(detalle.desconocidos) && detalle.desconocidos.length;
 
-      if(huboAgotados || huboPrecios){
+      if(huboAgotados || huboPrecios || huboEliminados){
         closePaymentForm();
-        alert(aplicarCambiosDelMenu(detalle.agotados, detalle.preciosCambiados));
+        alert(aplicarCambiosDelMenu(detalle.agotados, detalle.preciosCambiados, detalle.desconocidos));
         openDrawer();     // el carrito, ya con los valores corregidos
         return;
       }
@@ -2224,7 +2263,7 @@ const confirmOverlay = document.getElementById("confirmOverlay");
 function mostrarConfirmacion(pedido){
   document.getElementById("confirmRef").textContent = "Referencia: " + pedido.referencia;
   document.getElementById("confirmSummary").innerHTML = pedido.items.map(it =>
-    `<div class="line"><span>${it.cantidad}x ${it.nombre}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
+    `<div class="line"><span>${esc(it.cantidad)}x ${esc(it.nombre)}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
   ).join("");
   document.getElementById("confirmTotal").textContent = formatCOP(pedido.total);
 
