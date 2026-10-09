@@ -1513,9 +1513,8 @@ async function guardarProducto(){
     $("fProgreso").hidden = true;
     $("fProgresoBarra").style.transform = "scaleX(0)";
     $("fGuardar").textContent = f.duplicadoVisto ? "Guardar igual" : (f.modo === "editar" ? "Guardar cambios" : "Guardar producto");
-    const texto = errorLegible(err);
-    mostrarError(texto);
-    avisar(texto, true);
+    // El error se ve dentro del formulario; un aviso flotante taparia los botones
+    mostrarError(errorLegible(err));
 
     /* Si lo que fallo es que el bucket no existe, no tiene sentido seguir
        ofreciendo fotos: el resto del panel sigue funcionando. Detectarlo
@@ -1558,9 +1557,7 @@ async function eliminarProducto(){
   }catch(err){
     console.error(err);
     bloquearFormulario(false);
-    const texto = errorLegible(err);
-    mostrarError(texto);
-    avisar(texto, true);
+    mostrarError(errorLegible(err));
   }
 }
 

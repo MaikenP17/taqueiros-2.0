@@ -2,7 +2,15 @@
    Debe demostrar: un anonimo LEE el menu pero NO puede modificarlo. */
 const BASE = "https://pzryobpriyewlxltditw.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
-const SR = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4ODM3MjQ3MSwiZXhwIjoyMTAzOTQ4NDcxfQ.Iwrf267xV8PWc-jNJU99E0fxE0GqSGQ1tUjpmBIKrlE";
+/* La llave de servicio NUNCA va escrita aqui: este repositorio es publico.
+   Se lee del entorno:
+     PowerShell:  $env:SUPABASE_SERVICE_ROLE_KEY = "..." ; node supabase/probar-menu-rls.js
+   (la misma que esta en Vercel; Supabase -> Project Settings -> API) */
+const SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!SR) {
+  console.error("Falta la variable de entorno SUPABASE_SERVICE_ROLE_KEY. Ver el comentario de arriba.");
+  process.exit(1);
+}
 
 const Ha = { apikey: ANON, Authorization: "Bearer " + ANON, "Content-Type": "application/json" };
 const Hs = { apikey: SR, Authorization: "Bearer " + SR, "Content-Type": "application/json" };
