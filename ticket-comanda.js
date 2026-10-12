@@ -60,12 +60,17 @@
      no el cliente ni el resto de pantallas. */
   const TAMANO_KEY = "taqueiros-panel-ticket-tamano-v1";
 
-  /* MODO DE HOJA (prueba de calibracion). Chrome con --kiosk-printing no
-     siempre respeta el alto de @page: puede usar la hoja del driver
-     (80 x 297 mm) y dejar el ticket en el medio. Cada modo le pide la
-     hoja de una forma distinta para ver cual obedece el equipo real.
-     Ver docs/impresion-cocina.md, seccion 5.4.
-       A  alto medido                 @page{size:80mm <alto>mm}  (el de siempre)
+  /* MODO DE HOJA. Con la DIG-POS892 (driver "80mm Series Printer", hoja
+     del driver 80 x 297 mm, "Cut at end of document") las pruebas
+     mostraron que:
+       * con hojas mas cortas que 297 mm (A y C) el driver baja la hoja
+         desde el borde y deja de 6 a 9 cm de blanco arriba;
+       * B sale igual que D: Chrome ignora size:auto;
+       * D (hoja fija de 297 mm, contenido pegado arriba) arranca a ~1 cm
+         del borde, y el driver recorta solo el blanco del final.
+     Por eso D es el definitivo. A, B y C quedan como opciones de prueba
+     (selector del panel). Ver docs/impresion-cocina.md, seccion 5.4.
+       A  alto medido                 @page{size:80mm <alto>mm}
        B  automatico                  @page{size:80mm auto}
        C  alto medido + 1 mm          como A, +1 mm y sin alto fijo en html/body
        D  hoja fija de 297 mm         @page{size:80mm 297mm}, contenido arriba */
@@ -75,8 +80,21 @@
     C: "Altura medida + 1 mm",
     D: "Hoja fija 297 mm"
   };
-  const MODO_HOJA_POR_DEFECTO = "A";
+  const MODO_HOJA_POR_DEFECTO = "D";
   const ALTO_HOJA_FIJA_MM = 297;
+
+  /* TICKETS LARGOS (solo modo D). Un pedido de mas de una hoja de 297 mm
+     se parte en hojas. "Cut at end of document" corta UNA sola vez, al
+     final del documento, asi que las hojas salen seguidas en el mismo
+     papel. La particion es limpia: ningun producto, bloque de notas,
+     bloque de totales ni bloque de datos del cliente se corta (break-
+     inside:avoid en el CSS y, ademas, el corte se calcula aqui). Cada hoja
+     despues de la primera empieza con "#<numero> · continuacion".
+       CONTINUACION_MM  alto fijo de esa linea (aire arriba y abajo incluido)
+       HOLGURA_HOJA_MM  milimetro de seguridad para que el redondeo del
+                        motor de impresion nunca abra una hoja de mas */
+  const CONTINUACION_MM = 9;
+  const HOLGURA_HOJA_MM = 1;
 
   /* Por equipo, igual que el tamano. */
   const MODO_HOJA_KEY = "taqueiros-panel-ticket-hoja-v1";
@@ -259,6 +277,11 @@
     ".aviso{border:2px solid #000;padding:3px 4px;margin:5px 0;font-size:" + esc(13) + ";font-weight:900;",
     "  text-transform:uppercase;overflow-wrap:break-word;}",
     ".sep{border-top:2px dashed #000;margin:8px 0;}",
+    /* Nada de esto se parte entre dos hojas (ver TICKETS LARGOS) */
+    ".item,.datos-cliente,.notas-pedido,.totales{break-inside:avoid;page-break-inside:avoid;}",
+    ".continuacion{height:" + CONTINUACION_MM + "mm;padding:" + MARGEN_SUPERIOR_MM + "mm 0 2mm;",
+    "  border-bottom:1px solid #000;text-align:center;font-weight:700;letter-spacing:.04em;",
+    "  font-size:" + esc(12) + ";line-height:1.1;break-before:page;page-break-before:always;}",
     ".item{display:flex;gap:7px;align-items:flex-start;margin:6px 0;}",
     ".item .cant{flex:0 0 auto;min-width:" + esc(10, "mm") + ";font-size:" + esc(28) + ";font-weight:900;line-height:1;}",
     ".item .cuerpo{flex:1 1 auto;min-width:0;}",
@@ -317,21 +340,24 @@
     body.appendChild(el(doc, "div", "numero", d.numero));
     if (d.fecha) body.appendChild(el(doc, "div", "fecha", d.fecha));
 
-    if (d.cliente) body.appendChild(campo(doc, "Cliente", d.cliente, "grande"));
-    if (d.telefono) body.appendChild(campo(doc, "Teléfono", d.telefono));
+    /* Datos del cliente: un solo bloque que no se parte entre hojas */
+    const cliente = el(doc, "div", "datos-cliente");
+    if (d.cliente) cliente.appendChild(campo(doc, "Cliente", d.cliente, "grande"));
+    if (d.telefono) cliente.appendChild(campo(doc, "Teléfono", d.telefono));
 
     if (d.esDomicilio) {
       const dir = d.direccion || "(sin dirección)";
-      body.appendChild(campo(doc, "Dirección", dir));
-      if (d.barrio) body.appendChild(campo(doc, "Barrio", d.barrio));
+      cliente.appendChild(campo(doc, "Dirección", dir));
+      if (d.barrio) cliente.appendChild(campo(doc, "Barrio", d.barrio));
       if (d.fueraDeCobertura) {
-        body.appendChild(el(doc, "div", "aviso",
+        cliente.appendChild(el(doc, "div", "aviso",
           "Fuera de zona: cobrar domicilio aparte" + (d.distanciaKm ? " (" + d.distanciaKm + " km)" : "")));
       }
       if (d.verificarUbicacion) {
-        body.appendChild(el(doc, "div", "aviso", "Verificar ubicación: " + d.verificarUbicacion));
+        cliente.appendChild(el(doc, "div", "aviso", "Verificar ubicación: " + d.verificarUbicacion));
       }
     }
+    if (cliente.firstChild) body.appendChild(cliente);
 
     body.appendChild(el(doc, "div", "sep"));
 
@@ -348,23 +374,28 @@
     body.appendChild(el(doc, "div", "sep"));
 
     if (d.notas) {
-      body.appendChild(el(doc, "span", "etq", "Notas del pedido"));
-      body.appendChild(el(doc, "div", "notas", d.notas));
+      const notas = el(doc, "div", "notas-pedido");
+      notas.appendChild(el(doc, "span", "etq", "Notas del pedido"));
+      notas.appendChild(el(doc, "div", "notas", d.notas));
+      body.appendChild(notas);
       body.appendChild(el(doc, "div", "sep"));
     }
 
+    /* Totales, forma de pago y pie: un solo bloque, para que el cierre del
+       ticket nunca quede separado de lo que se cobra. */
+    const totales = el(doc, "div", "totales");
     if (d.costoDomicilio > 0) {
-      body.appendChild(lineaMonto(doc, "Productos", pesos(d.subtotal)));
-      body.appendChild(lineaMonto(doc,
+      totales.appendChild(lineaMonto(doc, "Productos", pesos(d.subtotal)));
+      totales.appendChild(lineaMonto(doc,
         "Domicilio" + (d.distanciaKm ? " (" + d.distanciaKm + " km)" : ""), pesos(d.costoDomicilio)));
     }
 
     const total = el(doc, "div", "total");
     total.appendChild(el(doc, "span", "", "TOTAL"));
     total.appendChild(el(doc, "span", "", pesos(d.total)));
-    body.appendChild(total);
+    totales.appendChild(total);
 
-    body.appendChild(el(doc, "div", "pago", "Pago: " + d.metodoPago + " · PAGADO"));
+    totales.appendChild(el(doc, "div", "pago", "Pago: " + d.metodoPago + " · PAGADO"));
 
     const pie = el(doc, "div", "pie", "LOS TAQUEIROS · PEDIDO WEB");
     if (d.marca === "REIMPRESIÓN") {
@@ -374,7 +405,12 @@
         pie.appendChild(el(doc, "span", "chico", "Original impreso: " + d.impresoEn));
       }
     }
-    body.appendChild(pie);
+    totales.appendChild(pie);
+    body.appendChild(totales);
+
+    /* El numero queda en el documento para la linea de continuacion de
+       los tickets largos (ver paginarHojas). */
+    body.setAttribute("data-numero", d.numero);
   }
 
   /* ---------- Tamano del texto ---------- */
@@ -452,6 +488,86 @@
     return { modo: m, medidoMm: medido, altoMm: altoMm, regla: regla, css: regla + cuerpo };
   }
 
+  /* Funcion pura: en que unidades empieza una hoja nueva.
+       unidades  [{ topMm, bottomMm }] en orden de lectura, medidas desde
+                 el borde superior del documento (la 1a trae el margen
+                 superior). Una unidad no se parte: es un producto con sus
+                 notas, un bloque, etc.
+     Devuelve { cortes, hojas }: cortes son los indices de las unidades
+     que abren hoja. Reglas:
+       * una hoja no se llena mas alla de hojaMm - MARGEN_INFERIOR_MM -
+         HOLGURA_HOJA_MM (el body deja su margen inferior en la ultima);
+       * toda hoja despues de la 1a arranca con la linea de continuacion
+         (contMm), que ocupa lugar;
+       * una unidad que ni sola cabe en una hoja no se puede evitar partir:
+         se deja fluir y la cuenta sigue desde donde termina. */
+  function repartirHojas(unidades, hojaMm, contMm) {
+    const hoja = hojaMm || ALTO_HOJA_FIJA_MM;
+    const cont = contMm === undefined ? CONTINUACION_MM : contMm;
+    const limite = hoja - MARGEN_INFERIOR_MM - HOLGURA_HOJA_MM;
+    const cortes = [];
+    let y = 0;        // donde termina la ultima unidad, en la hoja actual
+    let enHoja = 0;   // unidades ya puestas en la hoja actual
+    for (let i = 0; i < unidades.length; i++) {
+      const u = unidades[i];
+      const alto = Math.max(0, u.bottomMm - u.topMm);
+      const previo = i === 0 ? 0 : unidades[i - 1].bottomMm;
+      const hueco = Math.max(0, u.topMm - previo);
+      let arriba = y + hueco;
+      if (enHoja > 0 && arriba + alto > limite) {
+        cortes.push(i);
+        arriba = cont + hueco;
+        enHoja = 0;
+      }
+      y = arriba + alto;
+      if (y > hoja) y = y % hoja;
+      enHoja++;
+    }
+    return { cortes: cortes, hojas: cortes.length + 1 };
+  }
+
+  function quitarContinuaciones(doc) {
+    Array.prototype.slice.call(doc.body.querySelectorAll(".continuacion"))
+      .forEach(n => n.parentNode.removeChild(n));
+  }
+
+  /* Solo modo D con un ticket de comanda. Mide las unidades del ticket
+     (hijos de body; el separador se pega a lo que le sigue, para que una
+     hoja no termine en una raya suelta) y abre hoja nueva con la linea
+     "#<numero> · continuacion" donde repartirHojas lo indica. Es
+     idempotente: quita las lineas de una llamada anterior y recalcula.
+     Devuelve { cortes, hojas }. */
+  function paginarHojas(doc, plan) {
+    const body = doc.body;
+    quitarContinuaciones(doc);
+    const numero = body.getAttribute("data-numero");
+    if (!numero || !plan || plan.modo !== "D") return { cortes: [], hojas: 1 };
+
+    const base = body.getBoundingClientRect().top;
+    const unidades = [];
+    const primeros = [];       // el elemento con el que arranca cada unidad
+    let separador = null;      // un .sep que espera a su siguiente
+    Array.prototype.slice.call(body.children).forEach(h => {
+      const r = h.getBoundingClientRect();
+      if (h.classList.contains("sep") && !separador) { separador = { el: h, r: r }; return; }
+      const arriba = separador ? separador.r : r;
+      unidades.push({ topMm: (arriba.top - base) / PX_POR_MM, bottomMm: (r.bottom - base) / PX_POR_MM });
+      primeros.push(separador ? separador.el : h);
+      separador = null;
+    });
+    if (separador) {
+      unidades.push({ topMm: (separador.r.top - base) / PX_POR_MM, bottomMm: (separador.r.bottom - base) / PX_POR_MM });
+      primeros.push(separador.el);
+    }
+
+    const reparto = repartirHojas(unidades, plan.altoMm);
+    reparto.cortes.forEach(i => {
+      const linea = el(doc, "div", "continuacion", numero + " · continuación");
+      body.insertBefore(linea, primeros[i]);
+    });
+    return reparto;
+  }
+
   /* Ajusta la hoja al contenido segun el modo: ancho 80 mm y alto = lo
      que mide el ticket, que ya incluye su margen superior e inferior
      (padding del body). Sin esto el driver usaria su alto por defecto y
@@ -467,6 +583,7 @@
     /* Se mide siempre sin alto fijo, para que llamarla dos veces (o venir
        de otro modo) no mida el alto que se pidio la vez anterior. */
     estilo.textContent = "html,body{height:auto;}";
+    quitarContinuaciones(doc);
 
     /* Solo el body: documentElement.scrollHeight nunca baja del alto
        del visor y, si este fuera mayor que el ticket, sobraria papel. */
@@ -476,6 +593,10 @@
 
     const plan = planHoja(modo === undefined ? leerModoHoja() : modo, px / PX_POR_MM);
     estilo.textContent = plan.css;
+    /* Un ticket mas largo que la hoja fija se parte en hojas limpias */
+    const hojas = paginarHojas(doc, plan);
+    plan.hojas = hojas.hojas;
+    plan.cortes = hojas.cortes;
     return plan;
   }
 
@@ -700,9 +821,10 @@
     ANCHO_PAGINA_MM, ANCHO_UTIL_MM, MARGEN_SUPERIOR_MM, MARGEN_INFERIOR_MM,
     ESCALAS, TAMANO_POR_DEFECTO, TAMANO_KEY,
     MODOS_HOJA, MODO_HOJA_POR_DEFECTO, MODO_HOJA_KEY, ALTO_HOJA_FIJA_MM,
+    CONTINUACION_MM, HOLGURA_HOJA_MM,
     PLANTILLA, ESTILOS, ESTILOS_CALIBRACION,
     limpiarTexto, preparar, pintar, aplicarEscala, ajustarPagina,
-    planHoja, ajustarHoja, pintarCalibracion, dibujarCalibracion,
+    planHoja, repartirHojas, paginarHojas, ajustarHoja, pintarCalibracion, dibujarCalibracion,
     leerTamano, guardarTamano, leerModoHoja, guardarModoHoja,
     imprimir, imprimirCalibracion, pedidoDePrueba
   };

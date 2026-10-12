@@ -77,7 +77,11 @@ class Cdp {
 }
 
 /* Dibuja el ticket como lo hace imprimir(): plantilla + escala + pintar +
-   ajustarPagina. Devuelve el documento resultante y sus medidas. */
+   ajustarPagina. Devuelve el documento resultante y sus medidas.
+   Estos PDF son para comparar los tres tamanos de texto, asi que se piden
+   en modo A (hoja del alto del ticket): en el modo D de produccion cada PDF
+   seria una hoja de 297 mm casi vacia. El caso largo en modo D, que es el
+   que usa la cocina, esta en ticket-largo.js. */
 function expresion(caso, tamano) {
   return "(function(){\n" + FUENTE + "\n" +
     "var T = window.TicketComanda;\n" +
@@ -85,7 +89,7 @@ function expresion(caso, tamano) {
     "document.open(); document.write(T.PLANTILLA); document.close();\n" +
     "T.aplicarEscala(document, " + JSON.stringify(tamano) + ");\n" +
     "T.pintar(document, T.preparar(pedido, " + (caso === "prueba" ? "{prueba:true}" : "{}") + "));\n" +
-    "var mm = T.ajustarPagina(document);\n" +
+    "var mm = T.ajustarPagina(document, 'A');\n" +
     "var pie = document.querySelector('.pie').getBoundingClientRect();\n" +
     "return { html: '<!DOCTYPE html>' + document.documentElement.outerHTML, mm: mm,\n" +
     "         pieAbajoPx: pie.bottom, texto: document.body.innerText };\n" +

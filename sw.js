@@ -48,8 +48,14 @@
    v6: el ticket pasa a tamano Pequeno por defecto y el panel gana el
    selector "Modo de hoja" y la hoja de calibracion (ticket-comanda.js y
    panel.html). Mismo criterio: nada de eso se cachea aqui; el cambio de
-   version fuerza la reinstalacion del worker. */
-const VERSION = "v6";
+   version fuerza la reinstalacion del worker.
+
+   v7: el modo de hoja D (hoja fija de 297 mm) pasa a ser el de por
+   defecto y los pedidos largos se parten en hojas limpias con la linea
+   "#<numero> - continuacion" (ticket-comanda.js y panel.html). Mismo
+   criterio: nada de eso se cachea aqui; el cambio de version fuerza la
+   reinstalacion del worker. */
+const VERSION = "v7";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */

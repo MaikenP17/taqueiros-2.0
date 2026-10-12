@@ -590,13 +590,13 @@
     <div class="imp-tamano">
       <label for="impModoHoja">Modo de hoja</label>
       <select id="impModoHoja">
-        <option value="A" selected>A · Altura medida</option>
-        <option value="B">B · Automático</option>
-        <option value="C">C · Altura medida + 1 mm</option>
-        <option value="D">D · Hoja fija 297 mm</option>
+        <option value="A">A · Altura medida (prueba)</option>
+        <option value="B">B · Automático (prueba)</option>
+        <option value="C">C · Altura medida + 1 mm (prueba)</option>
+        <option value="D" selected>D · Hoja fija 297 mm (recomendado para la DIG-POS892)</option>
       </select>
     </div>
-    <p class="ayuda" style="margin-top:-.4rem;">Es una prueba para calibrar la impresora: solo cambia el largo de hoja que se le pide a Chrome. Se guarda en este equipo y vale para comandas, reimpresiones, ticket de prueba y hoja de calibración. Si no hay motivo, déjalo en A.</p>
+    <p class="ayuda" style="margin-top:-.4rem;">Solo cambia el largo de hoja que se le pide a Chrome. El D es el que funciona bien en la DIG-POS892: déjalo así; A, B y C son solo para pruebas de calibración. Se guarda en este equipo y vale para comandas, reimpresiones, ticket de prueba y hoja de calibración.</p>
 
     <button class="btn-prueba" id="impPruebaBtn" type="button">🖨️ Imprimir ticket de prueba</button>
     <p class="ayuda" style="margin-top:.8rem; margin-bottom:0;">El ticket de prueba trae datos inventados largos (nombre, dirección, notas, ñ y tildes) para calibrar la impresora.</p>
@@ -616,7 +616,7 @@
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
 <script src="supabase-publico.js?v=1"></script>
-<script src="ticket-comanda.js?v=3"></script>
+<script src="ticket-comanda.js?v=4"></script>
 <script>
 /* =========================================================
    CONFIGURACIÓN DE SUPABASE
@@ -2369,7 +2369,7 @@ selTamanoTicket.addEventListener("change", () => {
 });
 
 /* Modo de hoja (prueba de calibracion): mismo criterio que el tamano.
-   Lo lee y lo guarda ticket-comanda.js ("A" si falla). */
+   Lo lee y lo guarda ticket-comanda.js ("D" si falla). */
 const selModoHoja = document.getElementById("impModoHoja");
 function mostrarModoHoja(){
   if(window.TicketComanda) selModoHoja.value = TicketComanda.leerModoHoja();

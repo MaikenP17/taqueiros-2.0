@@ -166,13 +166,13 @@ test("con domicilio cobrado separa productos y envio", () => {
 
 /* ---------- Modo de hoja y hoja de calibracion ---------- */
 
-test("los cuatro modos de hoja existen y el defecto es A", () => {
+test("los cuatro modos de hoja existen y el defecto es D", () => {
   assert.deepEqual(Object.keys(T.MODOS_HOJA), ["A", "B", "C", "D"]);
-  assert.equal(T.MODO_HOJA_POR_DEFECTO, "A");
+  assert.equal(T.MODO_HOJA_POR_DEFECTO, "D");
 });
 
-test("sin nada guardado, el modo de hoja es A", () => {
-  conAlmacen(almacenFalso(), () => assert.equal(T.leerModoHoja(), "A"));
+test("sin nada guardado, el modo de hoja es D", () => {
+  conAlmacen(almacenFalso(), () => assert.equal(T.leerModoHoja(), "D"));
 });
 
 test("guardar y leer el modo de hoja; uno invalido no se guarda ni se lee", () => {
@@ -187,15 +187,19 @@ test("guardar y leer el modo de hoja; uno invalido no se guarda ni se lee", () =
     assert.equal(T.leerModoHoja(), "C");
   });
   conAlmacen(almacenFalso({ [T.MODO_HOJA_KEY]: "constructor" }), () => {
+    assert.equal(T.leerModoHoja(), "D");
+  });
+  // Un valor valido ya guardado (otro equipo que eligio A) se respeta
+  conAlmacen(almacenFalso({ [T.MODO_HOJA_KEY]: "A" }), () => {
     assert.equal(T.leerModoHoja(), "A");
   });
 });
 
-test("si el almacenamiento falla, el modo de hoja es A y guardar devuelve false", () => {
+test("si el almacenamiento falla, el modo de hoja es D y guardar devuelve false", () => {
   const roto = { getItem() { throw new Error("bloqueado"); }, setItem() { throw new Error("bloqueado"); } };
   conAlmacen(roto, () => {
-    assert.equal(T.leerModoHoja(), "A");
-    assert.equal(T.guardarModoHoja("D"), false);
+    assert.equal(T.leerModoHoja(), "D");
+    assert.equal(T.guardarModoHoja("A"), false);
   });
 });
 
@@ -241,13 +245,101 @@ test("todos los modos piden margen de pagina 0 y 80 mm de ancho", () => {
   }
 });
 
-test("un modo desconocido cae en A; el alto nunca pasa del tope", () => {
-  assert.equal(T.planHoja("Z", 100).modo, "A");
-  assert.equal(T.planHoja(undefined, 100).modo, "A");
+test("un modo desconocido cae en D; el alto nunca pasa del tope", () => {
+  assert.equal(T.planHoja("Z", 100).modo, "D");
+  assert.equal(T.planHoja(undefined, 100).modo, "D");
+  assert.equal(T.planHoja("Z", 100).altoMm, 297);
   assert.equal(T.planHoja("A", 99999).altoMm, 1500);
   assert.equal(T.planHoja("C", 99999).altoMm, 1500);
 });
 
 test("la hoja de calibracion no usa nada fuera del ticket: sin fondos ni imagenes", () => {
   assert.doesNotMatch(T.ESTILOS_CALIBRACION, /background|url\(|<img/i);
+});
+
+/* ---------- Tickets largos (mas de una hoja de 297 mm) ---------- */
+
+test("producto, notas del pedido, totales y datos del cliente no se parten entre hojas", () => {
+  const m = T.ESTILOS.match(/\.item,\.datos-cliente,\.notas-pedido,\.totales\{([^}]*)\}/);
+  assert.ok(m, "falta la regla de bloques sin corte");
+  assert.match(m[1], /break-inside:avoid;/);
+  assert.match(m[1], /page-break-inside:avoid;/);
+});
+
+test("la linea de continuacion abre hoja nueva, es chica y sale de la escala del texto", () => {
+  const m = T.ESTILOS.match(/\.continuacion\{([^}]*)\}/);
+  assert.ok(m, "falta .continuacion");
+  assert.match(m[1], /break-before:page;/);
+  assert.match(m[1], /height:9mm;/);
+  assert.match(m[1], /font-size:calc\(12px \* var\(--escala\)\)/);
+  assert.doesNotMatch(m[1], /background|url\(/);
+  assert.equal(T.CONTINUACION_MM, 9);
+});
+
+/* Un pedido sintetico: 3 mm de margen, cabecera, y n productos de ~7,4 mm
+   con 1,6 mm entre uno y otro, mas un bloque de totales. */
+function unidadesDe(n, altoItem, altoTotales) {
+  const u = [{ topMm: 3, bottomMm: 45 }];                       // cabecera + cliente
+  let y = 45;
+  for (let i = 0; i < n; i++) { u.push({ topMm: y + 1.6, bottomMm: y + 1.6 + altoItem }); y += 1.6 + altoItem; }
+  u.push({ topMm: y + 2.1, bottomMm: y + 2.1 + altoTotales });
+  return u;
+}
+
+test("repartirHojas: un ticket corto es una sola hoja, sin cortes", () => {
+  const r = T.repartirHojas(unidadesDe(5, 7.4, 40));
+  assert.deepEqual(r, { cortes: [], hojas: 1 });
+});
+
+test("repartirHojas: 30 productos pasan a dos hojas y ninguna unidad cruza el limite", () => {
+  const unidades = unidadesDe(30, 7.4, 40);
+  const r = T.repartirHojas(unidades);
+  assert.equal(r.hojas, 2);
+  assert.equal(r.cortes.length, 1);
+  const corte = r.cortes[0];
+  assert.ok(corte > 1 && corte < unidades.length - 1, "el corte cae entre productos: " + corte);
+  const limite = 297 - T.MARGEN_INFERIOR_MM - T.HOLGURA_HOJA_MM;
+  // Primera hoja: lo ultimo que cabe termina antes del limite
+  assert.ok(unidades[corte - 1].bottomMm <= limite);
+  // ...y la siguiente unidad no cabia
+  assert.ok(unidades[corte].bottomMm > limite);
+  // Segunda hoja: continuacion + unidades, tambien dentro del limite
+  const desfase = unidades[corte].topMm - T.CONTINUACION_MM;
+  assert.ok(unidades[unidades.length - 1].bottomMm - desfase <= limite);
+});
+
+test("repartirHojas: un pedido enorme abre varias hojas y cada una cabe", () => {
+  const unidades = unidadesDe(80, 7.4, 40);
+  const r = T.repartirHojas(unidades);
+  assert.ok(r.hojas >= 3);
+  assert.equal(r.cortes.length, r.hojas - 1);
+  const limite = 297 - T.MARGEN_INFERIOR_MM - T.HOLGURA_HOJA_MM;
+  // Reconstruye cada hoja: arriba de la hoja = tope de su 1a unidad - continuacion
+  const inicios = [0].concat(r.cortes);
+  inicios.forEach((ini, h) => {
+    const fin = h + 1 < inicios.length ? inicios[h + 1] : unidades.length;
+    const desfase = h === 0 ? 0 : unidades[ini].topMm - T.CONTINUACION_MM;
+    assert.ok(unidades[fin - 1].bottomMm - desfase <= limite + 2.2, "la hoja " + (h + 1) + " cabe");
+  });
+});
+
+test("repartirHojas: el corte nunca queda antes de la 1a unidad ni deja una hoja vacia", () => {
+  const r = T.repartirHojas(unidadesDe(60, 7.4, 40));
+  r.cortes.forEach((c, i) => {
+    assert.ok(c > 0);
+    if (i > 0) assert.ok(c > r.cortes[i - 1], "cada hoja lleva al menos una unidad");
+  });
+});
+
+test("repartirHojas: una unidad mas alta que la hoja no se puede evitar, pero no rompe la cuenta", () => {
+  const r = T.repartirHojas([{ topMm: 3, bottomMm: 40 }, { topMm: 42, bottomMm: 400 }, { topMm: 402, bottomMm: 420 }]);
+  assert.ok(Number.isInteger(r.hojas) && r.hojas >= 2);
+});
+
+test("el modo D es el unico que parte hojas: A, B y C no llevan linea de continuacion", () => {
+  // paginarHojas sin documento util: con plan de otro modo no toca nada
+  const doc = { body: { querySelectorAll: () => [], getAttribute: () => "#001" } };
+  for (const m of ["A", "B", "C"]) {
+    assert.deepEqual(T.paginarHojas(doc, T.planHoja(m, 500)), { cortes: [], hojas: 1 });
+  }
 });

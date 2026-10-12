@@ -63,13 +63,30 @@ Abre las preferencias de la impresora (en la lista de impresoras →
 
 | Ajuste | Valor |
 | --- | --- |
-| Tamaño de papel | Rollo de **80 mm** (el nombre varía: "80mm", "Roll 80", "80 x 297"…) |
+| Tamaño de papel | Rollo de **80 mm** (el nombre varía: "80mm", "Roll 80", "80 x 297"…). **El que se probó y funciona: 80 × 297 mm** (ver "Ajustes con los que se probó" abajo) |
 | Cortar papel | **Al final de cada documento** (cada ticket es un documento) |
 | Márgenes | Los más pequeños que permita (el ticket ya trae margen de página 0; ver 5.2) |
 | Densidad / velocidad | La que dé una impresión negra y nítida |
 
 El nombre exacto de cada opción depende del driver. Si algo no aparece,
 usa el ticket de prueba (sección 5) para calibrar.
+
+### Ajustes con los que se probó (DIG-POS892)
+
+Estos son los ajustes con los que se hicieron las pruebas de impresión y
+con los que el modo de hoja **D** (sección 5.4) funciona bien. Si en otra
+impresora o PC algo sale distinto, vuelve primero a estos:
+
+| Dónde | Ajuste | Valor probado |
+| --- | --- | --- |
+| Driver instalado | Nombre | **80mm Series Printer** |
+| Preferencias de impresión → pestaña **Configuración** | Tamaño de papel (hoja del driver) | **80 × 297 mm** |
+| Preferencias de impresión → pestaña **Configuración** | Cortar papel | **Cut at end of document** (corta una sola vez, al final del documento) |
+| Chrome | Parámetro | `--kiosk-printing` (sección 3) |
+
+No cambies el tamaño de hoja del driver a otro alto "para ahorrar papel":
+con hojas más cortas que 297 mm el driver baja la hoja desde el borde y
+deja de 6 a 9 cm de blanco arriba (sección 5.4).
 
 ---
 
@@ -110,6 +127,30 @@ Por qué cada parte:
   aparecerá apagado y se imprimirá con diálogo.
 - `--app=...`: ventana sin barra de direcciones ni pestañas, difícil de
   cerrar por accidente.
+
+### Paso obligatorio en cada PC nueva: apagar "Encabezados y pies de página"
+
+Hazlo **una sola vez por equipo, antes del primer arranque**; sin esto
+Chrome puede dibujar fecha, título, URL y "1/1" en el ticket (sección 5.2).
+
+1. Cierra el panel de la cocina si estaba abierto.
+2. Abre Chrome **sin** `--kiosk-printing`, con el mismo perfil de la
+   cocina, escribiendo esto en *Win + R* (o en un símbolo del sistema):
+
+   ```
+   chrome.exe --user-data-dir="C:\TaqueirosPanel" https://taqueiros-2-0.vercel.app/panel.html
+   ```
+
+   (Si `chrome.exe` no se reconoce, usa la ruta completa:
+   `"C:\Program Files\Google\Chrome\Application\chrome.exe"`.)
+3. Con esa ventana en primer plano, pulsa **Ctrl + P**.
+4. En el diálogo abre **Más ajustes** y **desmarca "Encabezados y pies de
+   página"**.
+5. **Cierra el diálogo sin imprimir** (Cancelar o Esc) y cierra Chrome.
+
+Chrome recuerda la opción en el perfil `C:\TaqueirosPanel`. Después abre
+el panel con el acceso directo de la cocina e imprime el ticket de prueba
+para confirmar que no sale ni encabezado ni pie.
 
 ### Primer arranque
 
@@ -172,16 +213,18 @@ una dirección muy largos, ñ y tildes. Comprueba:
 - [ ] El nombre de cada producto se lee de lejos.
 - [ ] **No hay encabezado ni pie** de Chrome (ni fecha y título arriba, ni URL y "1/1" abajo).
 - [ ] El corte cae **debajo** de la línea final, sin comerse texto.
-- [ ] No sale papel en blanco extra después del ticket (unos 4–5 mm bajo "LOS TAQUEIROS · PEDIDO WEB", más lo que avance la propia impresora hasta la cuchilla).
+- [ ] No sale papel en blanco extra después del ticket (unos 4–5 mm bajo "LOS TAQUEIROS · PEDIDO WEB", más ~3 cm que avanza la propia impresora hasta la cuchilla: son normales, sección 5.3).
+- [ ] El ticket arranca a ~1 cm del borde del papel, sin 6–9 cm de blanco arriba (modo de hoja **D**, sección 5.4).
 - [ ] El texto tiene un tamaño cómodo; si no, cámbialo en **Tamaño del ticket** (sección 5.1).
 
 | Si ocurre… | Prueba… |
 | --- | --- |
 | Sale el diálogo de Chrome | El panel no se abrió con `--kiosk-printing` (sección 3) |
 | Texto cortado a los lados | Preferencias del driver: papel de 80 mm y márgenes mínimos |
-| Mucho papel en blanco al final | Tamaño de papel del driver: debe ser rollo continuo / "auto" |
-| El papel sale de ~30 cm, con blanco arriba y abajo | Sección 5.4: modo de hoja y hoja de calibración |
-| Un ticket sale partido en dos hojas | Rollo/alto de papel del driver demasiado corto |
+| ~3 cm de blanco al final | Es normal: distancia del cabezal a la cuchilla (sección 5.3) |
+| Mucho más blanco al final | Tamaño de papel del driver: la hoja de 80 × 297 mm de la sección 1; el driver recorta el blanco del final |
+| Blanco de 6 a 9 cm **arriba** | El modo de hoja no es D: ⚙️ → *Modo de hoja* → D (sección 5.4) |
+| Un pedido sale en dos hojas | Si tiene más de ~20 productos es lo esperado (sección 5.5); si es corto, revisa que el tamaño de hoja del driver sea 297 mm |
 | No corta | "Cortar papel" del driver en "Al final de cada documento" |
 | El corte se come la última línea | Subir `MARGEN_INFERIOR_MM` en `ticket-comanda.js` (sección 5.3) |
 | Aparece encabezado o pie de Chrome | Sección 5.2: revisar el margen de página y, si hace falta, apagarlo en el perfil |
@@ -241,69 +284,95 @@ declarando ese margen en cero:
 > `body` ni cambiado `margin:0`. Un margen de página distinto de 0 hace que
 > Chrome los dibuje.
 
-**Si el CSS está bien y aun así salen** (se vio con la DIG-POS892 al
-imprimir desde el marco oculto con `--kiosk-printing`), se apagan en el
-propio Chrome de la cocina; cualquiera de las dos sirve:
+**Aunque el CSS esté bien, Chrome los dibuja** (se vio con la DIG-POS892 al
+imprimir desde el marco oculto con `--kiosk-printing`) mientras la opción
+siga marcada en el perfil. Por eso apagarlos es un **paso obligatorio en
+cada PC nueva** (sección 3, "Paso obligatorio en cada PC nueva"):
 
-1. **Por perfil:** cierra el panel de la cocina y abre Chrome **sin**
-   `--kiosk-printing` pero con el mismo perfil:
-   `chrome.exe --user-data-dir="C:\TaqueirosPanel"`. Abre cualquier página,
-   pulsa `Ctrl+P`, en **Más ajustes** desmarca **Encabezados y pies de
-   página** y cierra el diálogo sin imprimir. Chrome recuerda esa opción en
-   el perfil. Vuelve a abrir con el acceso directo de la cocina e imprime el
-   ticket de prueba para confirmarlo.
-2. **Por política (Windows):** en el Registro, clave
+1. **Por perfil (el paso obligatorio):** con el panel cerrado, abre
+   `chrome.exe --user-data-dir="C:\TaqueirosPanel" https://taqueiros-2-0.vercel.app/panel.html`
+   **sin** `--kiosk-printing`, pulsa `Ctrl+P`, abre **Más ajustes**,
+   desmarca **Encabezados y pies de página** y cierra el diálogo sin
+   imprimir. Chrome recuerda esa opción en el perfil. Vuelve a abrir con el
+   acceso directo de la cocina e imprime el ticket de prueba para
+   confirmarlo.
+2. **Por política (opcional, complementa a la 1):** en el Registro, clave
    `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome`, valor `DWORD`
    `PrintHeaderFooter` = `0` (requiere administrador). Aplica a todos los
    perfiles del equipo.
 
-Ninguna de las dos se pudo probar desde aquí (no hay impresora): confírmalo
-siempre con el ticket de prueba.
+Confírmalo siempre con el ticket de prueba: el motor de impresión de
+Chrome sin impresora (los PDF de `pruebas/impresion/`) no reproduce este
+comportamiento del equipo real.
 
 ### 5.3 Papel en blanco al final
 
 Debajo de la última línea el ticket deja **`MARGEN_INFERIOR_MM` = 4 mm**
-(constante en `ticket-comanda.js`, `padding` inferior del `body`). La hoja
-mide exactamente lo que ocupa el ticket más ese margen, redondeado al mm
-superior: nunca hay un alto mínimo ni fijo, ni segunda página.
+(constante en `ticket-comanda.js`, `padding` inferior del `body`). En el
+modo D (el definitivo, sección 5.4) la hoja que se pide es siempre de
+297 mm y el contenido queda pegado arriba; el driver **recorta solo el
+blanco del final de la hoja**, así que el papel que sale es el ticket más
+ese margen más la distancia a la cuchilla.
 
-- La impresora avanza sola el papel hasta la cuchilla antes de cortar, así
-  que este margen es solo aire. **Más margen = más papel gastado en cada
-  ticket.**
+- **Los ~3 cm de blanco al final son normales**: es la distancia física
+  entre el cabezal de impresión y la cuchilla de la impresora. La impresora
+  tiene que avanzar el papel esos centímetros para que el corte caiga
+  *debajo* de la última línea. No son un error del ticket ni se arreglan
+  por software.
+- Ese margen de 4 mm es solo aire. **Más margen = más papel gastado en
+  cada ticket.**
 - Si el corte se come "LOS TAQUEIROS · PEDIDO WEB", sube la constante (prueba
   con 8) y sube el `?v=` del `<script>` en `panel.html`. Nada más.
 
-### 5.4 El papel sale más largo que el ticket: modo de hoja y hoja de calibración
+### 5.4 Modo de hoja: D es el recomendado para la DIG-POS892
 
-**Lo que se vio con la DIG-POS892** (driver "80mm Series Printer", papel del
-driver 80 × 297 mm, `--kiosk-printing`): el papel salió de ~30 cm, con el
-encabezado de Chrome en una punta, el pie en la otra y el ticket en el medio
-con ~6 cm de blanco arriba y abajo. O sea: se imprimió sobre la hoja
-completa de 297 mm del driver y el ticket quedó **centrado** en ella, y el
-margen `@page{margin:0}` tampoco se aplicó.
+**Resultado de las pruebas en la DIG-POS892** (driver "80mm Series Printer",
+hoja del driver 80 × 297 mm, "Cut at end of document", Chrome con
+`--kiosk-printing`):
 
-**Qué se revisó en el código:** nada del ticket lo centra ni lo estira
-(sin `min-height`, `height:100vh`, flex vertical ni `margin:auto` vertical;
-el `body` solo se centra a lo ancho; el alto de `html`/`body` es el medido).
-Se imprime únicamente el iframe oculto de `imprimir()`. Por eso la sospecha
-es el motor de impresión de Chrome en modo quiosco (sin vista previa, usa la
-hoja predeterminada del driver y coloca ahí la página pedida por CSS) o el
-driver. Esto **no está confirmado**: se confirma con las pruebas de abajo.
+| Modo | Qué hizo el equipo real |
+| --- | --- |
+| **D** (`@page 80mm 297mm`, contenido pegado arriba) con tamaño *Pequeño* | **Funciona.** El ticket arranca a ~1 cm del borde; aprobado. |
+| **A** y **C** (hoja más corta que 297 mm) | El driver baja la hoja desde el borde y deja de **6 a 9 cm de blanco arriba**. |
+| **B** (`size:auto`) | Sale igual que D: Chrome ignora `size:auto`. |
+
+**Por qué D es el definitivo:**
+
+1. **El driver trabaja con una hoja de 297 mm** (la de sus preferencias,
+   ver sección 1). Cuando Chrome le pide una hoja más corta, el driver baja
+   esa hoja desde el borde: de ahí el blanco arriba en A y C (es lo que se
+   observó; el driver no documenta el porqué). Pidiéndole exactamente
+   297 mm no hay nada que bajar y el contenido queda pegado arriba.
+2. **El driver recorta solo el blanco del final de la hoja.** Con D el
+   papel que sale es el ticket más una cola corta, no 297 mm de papel.
+3. Al final siempre quedan **~3 cm de blanco**: es la distancia entre el
+   cabezal y la cuchilla (sección 5.3). Es normal.
+
+D es el modo **por defecto**: un equipo sin valor guardado, o con un valor
+inválido, usa D. Un equipo que ya eligió otro modo conserva el suyo. En el
+selector del panel (⚙️ → *Modo de hoja*) D dice *«recomendado para la
+DIG-POS892»*; A, B y C siguen disponibles solo como opciones de prueba.
+
+**Lo que se revisó en el código** cuando se vio el blanco arriba: nada del
+ticket lo centra ni lo estira (sin `min-height`, `height:100vh`, flex
+vertical ni `margin:auto` vertical; el `body` solo se centra a lo ancho).
+Se imprime únicamente el iframe oculto de `imprimir()`. El centrado lo hace
+el driver con las hojas más cortas que la suya.
 
 #### Modo de hoja (⚙️ → *Modo de hoja*)
 
 Se guarda **por equipo** (en el navegador del perfil `C:\TaqueirosPanel`);
-si no hay nada guardado o el valor no es válido, es **A**. Lo usan por igual
+si no hay nada guardado o el valor no es válido, es **D**. Lo usan por igual
 las comandas, las reimpresiones, el ticket de prueba y la hoja de
 calibración. Solo cambia el largo de hoja que se le pide a Chrome: el
 contenido del ticket es idéntico.
 
 | Modo | `@page` que se pide | `html` / `body` | Para qué |
 | --- | --- | --- | --- |
-| **A** Altura medida (por defecto) | `size:80mm <alto>mm; margin:0` con `<alto>` = lo que mide el ticket, redondeado al mm superior | alto fijo `<alto>mm` y `overflow:hidden` | El comportamiento de siempre |
-| **B** Automático | `size:80mm auto; margin:0` | `height:auto` | Ver si Chrome/el driver ajustan solos el largo |
-| **C** Altura medida + 1 mm | Como A pero `<alto>` + 1 mm | `height:auto` y `overflow:hidden` | Descartar que medio milímetro de menos parta la hoja |
-| **D** Hoja fija | `size:80mm 297mm; margin:0` | `height:auto`; el contenido queda pegado arriba | Confirmar qué hace el driver con su hoja de 297 mm |
+| **A** Altura medida | `size:80mm <alto>mm; margin:0` con `<alto>` = lo que mide el ticket, redondeado al mm superior | alto fijo `<alto>mm` y `overflow:hidden` | Prueba. Con la DIG-POS892 deja 6–9 cm de blanco arriba |
+| **B** Automático | `size:80mm auto; margin:0` | `height:auto` | Prueba. Chrome ignora `auto`: sale como D |
+| **C** Altura medida + 1 mm | Como A pero `<alto>` + 1 mm | `height:auto` y `overflow:hidden` | Prueba. Igual que A |
+| **D** Hoja fija (por defecto) | `size:80mm 297mm; margin:0` | `height:auto`; el contenido queda pegado arriba | **El de uso diario.** Pedidos de más de una hoja: ver 5.5 |
 
 > Nota: en el motor de Chrome (PDF) `size:80mm auto` **no se respeta**: el
 > PDF del modo B sale en tamaño Carta (215,9 × 279,4 mm). Es normal; en la
@@ -334,21 +403,60 @@ Pasa por el **mismo camino** que una comanda (mismo iframe, misma regla
 | Salen dos hojas | La página real es más corta que el contenido (probar C) |
 | La regla marca 297 en la línea de abajo en el modo D y el ticket de prueba queda arriba sin blanco antes | El driver respeta la hoja fija y no centra; el sobrante queda abajo |
 
-**Orden sugerido de pruebas** (anota qué número de regla cae en la línea
-gruesa de abajo y cuánto blanco hay arriba, en cada modo):
+**Orden sugerido de pruebas** (solo si cambia la impresora o el driver, o
+si en otro equipo el ticket vuelve a salir con blanco arriba; con la
+DIG-POS892 y los ajustes de la sección 1 ya está resuelto: D). Anota qué
+número de regla cae en la línea gruesa de abajo y cuánto blanco hay arriba,
+en cada modo:
 
-1. Modo **A** → imprimir la hoja de calibración (referencia).
-2. Modo **D** → imprimir la hoja de calibración y un ticket de prueba.
+1. Modo **D** → imprimir la hoja de calibración y un ticket de prueba
+   (referencia).
+2. Modo **A** → imprimir la hoja de calibración.
 3. Modo **B** y modo **C** → imprimir la hoja de calibración.
 4. Elegir el modo con el que el papel salga más corto y sin blanco arriba, y
    dejarlo guardado. Si ninguno lo logra, el largo lo está fijando el driver:
-   revisar en *Preferencias de impresión* de la DIG-POS892 el tamaño de papel
-   (rollo continuo / alto menor) y, para el encabezado y pie, la sección 5.2.
+   revisar en *Preferencias de impresión* el tamaño de papel (debe ser la
+   hoja de 80 × 297 mm de la sección 1) y, para el encabezado y pie, la
+   sección 5.2.
 
 Esto solo se puede confirmar **imprimiendo**: en el motor de Chrome sin
 impresora (los PDF de `pruebas/impresion/`) cada modo sale como se pide, que
 no es lo mismo que lo que hace la impresora.
----
+
+### 5.5 Pedidos largos (más de una hoja de 297 mm)
+
+En modo D la hoja es de 297 mm: con el tamaño *Pequeño* caben unos 20 productos con algunas notas (más si no llevan notas).
+Un pedido más largo se parte en hojas, y esa partición es **limpia**:
+
+- **Ningún producto se corta**: cada producto (con sus notas), el bloque
+  de *Notas del pedido*, el bloque de totales (productos, domicilio, TOTAL,
+  forma de pago y pie "LOS TAQUEIROS · PEDIDO WEB") y el bloque de datos
+  del cliente (cliente, teléfono, dirección, barrio y avisos) van enteros
+  en una hoja. Se logra con `break-inside: avoid` y, además, el corte lo
+  calcula `ticket-comanda.js` (`repartirHojas` / `paginarHojas`) para que
+  caiga siempre entre productos.
+- **Cada hoja después de la primera empieza con una línea pequeña
+  `#<número> · continuación`** (por ejemplo `#087 · continuación`), para
+  saber de qué pedido es esa tira de papel.
+- **"Cut at end of document" corta una sola vez, al final del documento**:
+  las hojas del pedido salen seguidas, en el mismo papel, y la cuchilla
+  actúa tras la última. Hay que arrancarlas/leerlas en orden; la línea de
+  continuación está justo para eso.
+- El corte deja 5 mm de seguridad al fondo de cada hoja (4 mm del margen
+  inferior + 1 mm de holgura) para que el redondeo de Chrome nunca abra una
+  hoja de más. Por eso una hoja puede quedar con algo de blanco abajo.
+- Solo aplica al modo D. En A, B y C no se parte (son modos de prueba).
+
+Se verifica con `node pruebas/impresion/ticket-largo.js`: imprime a PDF
+pedidos de 20 a 60 productos con el Chrome real, lee el texto de cada hoja
+y comprueba que no haya productos partidos, que cada hoja siguiente lleve
+su línea de continuación y que no sobre ninguna hoja. Deja de ejemplo
+`pruebas/impresion/ticket-pedido-largo-pequeno.pdf` (30 productos, 2 hojas).
+
+> **Qué solo se confirma imprimiendo:** que el driver entregue las dos
+> hojas seguidas sin recortar el blanco que queda al pie de la primera, y
+> que la cuchilla corte una sola vez al final. El PDF solo prueba lo que
+> hace el motor de Chrome.
 
 ## 6. Cómo funciona en el día a día
 
@@ -412,12 +520,20 @@ Ninguna de las dos devuelve datos de clientes.
   sube el `?v=` del `<script>` y la versión de `sw.js`). Sus constantes
   de diseño: `ANCHO_PAGINA_MM`, `ANCHO_UTIL_MM`, `MARGEN_SUPERIOR_MM`,
   `MARGEN_INFERIOR_MM` y `ESCALAS`. La hoja se pide con `planHoja` /
-  `ajustarHoja` (modos A–D, sección 5.4) y la hoja de calibración con
-  `imprimirCalibracion`.
+  `ajustarHoja` (modos A–D, sección 5.4; el defecto es D) y la hoja de
+  calibración con `imprimirCalibracion`. Los pedidos de más de una hoja se
+  parten con `repartirHojas` / `paginarHojas` (sección 5.5); si agregas un
+  bloque nuevo al ticket que no deba partirse, añádelo a la regla
+  `break-inside:avoid` de `ESTILOS`.
+- PDF del pedido largo (modo D, 30 productos) y su verificación con el
+  texto de cada hoja: `node pruebas/impresion/ticket-largo.js` (necesita
+  Chrome y `pdftotext`).
 - PDFs de ejemplo (3 tamaños × prueba y pedido típico) en
   `pruebas/impresion/ticket-*.pdf`; se regeneran con
   `node pruebas/impresion/generar-pdfs.js`, que además comprueba 1 página,
-  80 mm de ancho y ausencia de encabezado/pie. Son una vista del **motor
+  80 mm de ancho y ausencia de encabezado/pie. Se piden en modo A (hoja
+  del alto del ticket) para poder comparar los tamaños de texto; el modo D
+  de producción da hojas de 297 mm casi vacías. Son una vista del **motor
   de Chrome**, no del papel real.
 - Lógica de cola e impresión automática: sección "IMPRESION AUTOMATICA
   DE COMANDAS" de `panel.html`.
