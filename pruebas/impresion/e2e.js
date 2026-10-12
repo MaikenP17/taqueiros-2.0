@@ -311,6 +311,8 @@ async function escenario(nombre, fn) {
       const st = await admin.estado();
       comprobar(st.reclamos.filter(r => r.id === 101 && r.gano).length === 1, "la base entrego el pedido una sola vez");
       comprobar(await p.eval("document.querySelectorAll('iframe').length") === 0, "el iframe se retiro despues de imprimir");
+      comprobar(await p.eval("![].some.call(document.querySelectorAll('style'), function(s){return /@page/.test(s.textContent);})"),
+        "la regla @page temporal del panel se retiro tras imprimir");
     });
 
     /* ------------------------------------------------------------ */
@@ -555,6 +557,53 @@ async function escenario(nombre, fn) {
       comprobar(!(await p.eval("window.__xss")), "no se ejecuto nada del texto del cliente");
       comprobar(t.includes('"Pepe"'), "las comillas se conservan");
       await sleep(PAUSA_TICKETS_MS);
+    });
+
+    /* ------------------------------------------------------------ */
+    await escenario("15. Tamano del ticket: selector del panel, por equipo, en comandas y reimpresiones", async () => {
+      const original = new Date(Date.now() - 600000).toISOString();
+      await admin.reset([pedido(710, { impreso_en: original })]);
+      const p = await abrirPanel("A", false);
+      const escalaDe = (html) => (html.match(/--escala:\s*([\d.]+)/g) || []).shift();   // la 1a: el style de <html>, no el :root por defecto
+      const KEY = "taqueiros-panel-ticket-tamano-v1";
+
+      // Por defecto: Normal (.85)
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impTamano').value") === "normal", "el selector arranca en Normal");
+      await p.eval("document.getElementById('impPruebaBtn').click(); true");
+      await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 8000, "prueba normal");
+      await sleep(PAUSA_TICKETS_MS + 500);
+      let htmls = await p.htmlImpresos();
+      comprobar(/--escala:\s*0\.85/.test(escalaDe(htmls[0])), "ticket de prueba por defecto: --escala 0.85");
+
+      // Cambiar a Pequeno: se guarda y vale para la reimpresion
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      await p.eval("(function(){var s=document.getElementById('impTamano');s.value='pequeno';s.dispatchEvent(new Event('change'));})(); true");
+      comprobar(await p.eval("localStorage.getItem('" + KEY + "')") === "pequeno", "se guardo 'pequeno' en este equipo");
+      await p.eval("document.querySelector('[data-reimprimir=\"710\"]').click(); true");
+      await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 8000, "reimpresion pequena");
+      await sleep(PAUSA_TICKETS_MS + 500);
+      htmls = await p.htmlImpresos();
+      comprobar(/--escala:\s*0\.75/.test(escalaDe(htmls[1])), "la reimpresion usa --escala 0.75");
+      comprobar(/REIMPRESIÓN/.test(htmls[1]), "y sigue marcada REIMPRESIÓN");
+
+      // Grande en una comanda automatica nueva, y persiste al recargar
+      await p.eval("(function(){var s=document.getElementById('impTamano');s.value='grande';s.dispatchEvent(new Event('change'));})(); true");
+      await p.eval("document.getElementById('switchImpresion').click(); true");
+      await admin.evento(pedido(711));
+      await p.esperar("function(){return (window.__impresos||[]).length>=3;}", 10000, "comanda automatica grande");
+      htmls = await p.htmlImpresos();
+      comprobar(/#711/.test(htmls[2]) && /--escala:\s*1(?![.\d])/.test(escalaDe(htmls[2])), "la comanda automatica usa --escala 1");
+      await sleep(PAUSA_TICKETS_MS);
+      await recargar(p);
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impTamano').value") === "grande", "tras recargar el selector sigue en Grande");
+
+      // Valor corrupto en el almacenamiento: vuelve a Normal
+      await p.eval("localStorage.setItem('" + KEY + "','gigante'); true");
+      await recargar(p);
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impTamano').value") === "normal", "un valor corrupto vuelve a Normal");
     });
 
     /* ------------------------------------------------------------ */

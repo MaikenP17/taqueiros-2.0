@@ -26,16 +26,39 @@
   const ANCHO_PAGINA_MM = 80;
   const ANCHO_UTIL_MM = 72;
 
-  /* Un poco de papel debajo del ultimo renglon: la cuchilla de estas
-     impresoras queda por debajo de la linea de impresion, y sin esto
-     el corte le comeria el final al ticket. */
-  const HOLGURA_FINAL_MM = 8;
+  /* MARGENES. La pagina va con @page{margin:0}: es lo que impide que
+     Chrome dibuje su encabezado (fecha y titulo) y su pie (URL y
+     numero de pagina), que viven en el margen de pagina. Como ese
+     margen es 0, el aire del ticket es del CONTENIDO:
+       * lateral: la columna de 72 mm va centrada en los 80 mm (4 mm
+         por lado). Se centra en vez de rellenar con padding para que,
+         si el driver recorta la zona imprimible a 72 mm, la columna
+         siga entera en lugar de encogerse a 64 mm.
+       * superior e inferior: padding del body, en estas constantes. */
+  const MARGEN_SUPERIOR_MM = 3;
+
+  /* Papel en blanco debajo de la ultima linea. El driver ya alimenta
+     el papel hasta la cuchilla antes de cortar, asi que esto solo es
+     aire: mas margen = mas papel desperdiciado en cada ticket. Si algun
+     dia el corte se come "LOS TAQUEIROS · PEDIDO WEB", subir ESTE valor
+     (probar 8) y nada mas. */
+  const MARGEN_INFERIOR_MM = 4;
 
   /* Tope razonable: un ticket mas largo se parte en paginas en vez de
      pedirle al driver una hoja imposible. */
   const ALTO_MAXIMO_MM = 1500;
 
   const PX_POR_MM = 96 / 25.4;
+
+  /* TAMANO DEL TEXTO. Todas las fuentes del ticket se escriben con el
+     tamano de "Grande" (el diseno original) multiplicado por la
+     variable CSS --escala. Los bordes y separadores no se escalan. */
+  const ESCALAS = { pequeno: 0.75, normal: 0.85, grande: 1 };
+  const TAMANO_POR_DEFECTO = "normal";
+
+  /* Se guarda por equipo: la impresora de la cocina decide el tamano,
+     no el cliente ni el resto de pantallas. */
+  const TAMANO_KEY = "taqueiros-panel-ticket-tamano-v1";
 
   const TIPOS = {
     domicilio: "DOMICILIO",
@@ -185,37 +208,42 @@
 
   /* ---------- Hoja del ticket ---------- */
 
+  /* esc(px, unidad): tamano de "Grande" * --escala. */
+  const esc = (px, unidad) => "calc(" + px + (unidad || "px") + " * var(--escala))";
+
   const ESTILOS = [
+    ":root{--escala:" + ESCALAS[TAMANO_POR_DEFECTO] + ";}",
     "*{box-sizing:border-box;margin:0;padding:0;}",
     "html,body{background:#fff;color:#000;}",
-    "body{width:" + ANCHO_UTIL_MM + "mm;margin:0 auto;padding:2mm 0 0;",
+    "body{width:" + ANCHO_UTIL_MM + "mm;margin:0 auto;",
+    "  padding:" + MARGEN_SUPERIOR_MM + "mm 0 " + MARGEN_INFERIOR_MM + "mm;",
     "  font-family:Arial,'Helvetica Neue',Helvetica,'Liberation Sans','DejaVu Sans',sans-serif;",
-    "  font-size:14px;line-height:1.25;",
+    "  font-size:" + esc(14) + ";line-height:1.25;",
     "  -webkit-print-color-adjust:exact;print-color-adjust:exact;}",
-    ".marca{text-align:center;font-weight:900;font-size:20px;letter-spacing:.06em;",
+    ".marca{text-align:center;font-weight:900;font-size:" + esc(20) + ";letter-spacing:.06em;",
     "  border:3px solid #000;padding:3px 2px;margin-bottom:5px;}",
-    ".franja{text-align:center;font-weight:900;font-size:21px;line-height:1.15;overflow-wrap:break-word;",
+    ".franja{text-align:center;font-weight:900;font-size:" + esc(21) + ";line-height:1.15;overflow-wrap:break-word;",
     "  border-top:3px solid #000;border-bottom:3px solid #000;padding:5px 2px;margin-bottom:6px;}",
-    ".numero{text-align:center;font-weight:900;font-size:46px;line-height:1.05;}",
-    ".fecha{text-align:center;font-size:14px;font-weight:700;margin:1px 0 7px;}",
+    ".numero{text-align:center;font-weight:900;font-size:" + esc(46) + ";line-height:1.05;}",
+    ".fecha{text-align:center;font-size:" + esc(14) + ";font-weight:700;margin:1px 0 7px;}",
     ".bloque{margin:3px 0;overflow-wrap:break-word;}",
-    ".etq{display:block;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}",
-    ".val{display:block;font-size:15px;font-weight:700;overflow-wrap:break-word;}",
-    ".val.grande{font-size:18px;font-weight:700;}",
-    ".aviso{border:2px solid #000;padding:3px 4px;margin:5px 0;font-size:13px;font-weight:900;",
+    ".etq{display:block;font-size:" + esc(11) + ";font-weight:700;letter-spacing:.08em;text-transform:uppercase;}",
+    ".val{display:block;font-size:" + esc(15) + ";font-weight:700;overflow-wrap:break-word;}",
+    ".val.grande{font-size:" + esc(18) + ";font-weight:700;}",
+    ".aviso{border:2px solid #000;padding:3px 4px;margin:5px 0;font-size:" + esc(13) + ";font-weight:900;",
     "  text-transform:uppercase;overflow-wrap:break-word;}",
     ".sep{border-top:2px dashed #000;margin:8px 0;}",
     ".item{display:flex;gap:7px;align-items:flex-start;margin:6px 0;}",
-    ".item .cant{flex:0 0 auto;min-width:10mm;font-size:28px;font-weight:900;line-height:1;}",
+    ".item .cant{flex:0 0 auto;min-width:" + esc(10, "mm") + ";font-size:" + esc(28) + ";font-weight:900;line-height:1;}",
     ".item .cuerpo{flex:1 1 auto;min-width:0;}",
-    ".item .nom{font-size:18px;font-weight:700;line-height:1.15;overflow-wrap:break-word;}",
-    ".item .nota{font-size:13px;font-weight:400;margin-top:2px;white-space:pre-line;overflow-wrap:break-word;}",
-    ".notas{font-size:15px;font-weight:700;white-space:pre-line;overflow-wrap:break-word;}",
-    ".linea-monto{display:flex;justify-content:space-between;gap:6px;font-size:14px;font-weight:700;margin:2px 0;}",
+    ".item .nom{font-size:" + esc(18) + ";font-weight:700;line-height:1.15;overflow-wrap:break-word;}",
+    ".item .nota{font-size:" + esc(13) + ";font-weight:400;margin-top:2px;white-space:pre-line;overflow-wrap:break-word;}",
+    ".notas{font-size:" + esc(15) + ";font-weight:700;white-space:pre-line;overflow-wrap:break-word;}",
+    ".linea-monto{display:flex;justify-content:space-between;gap:6px;font-size:" + esc(14) + ";font-weight:700;margin:2px 0;}",
     ".total{display:flex;justify-content:space-between;align-items:baseline;gap:6px;",
-    "  font-size:24px;font-weight:900;margin-top:4px;}",
-    ".pago{font-size:14px;font-weight:700;margin-top:4px;}",
-    ".pie{text-align:center;font-size:12px;font-weight:700;margin-top:8px;",
+    "  font-size:" + esc(24) + ";font-weight:900;margin-top:4px;}",
+    ".pago{font-size:" + esc(14) + ";font-weight:700;margin-top:4px;}",
+    ".pie{text-align:center;font-size:" + esc(12) + ";font-weight:700;margin-top:8px;",
     "  border-top:2px solid #000;padding-top:4px;}",
     ".pie .chico{display:block;font-weight:400;margin-top:2px;}"
   ].join("\n");
@@ -323,15 +351,42 @@
     body.appendChild(pie);
   }
 
+  /* ---------- Tamano del texto ---------- */
+
+  function leerTamano() {
+    try {
+      const v = localStorage.getItem(TAMANO_KEY);
+      if (v && Object.prototype.hasOwnProperty.call(ESCALAS, v)) return v;
+    } catch (err) { /* almacenamiento bloqueado o inexistente */ }
+    return TAMANO_POR_DEFECTO;
+  }
+
+  /* true si se guardo; false si el valor no es valido o no se pudo. */
+  function guardarTamano(tamano) {
+    if (!Object.prototype.hasOwnProperty.call(ESCALAS, tamano)) return false;
+    try { localStorage.setItem(TAMANO_KEY, tamano); return true; }
+    catch (err) { return false; }
+  }
+
+  /* Fija --escala en el documento del ticket. Va ANTES de pintar y de
+     ajustarPagina: el alto de la hoja se mide con el texto ya escalado. */
+  function aplicarEscala(doc, tamano) {
+    const clave = Object.prototype.hasOwnProperty.call(ESCALAS, tamano) ? tamano : TAMANO_POR_DEFECTO;
+    doc.documentElement.style.setProperty("--escala", String(ESCALAS[clave]));
+    return clave;
+  }
+
   /* Ajusta la hoja al contenido: ancho 80 mm y alto = lo que mide el
-     ticket + holgura. Sin esto el driver usaria su alto por defecto y
-     saldria papel en blanco (o un segundo ticket vacio). */
+     ticket, que ya incluye su margen superior e inferior (padding del
+     body). Sin esto el driver usaria su alto por defecto y saldria
+     papel en blanco (o un segundo ticket vacio). */
   function ajustarPagina(doc) {
+    /* Solo el body: documentElement.scrollHeight nunca baja del alto
+       del visor y, si este fuera mayor que el ticket, sobraria papel. */
     const px = Math.max(
-      doc.documentElement.scrollHeight,
       doc.body.scrollHeight,
       Math.ceil(doc.body.getBoundingClientRect().height));
-    const mm = Math.min(ALTO_MAXIMO_MM, Math.ceil(px / PX_POR_MM) + HOLGURA_FINAL_MM);
+    const mm = Math.min(ALTO_MAXIMO_MM, Math.ceil(px / PX_POR_MM));
 
     let estilo = doc.getElementById("pagina-ticket");
     if (!estilo) {
@@ -357,12 +412,16 @@
   function imprimir(pedido, opciones) {
     return new Promise((resolve, reject) => {
       let marco = null;
+      let reglaPadre = null;
       const quitar = () => {
         try { if (marco && marco.parentNode) marco.parentNode.removeChild(marco); } catch (e) { /* ya no esta */ }
+        try { if (reglaPadre && reglaPadre.parentNode) reglaPadre.parentNode.removeChild(reglaPadre); } catch (e) { /* ya no esta */ }
       };
 
       try {
         const datos = preparar(pedido, opciones);
+        const tamano = opciones && Object.prototype.hasOwnProperty.call(ESCALAS, opciones.tamano)
+          ? opciones.tamano : leerTamano();
 
         marco = document.createElement("iframe");
         marco.setAttribute("aria-hidden", "true");
@@ -381,8 +440,18 @@
         doc.write(PLANTILLA);
         doc.close();
 
+        aplicarEscala(doc, tamano);
         pintar(doc, datos);
-        ajustarPagina(doc);
+        const mm = ajustarPagina(doc);
+
+        /* Cinturon y tirantes contra el encabezado/pie de Chrome: la
+           misma regla @page (80 mm, margen 0) tambien en el documento
+           que contiene al marco, solo mientras dura la impresion. Si el
+           motor de impresion lee la regla del marco, esto no cambia
+           nada; si leyera la del documento padre, es la que cuenta. */
+        reglaPadre = document.createElement("style");
+        reglaPadre.textContent = "@page{size:" + ANCHO_PAGINA_MM + "mm " + mm + "mm;margin:0;}";
+        document.head.appendChild(reglaPadre);
 
         // Un instante para que el motor asiente el diseno antes de imprimir
         setTimeout(() => {
@@ -436,9 +505,11 @@
   }
 
   const api = {
-    ANCHO_PAGINA_MM, ANCHO_UTIL_MM, HOLGURA_FINAL_MM,
+    ANCHO_PAGINA_MM, ANCHO_UTIL_MM, MARGEN_SUPERIOR_MM, MARGEN_INFERIOR_MM,
+    ESCALAS, TAMANO_POR_DEFECTO, TAMANO_KEY,
     PLANTILLA, ESTILOS,
-    limpiarTexto, preparar, pintar, ajustarPagina, imprimir, pedidoDePrueba
+    limpiarTexto, preparar, pintar, aplicarEscala, ajustarPagina,
+    leerTamano, guardarTamano, imprimir, pedidoDePrueba
   };
 
   global.TicketComanda = api;

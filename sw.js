@@ -37,8 +37,14 @@
    v4: el enlace "Buscas tu pedido" del pie pasa a ser un boton (se
    alcanza con Tab) y el panel gana la impresion de comandas
    (ticket-comanda.js). Mismo criterio: nada de eso se cachea aqui, el
-   cambio de version solo fuerza la reinstalacion del worker. */
-const VERSION = "v4";
+   cambio de version solo fuerza la reinstalacion del worker.
+
+   v5: el ticket de comanda gana selector de tamano de texto, sin
+   encabezado ni pie de Chrome y con menos papel en blanco al final
+   (ticket-comanda.js y panel.html). Mismo criterio: nada de eso se
+   cachea aqui; el cambio de version fuerza la reinstalacion del worker
+   para que el panel instalado tome los cambios. */
+const VERSION = "v5";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */

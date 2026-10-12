@@ -79,6 +79,84 @@ test("metodo de pago conocido en espanol, desconocido tal cual, vacio generico",
   assert.equal(T.preparar({ ...base, wompi_metodo_pago: null }).metodoPago, "Pago en línea");
 });
 
+/* ---------- Tamano del texto y margenes de pagina ---------- */
+
+/* Guarda el localStorage del entorno (en Node 24 no existe) y pone uno
+   falso solo mientras corre 'fn'. */
+function conAlmacen(almacen, fn) {
+  const previo = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", { configurable: true, writable: true, value: almacen });
+  try { return fn(); }
+  finally {
+    if (previo) Object.defineProperty(globalThis, "localStorage", previo);
+    else delete globalThis.localStorage;
+  }
+}
+function almacenFalso(inicial) {
+  const d = Object.assign({}, inicial);
+  return {
+    getItem: (k) => (k in d ? d[k] : null),
+    setItem: (k, v) => { d[k] = String(v); },
+    datos: d
+  };
+}
+
+test("las tres escalas: Pequeno .75, Normal .85, Grande 1; el defecto es Normal", () => {
+  assert.deepEqual(T.ESCALAS, { pequeno: 0.75, normal: 0.85, grande: 1 });
+  assert.equal(T.TAMANO_POR_DEFECTO, "normal");
+});
+
+test("sin nada guardado, el tamano es Normal", () => {
+  conAlmacen(almacenFalso(), () => assert.equal(T.leerTamano(), "normal"));
+});
+
+test("guardar y leer el tamano; un valor invalido no se guarda ni se lee", () => {
+  const a = almacenFalso();
+  conAlmacen(a, () => {
+    assert.equal(T.guardarTamano("grande"), true);
+    assert.equal(a.datos[T.TAMANO_KEY], "grande");
+    assert.equal(T.leerTamano(), "grande");
+    assert.equal(T.guardarTamano("enorme"), false);
+    assert.equal(T.guardarTamano("__proto__"), false);
+    assert.equal(T.leerTamano(), "grande");
+  });
+  conAlmacen(almacenFalso({ [T.TAMANO_KEY]: "constructor" }), () => {
+    assert.equal(T.leerTamano(), "normal");
+  });
+});
+
+test("si el almacenamiento falla, el tamano es Normal y guardar devuelve false", () => {
+  const roto = { getItem() { throw new Error("bloqueado"); }, setItem() { throw new Error("bloqueado"); } };
+  conAlmacen(roto, () => {
+    assert.equal(T.leerTamano(), "normal");
+    assert.equal(T.guardarTamano("pequeno"), false);
+  });
+});
+
+test("toda fuente del ticket sale de la escala (--escala) y 'Grande' conserva el diseno original", () => {
+  const fuentes = T.ESTILOS.match(/font-size:[^;]+;/g);
+  assert.ok(fuentes.length >= 15, "se esperaban todas las fuentes del ticket");
+  fuentes.forEach(f => assert.match(f, /calc\([\d.]+px \* var\(--escala\)\)/, "fuente sin escalar: " + f));
+  // Con --escala = 1 salen los tamanos originales (numero 46, cantidad 28, producto 18)
+  assert.match(T.ESTILOS, /\.numero\{[^}]*calc\(46px \* var\(--escala\)\)/);
+  assert.match(T.ESTILOS, /\.cant\{[^}]*calc\(28px \* var\(--escala\)\)/);
+  assert.match(T.ESTILOS, /\.nom\{[^}]*calc\(18px \* var\(--escala\)\)/);
+  assert.match(T.ESTILOS, /:root\{--escala:0\.85;\}/);
+});
+
+test("la hoja va sin margen de pagina (sin encabezado ni pie de Chrome) y a 80 mm", () => {
+  assert.match(T.PLANTILLA, /@page\{size:80mm \d+mm;margin:0;\}/);
+  assert.equal(T.ANCHO_PAGINA_MM, 80);
+  assert.equal(T.ANCHO_UTIL_MM, 72);
+});
+
+test("el aire del ticket es del contenido: arriba 3 mm y abajo la constante", () => {
+  assert.equal(T.MARGEN_SUPERIOR_MM, 3);
+  assert.ok(T.MARGEN_INFERIOR_MM > 0 && T.MARGEN_INFERIOR_MM <= 12);
+  const re = new RegExp("body\\{width:72mm;margin:0 auto;\\s*padding:3mm 0 " + T.MARGEN_INFERIOR_MM + "mm;");
+  assert.match(T.ESTILOS, re);
+});
+
 test("con domicilio cobrado separa productos y envio", () => {
   const d = T.preparar({ ...base, costo_domicilio: 5000, subtotal: 18000, total: 23000 });
   assert.equal(d.subtotal, 18000);

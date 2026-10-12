@@ -468,6 +468,16 @@
     background:var(--mostaza); color:var(--carbon);
   }
   .modal-horarios .btn-prueba:hover{background:#f0af1f;}
+  .imp-tamano{
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+    padding:.5rem 0; margin-bottom:.8rem; font-size:.84rem;
+  }
+  .imp-tamano label{color:var(--texto-secundario);}
+  .imp-tamano select{
+    background:var(--carbon); color:var(--texto-claro);
+    border:1px solid var(--borde); border-radius:8px;
+    padding:.45rem .6rem; font-family:inherit; font-size:.85rem; font-weight:800;
+  }
 </style>
 </head>
 <body>
@@ -566,6 +576,16 @@
 
     <div class="imp-lista" id="impLista"></div>
 
+    <div class="imp-tamano">
+      <label for="impTamano">Tamaño del ticket</label>
+      <select id="impTamano">
+        <option value="pequeno">Pequeño</option>
+        <option value="normal" selected>Normal</option>
+        <option value="grande">Grande</option>
+      </select>
+    </div>
+    <p class="ayuda" style="margin-top:-.4rem;">Se guarda solo en este equipo y vale para las comandas, las reimpresiones y el ticket de prueba.</p>
+
     <button class="btn-prueba" id="impPruebaBtn" type="button">🖨️ Imprimir ticket de prueba</button>
     <p class="ayuda" style="margin-top:.8rem; margin-bottom:0;">El ticket de prueba trae datos inventados largos (nombre, dirección, notas, ñ y tildes) para calibrar la impresora.</p>
 
@@ -581,7 +601,7 @@
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
 <script src="supabase-publico.js?v=1"></script>
-<script src="ticket-comanda.js?v=1"></script>
+<script src="ticket-comanda.js?v=2"></script>
 <script>
 /* =========================================================
    CONFIGURACIÓN DE SUPABASE
@@ -2308,8 +2328,27 @@ document.getElementById("switchImpresion").addEventListener("click", () => {
 });
 
 const modalImpresion = document.getElementById("modalImpresion");
+const selTamanoTicket = document.getElementById("impTamano");
+
+/* Tamano del texto del ticket: lo lee y lo guarda ticket-comanda.js
+   (localStorage con try/catch, "normal" si falla); asi las comandas,
+   las reimpresiones y el ticket de prueba usan SIEMPRE el mismo valor. */
+function mostrarTamanoTicket(){
+  if(window.TicketComanda) selTamanoTicket.value = TicketComanda.leerTamano();
+}
+selTamanoTicket.addEventListener("change", () => {
+  if(!window.TicketComanda) return;
+  if(TicketComanda.guardarTamano(selTamanoTicket.value)){
+    avisar("🖨️ Tamaño del ticket: " + selTamanoTicket.options[selTamanoTicket.selectedIndex].text);
+  }else{
+    avisar("No se pudo guardar el tamaño en este equipo", true);
+  }
+  mostrarTamanoTicket();   // refleja lo que de verdad quedo vigente
+});
+
 document.getElementById("impresionBtn").addEventListener("click", () => {
   pintarModalImpresion();
+  mostrarTamanoTicket();
   modalImpresion.classList.add("open");
 });
 function cerrarModalImpresion(){ modalImpresion.classList.remove("open"); }
