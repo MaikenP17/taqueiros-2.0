@@ -180,6 +180,7 @@ una dirección muy largos, ñ y tildes. Comprueba:
 | Sale el diálogo de Chrome | El panel no se abrió con `--kiosk-printing` (sección 3) |
 | Texto cortado a los lados | Preferencias del driver: papel de 80 mm y márgenes mínimos |
 | Mucho papel en blanco al final | Tamaño de papel del driver: debe ser rollo continuo / "auto" |
+| El papel sale de ~30 cm, con blanco arriba y abajo | Sección 5.4: modo de hoja y hoja de calibración |
 | Un ticket sale partido en dos hojas | Rollo/alto de papel del driver demasiado corto |
 | No corta | "Cortar papel" del driver en "Al final de cada documento" |
 | El corte se come la última línea | Subir `MARGEN_INFERIOR_MM` en `ticket-comanda.js` (sección 5.3) |
@@ -193,13 +194,16 @@ En **⚙️ → Tamaño del ticket** se elige **Pequeño / Normal / Grande**. Se
 guarda **solo en ese equipo** (en el navegador del perfil
 `C:\TaqueirosPanel`) y lo usan todas las impresiones de esa pantalla:
 comandas automáticas, **Reimprimir** y el ticket de prueba. Si el navegador
-no puede guardarlo, queda en **Normal**.
+no puede guardarlo, queda en **Pequeño**.
 
 | Tamaño | Escala del texto | Para qué |
 | --- | --- | --- |
-| Pequeño | 0,75 | Pedidos largos; menos papel |
-| **Normal** (por defecto) | 0,85 | Uso diario |
+| **Pequeño** (por defecto) | 0,75 | Uso diario; menos papel (el que se vio mejor en la DIG-POS892) |
+| Normal | 0,85 | Un poco más grande |
 | Grande | 1,00 | El diseño original; cocina con poca luz o vista cansada |
+
+(Un equipo que ya tenía guardado Normal o Grande lo conserva: el cambio de
+valor por defecto solo afecta a los equipos que no habían elegido.)
 
 La escala multiplica **todas** las fuentes por igual (variable CSS
 `--escala`), así que la jerarquía no cambia: número de pedido, cantidad
@@ -269,6 +273,81 @@ superior: nunca hay un alto mínimo ni fijo, ni segunda página.
 - Si el corte se come "LOS TAQUEIROS · PEDIDO WEB", sube la constante (prueba
   con 8) y sube el `?v=` del `<script>` en `panel.html`. Nada más.
 
+### 5.4 El papel sale más largo que el ticket: modo de hoja y hoja de calibración
+
+**Lo que se vio con la DIG-POS892** (driver "80mm Series Printer", papel del
+driver 80 × 297 mm, `--kiosk-printing`): el papel salió de ~30 cm, con el
+encabezado de Chrome en una punta, el pie en la otra y el ticket en el medio
+con ~6 cm de blanco arriba y abajo. O sea: se imprimió sobre la hoja
+completa de 297 mm del driver y el ticket quedó **centrado** en ella, y el
+margen `@page{margin:0}` tampoco se aplicó.
+
+**Qué se revisó en el código:** nada del ticket lo centra ni lo estira
+(sin `min-height`, `height:100vh`, flex vertical ni `margin:auto` vertical;
+el `body` solo se centra a lo ancho; el alto de `html`/`body` es el medido).
+Se imprime únicamente el iframe oculto de `imprimir()`. Por eso la sospecha
+es el motor de impresión de Chrome en modo quiosco (sin vista previa, usa la
+hoja predeterminada del driver y coloca ahí la página pedida por CSS) o el
+driver. Esto **no está confirmado**: se confirma con las pruebas de abajo.
+
+#### Modo de hoja (⚙️ → *Modo de hoja*)
+
+Se guarda **por equipo** (en el navegador del perfil `C:\TaqueirosPanel`);
+si no hay nada guardado o el valor no es válido, es **A**. Lo usan por igual
+las comandas, las reimpresiones, el ticket de prueba y la hoja de
+calibración. Solo cambia el largo de hoja que se le pide a Chrome: el
+contenido del ticket es idéntico.
+
+| Modo | `@page` que se pide | `html` / `body` | Para qué |
+| --- | --- | --- | --- |
+| **A** Altura medida (por defecto) | `size:80mm <alto>mm; margin:0` con `<alto>` = lo que mide el ticket, redondeado al mm superior | alto fijo `<alto>mm` y `overflow:hidden` | El comportamiento de siempre |
+| **B** Automático | `size:80mm auto; margin:0` | `height:auto` | Ver si Chrome/el driver ajustan solos el largo |
+| **C** Altura medida + 1 mm | Como A pero `<alto>` + 1 mm | `height:auto` y `overflow:hidden` | Descartar que medio milímetro de menos parta la hoja |
+| **D** Hoja fija | `size:80mm 297mm; margin:0` | `height:auto`; el contenido queda pegado arriba | Confirmar qué hace el driver con su hoja de 297 mm |
+
+> Nota: en el motor de Chrome (PDF) `size:80mm auto` **no se respeta**: el
+> PDF del modo B sale en tamaño Carta (215,9 × 279,4 mm). Es normal; en la
+> impresora real decide el driver. El modo B existe para ver justo eso.
+
+#### Hoja de calibración (⚙️ → *Imprimir hoja de calibración*)
+
+Pasa por el **mismo camino** que una comanda (mismo iframe, misma regla
+`@page` y mismo modo). Dibuja, con `position:fixed` (no mueve nada):
+
+- **Marco de 1 mm** con el tamaño de la **página solicitada** (80 mm × el alto
+  del modo). Su borde de abajo lleva el rótulo *FIN DE LA PAGINA SOLICITADA*.
+- **Línea gruesa (2 mm) arriba y abajo de la página real**, es decir, de la
+  hoja que Chrome está usando de verdad (`top:0` y `bottom:0`).
+- **Regla** a la izquierda: marca cada **10 mm**, más larga y con número cada
+  **50 mm**. Se mide desde la línea gruesa de arriba.
+- Texto grande: `MODO: <modo> · ALTO SOLICITADO: <X> mm · ANCHO: 80 mm`
+  (en modo B, `ALTO SOLICITADO: AUTO`), más el alto de contenido medido.
+
+**Cómo leer la foto del papel**
+
+| Qué se ve | Qué significa |
+| --- | --- |
+| La línea gruesa de abajo cae justo en el borde del marco | La página que usa Chrome mide lo solicitado: el alto sí se respeta |
+| La línea gruesa de abajo cae **mucho más abajo** que el marco (p. ej. el marco termina en 150 mm y la línea en 297 mm) | Chrome/el driver usan una hoja más larga que la pedida: no respetan el alto de `@page` |
+| Hay blanco **antes** de la línea gruesa de arriba | La página pedida está centrada o desplazada dentro de la hoja física |
+| Sale el encabezado o el pie de Chrome | `@page{margin:0}` no se está aplicando (ver 5.2) |
+| Salen dos hojas | La página real es más corta que el contenido (probar C) |
+| La regla marca 297 en la línea de abajo en el modo D y el ticket de prueba queda arriba sin blanco antes | El driver respeta la hoja fija y no centra; el sobrante queda abajo |
+
+**Orden sugerido de pruebas** (anota qué número de regla cae en la línea
+gruesa de abajo y cuánto blanco hay arriba, en cada modo):
+
+1. Modo **A** → imprimir la hoja de calibración (referencia).
+2. Modo **D** → imprimir la hoja de calibración y un ticket de prueba.
+3. Modo **B** y modo **C** → imprimir la hoja de calibración.
+4. Elegir el modo con el que el papel salga más corto y sin blanco arriba, y
+   dejarlo guardado. Si ninguno lo logra, el largo lo está fijando el driver:
+   revisar en *Preferencias de impresión* de la DIG-POS892 el tamaño de papel
+   (rollo continuo / alto menor) y, para el encabezado y pie, la sección 5.2.
+
+Esto solo se puede confirmar **imprimiendo**: en el motor de Chrome sin
+impresora (los PDF de `pruebas/impresion/`) cada modo sale como se pide, que
+no es lo mismo que lo que hace la impresora.
 ---
 
 ## 6. Cómo funciona en el día a día
@@ -332,7 +411,9 @@ Ninguna de las dos devuelve datos de clientes.
 - Ticket: `ticket-comanda.js` (se carga desde `panel.html`; si cambia,
   sube el `?v=` del `<script>` y la versión de `sw.js`). Sus constantes
   de diseño: `ANCHO_PAGINA_MM`, `ANCHO_UTIL_MM`, `MARGEN_SUPERIOR_MM`,
-  `MARGEN_INFERIOR_MM` y `ESCALAS`.
+  `MARGEN_INFERIOR_MM` y `ESCALAS`. La hoja se pide con `planHoja` /
+  `ajustarHoja` (modos A–D, sección 5.4) y la hoja de calibración con
+  `imprimirCalibracion`.
 - PDFs de ejemplo (3 tamaños × prueba y pedido típico) en
   `pruebas/impresion/ticket-*.pdf`; se regeneran con
   `node pruebas/impresion/generar-pdfs.js`, que además comprueba 1 página,

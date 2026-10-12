@@ -468,6 +468,7 @@
     background:var(--mostaza); color:var(--carbon);
   }
   .modal-horarios .btn-prueba:hover{background:#f0af1f;}
+  .modal-horarios .btn-calibracion{margin-top:1rem;}
   .imp-tamano{
     display:flex; align-items:center; justify-content:space-between; gap:1rem;
     padding:.5rem 0; margin-bottom:.8rem; font-size:.84rem;
@@ -579,15 +580,29 @@
     <div class="imp-tamano">
       <label for="impTamano">Tamaño del ticket</label>
       <select id="impTamano">
-        <option value="pequeno">Pequeño</option>
-        <option value="normal" selected>Normal</option>
+        <option value="pequeno" selected>Pequeño</option>
+        <option value="normal">Normal</option>
         <option value="grande">Grande</option>
       </select>
     </div>
     <p class="ayuda" style="margin-top:-.4rem;">Se guarda solo en este equipo y vale para las comandas, las reimpresiones y el ticket de prueba.</p>
 
+    <div class="imp-tamano">
+      <label for="impModoHoja">Modo de hoja</label>
+      <select id="impModoHoja">
+        <option value="A" selected>A · Altura medida</option>
+        <option value="B">B · Automático</option>
+        <option value="C">C · Altura medida + 1 mm</option>
+        <option value="D">D · Hoja fija 297 mm</option>
+      </select>
+    </div>
+    <p class="ayuda" style="margin-top:-.4rem;">Es una prueba para calibrar la impresora: solo cambia el largo de hoja que se le pide a Chrome. Se guarda en este equipo y vale para comandas, reimpresiones, ticket de prueba y hoja de calibración. Si no hay motivo, déjalo en A.</p>
+
     <button class="btn-prueba" id="impPruebaBtn" type="button">🖨️ Imprimir ticket de prueba</button>
     <p class="ayuda" style="margin-top:.8rem; margin-bottom:0;">El ticket de prueba trae datos inventados largos (nombre, dirección, notas, ñ y tildes) para calibrar la impresora.</p>
+
+    <button class="btn-prueba btn-calibracion" id="impCalibracionBtn" type="button">📏 Imprimir hoja de calibración</button>
+    <p class="ayuda" style="margin-top:.8rem; margin-bottom:0;">Marco, regla en milímetros y líneas en el borde superior e inferior de la hoja: sirve para ver el largo de papel que de verdad usa la impresora. Sale con el modo de hoja elegido arriba.</p>
 
     <div class="acciones-modal">
       <button class="btn-cancelar" id="impCerrarBtn" type="button">Cerrar</button>
@@ -601,7 +616,7 @@
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
 <script src="supabase-publico.js?v=1"></script>
-<script src="ticket-comanda.js?v=2"></script>
+<script src="ticket-comanda.js?v=3"></script>
 <script>
 /* =========================================================
    CONFIGURACIÓN DE SUPABASE
@@ -2130,6 +2145,13 @@ async function ejecutarTrabajo(t){
     ultimaImpresion = { numero: "ticket de prueba", hora: new Date() };
     return true;
   }
+
+  if(t.tipo === "calibracion"){
+    await esperarPestanaVisible();
+    await TicketComanda.imprimirCalibracion();   // mismo camino y mismo modo de hoja
+    ultimaImpresion = { numero: "hoja de calibración", hora: new Date() };
+    return true;
+  }
   return false;
 }
 
@@ -2331,7 +2353,7 @@ const modalImpresion = document.getElementById("modalImpresion");
 const selTamanoTicket = document.getElementById("impTamano");
 
 /* Tamano del texto del ticket: lo lee y lo guarda ticket-comanda.js
-   (localStorage con try/catch, "normal" si falla); asi las comandas,
+   (localStorage con try/catch, "pequeno" si falla); asi las comandas,
    las reimpresiones y el ticket de prueba usan SIEMPRE el mismo valor. */
 function mostrarTamanoTicket(){
   if(window.TicketComanda) selTamanoTicket.value = TicketComanda.leerTamano();
@@ -2346,9 +2368,26 @@ selTamanoTicket.addEventListener("change", () => {
   mostrarTamanoTicket();   // refleja lo que de verdad quedo vigente
 });
 
+/* Modo de hoja (prueba de calibracion): mismo criterio que el tamano.
+   Lo lee y lo guarda ticket-comanda.js ("A" si falla). */
+const selModoHoja = document.getElementById("impModoHoja");
+function mostrarModoHoja(){
+  if(window.TicketComanda) selModoHoja.value = TicketComanda.leerModoHoja();
+}
+selModoHoja.addEventListener("change", () => {
+  if(!window.TicketComanda) return;
+  if(TicketComanda.guardarModoHoja(selModoHoja.value)){
+    avisar("🖨️ Modo de hoja: " + selModoHoja.options[selModoHoja.selectedIndex].text);
+  }else{
+    avisar("No se pudo guardar el modo de hoja en este equipo", true);
+  }
+  mostrarModoHoja();   // refleja lo que de verdad quedo vigente
+});
+
 document.getElementById("impresionBtn").addEventListener("click", () => {
   pintarModalImpresion();
   mostrarTamanoTicket();
+  mostrarModoHoja();
   modalImpresion.classList.add("open");
 });
 function cerrarModalImpresion(){ modalImpresion.classList.remove("open"); }
@@ -2359,6 +2398,12 @@ document.getElementById("impPruebaBtn").addEventListener("click", () => {
   avisar("🖨️ Imprimiendo ticket de prueba");
   cerrarModalImpresion();   // el dialogo de impresion (si sale) no queda tapado
   encolarImpresion(null, "prueba");
+});
+
+document.getElementById("impCalibracionBtn").addEventListener("click", () => {
+  avisar("📏 Imprimiendo hoja de calibración");
+  cerrarModalImpresion();
+  encolarImpresion(null, "calibracion");
 });
 
 /* =========================================================

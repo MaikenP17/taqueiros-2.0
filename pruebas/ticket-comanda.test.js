@@ -101,13 +101,13 @@ function almacenFalso(inicial) {
   };
 }
 
-test("las tres escalas: Pequeno .75, Normal .85, Grande 1; el defecto es Normal", () => {
+test("las tres escalas: Pequeno .75, Normal .85, Grande 1; el defecto es Pequeno", () => {
   assert.deepEqual(T.ESCALAS, { pequeno: 0.75, normal: 0.85, grande: 1 });
-  assert.equal(T.TAMANO_POR_DEFECTO, "normal");
+  assert.equal(T.TAMANO_POR_DEFECTO, "pequeno");
 });
 
-test("sin nada guardado, el tamano es Normal", () => {
-  conAlmacen(almacenFalso(), () => assert.equal(T.leerTamano(), "normal"));
+test("sin nada guardado, el tamano es Pequeno", () => {
+  conAlmacen(almacenFalso(), () => assert.equal(T.leerTamano(), "pequeno"));
 });
 
 test("guardar y leer el tamano; un valor invalido no se guarda ni se lee", () => {
@@ -121,14 +121,14 @@ test("guardar y leer el tamano; un valor invalido no se guarda ni se lee", () =>
     assert.equal(T.leerTamano(), "grande");
   });
   conAlmacen(almacenFalso({ [T.TAMANO_KEY]: "constructor" }), () => {
-    assert.equal(T.leerTamano(), "normal");
+    assert.equal(T.leerTamano(), "pequeno");
   });
 });
 
-test("si el almacenamiento falla, el tamano es Normal y guardar devuelve false", () => {
+test("si el almacenamiento falla, el tamano es Pequeno y guardar devuelve false", () => {
   const roto = { getItem() { throw new Error("bloqueado"); }, setItem() { throw new Error("bloqueado"); } };
   conAlmacen(roto, () => {
-    assert.equal(T.leerTamano(), "normal");
+    assert.equal(T.leerTamano(), "pequeno");
     assert.equal(T.guardarTamano("pequeno"), false);
   });
 });
@@ -141,7 +141,7 @@ test("toda fuente del ticket sale de la escala (--escala) y 'Grande' conserva el
   assert.match(T.ESTILOS, /\.numero\{[^}]*calc\(46px \* var\(--escala\)\)/);
   assert.match(T.ESTILOS, /\.cant\{[^}]*calc\(28px \* var\(--escala\)\)/);
   assert.match(T.ESTILOS, /\.nom\{[^}]*calc\(18px \* var\(--escala\)\)/);
-  assert.match(T.ESTILOS, /:root\{--escala:0\.85;\}/);
+  assert.match(T.ESTILOS, /:root\{--escala:0\.75;\}/);
 });
 
 test("la hoja va sin margen de pagina (sin encabezado ni pie de Chrome) y a 80 mm", () => {
@@ -162,4 +162,92 @@ test("con domicilio cobrado separa productos y envio", () => {
   assert.equal(d.subtotal, 18000);
   assert.equal(d.costoDomicilio, 5000);
   assert.equal(d.total, 23000);
+});
+
+/* ---------- Modo de hoja y hoja de calibracion ---------- */
+
+test("los cuatro modos de hoja existen y el defecto es A", () => {
+  assert.deepEqual(Object.keys(T.MODOS_HOJA), ["A", "B", "C", "D"]);
+  assert.equal(T.MODO_HOJA_POR_DEFECTO, "A");
+});
+
+test("sin nada guardado, el modo de hoja es A", () => {
+  conAlmacen(almacenFalso(), () => assert.equal(T.leerModoHoja(), "A"));
+});
+
+test("guardar y leer el modo de hoja; uno invalido no se guarda ni se lee", () => {
+  const a = almacenFalso();
+  conAlmacen(a, () => {
+    assert.equal(T.guardarModoHoja("C"), true);
+    assert.equal(a.datos[T.MODO_HOJA_KEY], "C");
+    assert.equal(T.leerModoHoja(), "C");
+    assert.equal(T.guardarModoHoja("Z"), false);
+    assert.equal(T.guardarModoHoja("__proto__"), false);
+    assert.equal(T.guardarModoHoja("a"), false);
+    assert.equal(T.leerModoHoja(), "C");
+  });
+  conAlmacen(almacenFalso({ [T.MODO_HOJA_KEY]: "constructor" }), () => {
+    assert.equal(T.leerModoHoja(), "A");
+  });
+});
+
+test("si el almacenamiento falla, el modo de hoja es A y guardar devuelve false", () => {
+  const roto = { getItem() { throw new Error("bloqueado"); }, setItem() { throw new Error("bloqueado"); } };
+  conAlmacen(roto, () => {
+    assert.equal(T.leerModoHoja(), "A");
+    assert.equal(T.guardarModoHoja("D"), false);
+  });
+});
+
+test("el modo de hoja y el tamano se guardan en llaves distintas", () => {
+  assert.notEqual(T.MODO_HOJA_KEY, T.TAMANO_KEY);
+});
+
+test("modo A: alto medido redondeado hacia arriba, html y body con ese alto", () => {
+  const p = T.planHoja("A", 174.2);
+  assert.equal(p.altoMm, 175);
+  assert.equal(p.regla, "@page{size:80mm 175mm;margin:0;}");
+  assert.match(p.css, /html,body\{height:175mm;overflow:hidden;\}/);
+});
+
+test("modo B: automatico, sin alto en @page ni en html/body", () => {
+  const p = T.planHoja("B", 174.2);
+  assert.equal(p.altoMm, null);
+  assert.equal(p.regla, "@page{size:80mm auto;margin:0;}");
+  assert.match(p.css, /html,body\{height:auto;\}/);
+});
+
+test("modo C: como A mas 1 mm, con html/body en height:auto y overflow:hidden", () => {
+  const p = T.planHoja("C", 174.2);
+  assert.equal(p.altoMm, 176);
+  assert.equal(p.regla, "@page{size:80mm 176mm;margin:0;}");
+  assert.match(p.css, /html,body\{height:auto;overflow:hidden;\}/);
+  // Un alto ya entero tambien suma el milimetro
+  assert.equal(T.planHoja("C", 150).altoMm, 151);
+  assert.equal(T.planHoja("A", 150).altoMm, 150);
+});
+
+test("modo D: hoja fija de 80 x 297 mm sin importar el contenido", () => {
+  const p = T.planHoja("D", 40);
+  assert.equal(p.altoMm, 297);
+  assert.equal(p.regla, "@page{size:80mm 297mm;margin:0;}");
+  assert.match(p.css, /html,body\{height:auto;\}/);
+  assert.equal(T.planHoja("D", 900).altoMm, 297);
+});
+
+test("todos los modos piden margen de pagina 0 y 80 mm de ancho", () => {
+  for (const m of Object.keys(T.MODOS_HOJA)) {
+    assert.match(T.planHoja(m, 120).regla, /^@page\{size:80mm (\d+mm|auto);margin:0;\}$/, "modo " + m);
+  }
+});
+
+test("un modo desconocido cae en A; el alto nunca pasa del tope", () => {
+  assert.equal(T.planHoja("Z", 100).modo, "A");
+  assert.equal(T.planHoja(undefined, 100).modo, "A");
+  assert.equal(T.planHoja("A", 99999).altoMm, 1500);
+  assert.equal(T.planHoja("C", 99999).altoMm, 1500);
+});
+
+test("la hoja de calibracion no usa nada fuera del ticket: sin fondos ni imagenes", () => {
+  assert.doesNotMatch(T.ESTILOS_CALIBRACION, /background|url\(|<img/i);
 });

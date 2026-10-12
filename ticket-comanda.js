@@ -54,11 +54,37 @@
      tamano de "Grande" (el diseno original) multiplicado por la
      variable CSS --escala. Los bordes y separadores no se escalan. */
   const ESCALAS = { pequeno: 0.75, normal: 0.85, grande: 1 };
-  const TAMANO_POR_DEFECTO = "normal";
+  const TAMANO_POR_DEFECTO = "pequeno";
 
   /* Se guarda por equipo: la impresora de la cocina decide el tamano,
      no el cliente ni el resto de pantallas. */
   const TAMANO_KEY = "taqueiros-panel-ticket-tamano-v1";
+
+  /* MODO DE HOJA (prueba de calibracion). Chrome con --kiosk-printing no
+     siempre respeta el alto de @page: puede usar la hoja del driver
+     (80 x 297 mm) y dejar el ticket en el medio. Cada modo le pide la
+     hoja de una forma distinta para ver cual obedece el equipo real.
+     Ver docs/impresion-cocina.md, seccion 5.4.
+       A  alto medido                 @page{size:80mm <alto>mm}  (el de siempre)
+       B  automatico                  @page{size:80mm auto}
+       C  alto medido + 1 mm          como A, +1 mm y sin alto fijo en html/body
+       D  hoja fija de 297 mm         @page{size:80mm 297mm}, contenido arriba */
+  const MODOS_HOJA = {
+    A: "Altura medida",
+    B: "Automático",
+    C: "Altura medida + 1 mm",
+    D: "Hoja fija 297 mm"
+  };
+  const MODO_HOJA_POR_DEFECTO = "A";
+  const ALTO_HOJA_FIJA_MM = 297;
+
+  /* Por equipo, igual que el tamano. */
+  const MODO_HOJA_KEY = "taqueiros-panel-ticket-hoja-v1";
+
+  /* La hoja de calibracion mide ~150 mm (un ticket tipico) y su regla
+     llega hasta 300 mm para poder ver una hoja de 297 mm completa. */
+  const ALTO_CALIBRACION_MM = 150;
+  const REGLA_MAXIMA_MM = 300;
 
   const TIPOS = {
     domicilio: "DOMICILIO",
@@ -376,30 +402,186 @@
     return clave;
   }
 
-  /* Ajusta la hoja al contenido: ancho 80 mm y alto = lo que mide el
-     ticket, que ya incluye su margen superior e inferior (padding del
-     body). Sin esto el driver usaria su alto por defecto y saldria
-     papel en blanco (o un segundo ticket vacio). */
-  function ajustarPagina(doc) {
-    /* Solo el body: documentElement.scrollHeight nunca baja del alto
-       del visor y, si este fuera mayor que el ticket, sobraria papel. */
-    const px = Math.max(
-      doc.body.scrollHeight,
-      Math.ceil(doc.body.getBoundingClientRect().height));
-    const mm = Math.min(ALTO_MAXIMO_MM, Math.ceil(px / PX_POR_MM));
+  /* ---------- Modo de hoja ---------- */
 
+  function modoHojaValido(modo) {
+    return typeof modo === "string" && Object.prototype.hasOwnProperty.call(MODOS_HOJA, modo);
+  }
+
+  function leerModoHoja() {
+    try {
+      const v = localStorage.getItem(MODO_HOJA_KEY);
+      if (modoHojaValido(v)) return v;
+    } catch (err) { /* almacenamiento bloqueado o inexistente */ }
+    return MODO_HOJA_POR_DEFECTO;
+  }
+
+  /* true si se guardo; false si el valor no es valido o no se pudo. */
+  function guardarModoHoja(modo) {
+    if (!modoHojaValido(modo)) return false;
+    try { localStorage.setItem(MODO_HOJA_KEY, modo); return true; }
+    catch (err) { return false; }
+  }
+
+  /* Funcion pura: que hoja se le pide al motor de impresion en cada modo
+     dado el alto medido del contenido (mm, con decimales).
+       altoMm  alto pedido en @page, o null si se pide "auto"
+       regla   solo la regla @page (tambien se repite en el documento padre)
+       css     regla + alto de html/body, lo que va en #pagina-ticket */
+  function planHoja(modo, medidoMm) {
+    const m = modoHojaValido(modo) ? modo : MODO_HOJA_POR_DEFECTO;
+    const medido = Math.max(0, Number(medidoMm) || 0);
+    const entero = Math.ceil(medido);
+
+    let altoMm = null;
+    let cuerpo = "html,body{height:auto;}";
+    if (m === "A") {
+      altoMm = Math.min(ALTO_MAXIMO_MM, entero);
+      /* html/body con alto fijo y overflow oculto: aunque el motor de
+         impresion midiera medio milimetro de mas, no nace una 2a pagina. */
+      cuerpo = "html,body{height:" + altoMm + "mm;overflow:hidden;}";
+    } else if (m === "C") {
+      altoMm = Math.min(ALTO_MAXIMO_MM, entero + 1);
+      cuerpo = "html,body{height:auto;overflow:hidden;}";
+    } else if (m === "D") {
+      altoMm = ALTO_HOJA_FIJA_MM;
+    }
+
+    const regla = "@page{size:" + ANCHO_PAGINA_MM + "mm " +
+      (altoMm === null ? "auto" : altoMm + "mm") + ";margin:0;}";
+    return { modo: m, medidoMm: medido, altoMm: altoMm, regla: regla, css: regla + cuerpo };
+  }
+
+  /* Ajusta la hoja al contenido segun el modo: ancho 80 mm y alto = lo
+     que mide el ticket, que ya incluye su margen superior e inferior
+     (padding del body). Sin esto el driver usaria su alto por defecto y
+     saldria papel en blanco (o un segundo ticket vacio). Devuelve el plan
+     (ver planHoja). */
+  function ajustarHoja(doc, modo) {
     let estilo = doc.getElementById("pagina-ticket");
     if (!estilo) {
       estilo = doc.createElement("style");
       estilo.id = "pagina-ticket";
       doc.head.appendChild(estilo);
     }
-    /* html/body con alto fijo y overflow oculto: aunque el motor de
-       impresion midiera medio milimetro de mas, no nace una 2a pagina. */
-    estilo.textContent =
-      "@page{size:" + ANCHO_PAGINA_MM + "mm " + mm + "mm;margin:0;}" +
-      "html,body{height:" + mm + "mm;overflow:hidden;}";
-    return mm;
+    /* Se mide siempre sin alto fijo, para que llamarla dos veces (o venir
+       de otro modo) no mida el alto que se pidio la vez anterior. */
+    estilo.textContent = "html,body{height:auto;}";
+
+    /* Solo el body: documentElement.scrollHeight nunca baja del alto
+       del visor y, si este fuera mayor que el ticket, sobraria papel. */
+    const px = Math.max(
+      doc.body.scrollHeight,
+      Math.ceil(doc.body.getBoundingClientRect().height));
+
+    const plan = planHoja(modo === undefined ? leerModoHoja() : modo, px / PX_POR_MM);
+    estilo.textContent = plan.css;
+    return plan;
+  }
+
+  /* Compatibilidad: devuelve el alto en mm (el pedido; o el medido si el
+     modo es "auto"). */
+  function ajustarPagina(doc, modo) {
+    const plan = ajustarHoja(doc, modo);
+    return plan.altoMm === null ? Math.min(ALTO_MAXIMO_MM, Math.ceil(plan.medidoMm)) : plan.altoMm;
+  }
+
+  /* ---------- Hoja de calibracion ---------- */
+
+  /* Pasa por el MISMO camino que una comanda (iframe, plantilla, escala,
+     ajustarHoja, regla @page) y dibuja, todo con position:fixed (no
+     empuja ni parte el contenido):
+       * marco de 1 mm del tamano de la pagina SOLICITADA (80 x alto);
+       * linea gruesa en el borde superior y en el inferior de la pagina
+         REAL (top:0 y bottom:0 de la hoja que usa Chrome);
+       * regla vertical a la izquierda: marca cada 10 mm, numero cada 50;
+       * el texto "MODO ... ALTO SOLICITADO ... ANCHO 80 mm".
+     Si la hoja real es mas larga que la solicitada, el marco queda corto
+     y la linea gruesa de abajo cae mas lejos: eso es justo lo que se
+     quiere ver en la foto. */
+  const ESTILOS_CALIBRACION = [
+    "body.calibracion{width:" + ANCHO_PAGINA_MM + "mm;margin:0;padding:0;}",
+    ".cal-relleno{height:" + Math.floor(ALTO_CALIBRACION_MM * PX_POR_MM) + "px;}",
+    ".cal-marco{position:fixed;left:0;top:0;width:" + ANCHO_PAGINA_MM + "mm;border:1mm solid #000;}",
+    ".cal-borde{position:fixed;left:0;right:0;height:0;border-top:2mm solid #000;}",
+    ".cal-regla{position:fixed;left:1mm;top:0;bottom:0;width:14mm;}",
+    ".cal-marca{position:absolute;left:0;height:0;border-top:0.3mm solid #000;width:4mm;}",
+    ".cal-marca.larga{width:9mm;border-top-width:0.5mm;}",
+    ".cal-num{position:absolute;left:10mm;font-size:3.2mm;font-weight:900;line-height:1;margin-top:-1.6mm;}",
+    ".cal-texto{position:fixed;left:16mm;right:2mm;top:5mm;font-weight:900;}",
+    ".cal-titulo{font-size:3.2mm;letter-spacing:.08em;}",
+    ".cal-dato{font-size:3.7mm;line-height:1.3;margin-top:1.5mm;overflow-wrap:break-word;}",
+    ".cal-nota{font-size:3.4mm;font-weight:700;line-height:1.25;margin-top:2mm;}",
+    ".cal-fin{position:fixed;left:16mm;right:2mm;font-size:3.2mm;font-weight:900;line-height:1;}"
+  ].join("\n");
+
+  function pintarCalibracion(doc) {
+    const body = doc.body;
+    while (body.firstChild) body.removeChild(body.firstChild);
+    body.className = "calibracion";
+    const estilo = doc.createElement("style");
+    estilo.id = "estilos-calibracion";
+    estilo.textContent = ESTILOS_CALIBRACION;
+    doc.head.appendChild(estilo);
+    /* Lo unico que ocupa lugar en el flujo: un bloque de ~150 mm que da
+       el alto medido, igual que el contenido de un ticket. */
+    body.appendChild(el(doc, "div", "cal-relleno"));
+  }
+
+  /* 'plan' sale de ajustarHoja. */
+  function dibujarCalibracion(doc, plan) {
+    const body = doc.body;
+    const solicitado = plan.altoMm !== null;
+    /* En "automatico" no hay alto pedido: el marco abarca el contenido. */
+    const alto = solicitado ? plan.altoMm : Math.min(ALTO_MAXIMO_MM, Math.ceil(plan.medidoMm));
+    const nbsp = (t) => t.split(" ").join(NBSP);
+
+    const marco = el(doc, "div", "cal-marco");
+    marco.style.height = alto + "mm";
+    body.appendChild(marco);
+
+    const arriba = el(doc, "div", "cal-borde");
+    arriba.style.top = "0";
+    body.appendChild(arriba);
+    const abajo = el(doc, "div", "cal-borde");
+    abajo.style.bottom = "0";
+    body.appendChild(abajo);
+
+    const regla = el(doc, "div", "cal-regla");
+    const limite = solicitado ? alto : REGLA_MAXIMA_MM;
+    for (let mm = 10; mm <= limite; mm += 10) {
+      const larga = mm % 50 === 0;
+      const marca = el(doc, "div", "cal-marca" + (larga ? " larga" : ""));
+      marca.style.top = mm + "mm";
+      regla.appendChild(marca);
+      /* Sin numero si caeria encima de la linea gruesa de abajo */
+      if (larga && limite - mm >= 6) {
+        const num = el(doc, "div", "cal-num", String(mm));
+        num.style.top = mm + "mm";
+        regla.appendChild(num);
+      }
+    }
+    body.appendChild(regla);
+
+    const texto = el(doc, "div", "cal-texto");
+    texto.appendChild(el(doc, "div", "cal-titulo", "HOJA DE CALIBRACION"));
+    /* El punto medio se pega al dato de antes: el salto de linea cae
+       despues de el, nunca deja un punto colgando al inicio. */
+    texto.appendChild(el(doc, "div", "cal-dato", [
+      nbsp("MODO: " + plan.modo),
+      nbsp("ALTO SOLICITADO: " + (solicitado ? plan.altoMm + " mm" : "AUTO")),
+      nbsp("ANCHO: " + ANCHO_PAGINA_MM + " mm")
+    ].join(NBSP + "· ")));
+    texto.appendChild(el(doc, "div", "cal-nota",
+      MODOS_HOJA[plan.modo] + ". Contenido medido: " + Math.ceil(plan.medidoMm) + " mm."));
+    body.appendChild(texto);
+
+    /* Rotulo pegado a la linea de abajo del marco: donde TERMINA la
+       pagina solicitada (la gruesa de abajo es donde termina la real). */
+    const fin = el(doc, "div", "cal-fin",
+      solicitado ? "FIN DE LA PAGINA SOLICITADA" : "FIN DEL CONTENIDO");
+    fin.style.top = Math.max(0, alto - 6) + "mm";
+    body.appendChild(fin);
   }
 
   /* ---------- Impresion ---------- */
@@ -419,9 +601,12 @@
       };
 
       try {
-        const datos = preparar(pedido, opciones);
+        const calibracion = !!(opciones && opciones.calibracion);
+        const datos = calibracion ? null : preparar(pedido, opciones);
         const tamano = opciones && Object.prototype.hasOwnProperty.call(ESCALAS, opciones.tamano)
           ? opciones.tamano : leerTamano();
+        /* Comandas, reimpresiones, prueba y calibracion usan el mismo modo. */
+        const modo = opciones && modoHojaValido(opciones.modo) ? opciones.modo : leerModoHoja();
 
         marco = document.createElement("iframe");
         marco.setAttribute("aria-hidden", "true");
@@ -441,16 +626,18 @@
         doc.close();
 
         aplicarEscala(doc, tamano);
-        pintar(doc, datos);
-        const mm = ajustarPagina(doc);
+        if (calibracion) pintarCalibracion(doc); else pintar(doc, datos);
+        const plan = ajustarHoja(doc, modo);
+        if (calibracion) dibujarCalibracion(doc, plan);
 
         /* Cinturon y tirantes contra el encabezado/pie de Chrome: la
-           misma regla @page (80 mm, margen 0) tambien en el documento
+           misma regla @page (80 mm, margen 0, el alto del modo elegido)
+           tambien en el documento
            que contiene al marco, solo mientras dura la impresion. Si el
            motor de impresion lee la regla del marco, esto no cambia
            nada; si leyera la del documento padre, es la que cuenta. */
         reglaPadre = document.createElement("style");
-        reglaPadre.textContent = "@page{size:" + ANCHO_PAGINA_MM + "mm " + mm + "mm;margin:0;}";
+        reglaPadre.textContent = plan.regla;
         document.head.appendChild(reglaPadre);
 
         // Un instante para que el motor asiente el diseno antes de imprimir
@@ -472,6 +659,11 @@
         reject(err);
       }
     });
+  }
+
+  /* Imprime la hoja de calibracion por el mismo camino que una comanda. */
+  function imprimirCalibracion(opciones) {
+    return imprimir(null, Object.assign({}, opciones, { calibracion: true }));
   }
 
   /* Datos ficticios largos para calibrar la impresora: nombre largo,
@@ -507,9 +699,12 @@
   const api = {
     ANCHO_PAGINA_MM, ANCHO_UTIL_MM, MARGEN_SUPERIOR_MM, MARGEN_INFERIOR_MM,
     ESCALAS, TAMANO_POR_DEFECTO, TAMANO_KEY,
-    PLANTILLA, ESTILOS,
+    MODOS_HOJA, MODO_HOJA_POR_DEFECTO, MODO_HOJA_KEY, ALTO_HOJA_FIJA_MM,
+    PLANTILLA, ESTILOS, ESTILOS_CALIBRACION,
     limpiarTexto, preparar, pintar, aplicarEscala, ajustarPagina,
-    leerTamano, guardarTamano, imprimir, pedidoDePrueba
+    planHoja, ajustarHoja, pintarCalibracion, dibujarCalibracion,
+    leerTamano, guardarTamano, leerModoHoja, guardarModoHoja,
+    imprimir, imprimirCalibracion, pedidoDePrueba
   };
 
   global.TicketComanda = api;

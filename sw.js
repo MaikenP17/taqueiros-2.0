@@ -43,8 +43,13 @@
    encabezado ni pie de Chrome y con menos papel en blanco al final
    (ticket-comanda.js y panel.html). Mismo criterio: nada de eso se
    cachea aqui; el cambio de version fuerza la reinstalacion del worker
-   para que el panel instalado tome los cambios. */
-const VERSION = "v5";
+   para que el panel instalado tome los cambios.
+
+   v6: el ticket pasa a tamano Pequeno por defecto y el panel gana el
+   selector "Modo de hoja" y la hoja de calibracion (ticket-comanda.js y
+   panel.html). Mismo criterio: nada de eso se cachea aqui; el cambio de
+   version fuerza la reinstalacion del worker. */
+const VERSION = "v6";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */

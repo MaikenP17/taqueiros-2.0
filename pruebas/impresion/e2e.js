@@ -567,24 +567,24 @@ async function escenario(nombre, fn) {
       const escalaDe = (html) => (html.match(/--escala:\s*([\d.]+)/g) || []).shift();   // la 1a: el style de <html>, no el :root por defecto
       const KEY = "taqueiros-panel-ticket-tamano-v1";
 
-      // Por defecto: Normal (.85)
+      // Por defecto: Pequeno (.75)
       await p.eval("document.getElementById('impresionBtn').click(); true");
-      comprobar(await p.eval("document.getElementById('impTamano').value") === "normal", "el selector arranca en Normal");
+      comprobar(await p.eval("document.getElementById('impTamano').value") === "pequeno", "el selector arranca en Pequeño");
       await p.eval("document.getElementById('impPruebaBtn').click(); true");
-      await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 8000, "prueba normal");
+      await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 8000, "prueba pequena");
       await sleep(PAUSA_TICKETS_MS + 500);
       let htmls = await p.htmlImpresos();
-      comprobar(/--escala:\s*0\.85/.test(escalaDe(htmls[0])), "ticket de prueba por defecto: --escala 0.85");
+      comprobar(/--escala:\s*0\.75/.test(escalaDe(htmls[0])), "ticket de prueba por defecto: --escala 0.75");
 
-      // Cambiar a Pequeno: se guarda y vale para la reimpresion
+      // Cambiar a Normal: se guarda y vale para la reimpresion
       await p.eval("document.getElementById('impresionBtn').click(); true");
-      await p.eval("(function(){var s=document.getElementById('impTamano');s.value='pequeno';s.dispatchEvent(new Event('change'));})(); true");
-      comprobar(await p.eval("localStorage.getItem('" + KEY + "')") === "pequeno", "se guardo 'pequeno' en este equipo");
+      await p.eval("(function(){var s=document.getElementById('impTamano');s.value='normal';s.dispatchEvent(new Event('change'));})(); true");
+      comprobar(await p.eval("localStorage.getItem('" + KEY + "')") === "normal", "se guardo 'normal' en este equipo");
       await p.eval("document.querySelector('[data-reimprimir=\"710\"]').click(); true");
-      await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 8000, "reimpresion pequena");
+      await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 8000, "reimpresion normal");
       await sleep(PAUSA_TICKETS_MS + 500);
       htmls = await p.htmlImpresos();
-      comprobar(/--escala:\s*0\.75/.test(escalaDe(htmls[1])), "la reimpresion usa --escala 0.75");
+      comprobar(/--escala:\s*0\.85/.test(escalaDe(htmls[1])), "la reimpresion usa --escala 0.85");
       comprobar(/REIMPRESIÓN/.test(htmls[1]), "y sigue marcada REIMPRESIÓN");
 
       // Grande en una comanda automatica nueva, y persiste al recargar
@@ -599,11 +599,83 @@ async function escenario(nombre, fn) {
       await p.eval("document.getElementById('impresionBtn').click(); true");
       comprobar(await p.eval("document.getElementById('impTamano').value") === "grande", "tras recargar el selector sigue en Grande");
 
-      // Valor corrupto en el almacenamiento: vuelve a Normal
+      // Valor corrupto en el almacenamiento: vuelve a Pequeno
       await p.eval("localStorage.setItem('" + KEY + "','gigante'); true");
       await recargar(p);
       await p.eval("document.getElementById('impresionBtn').click(); true");
-      comprobar(await p.eval("document.getElementById('impTamano').value") === "normal", "un valor corrupto vuelve a Normal");
+      comprobar(await p.eval("document.getElementById('impTamano').value") === "pequeno", "un valor corrupto vuelve a Pequeño");
+    });
+
+    /* ------------------------------------------------------------ */
+    await escenario("16. Modo de hoja: selector, por equipo, y lo usan prueba, reimpresion y calibracion", async () => {
+      const original = new Date(Date.now() - 600000).toISOString();
+      await admin.reset([pedido(720, { impreso_en: original })]);
+      const p = await abrirPanel("A", false);
+      const KEY = "taqueiros-panel-ticket-hoja-v1";
+      const reglaDe = async (i) => (await p.impresos())[i].pagina || "";
+      const elegir = (m) => p.eval("(function(){var s=document.getElementById('impModoHoja');s.value='" + m +
+        "';s.dispatchEvent(new Event('change'));})(); true");
+      let n = 0;
+      const siguiente = async (que) => {
+        n++;
+        await p.esperar("function(){return (window.__impresos||[]).length>=" + n + ";}", 10000, que);
+        await sleep(PAUSA_TICKETS_MS + 300);
+      };
+
+      // Por defecto A, y la prueba sale con alto medido (el de siempre)
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impModoHoja').value") === "A", "el selector arranca en A");
+      comprobar(await p.eval("localStorage.getItem('" + KEY + "')") === null, "sin nada guardado hasta que se elige");
+      await p.eval("document.getElementById('impPruebaBtn').click(); true");
+      await siguiente("prueba en A");
+      comprobar(/^@page\{size:80mm \d+mm;margin:0;\}html,body\{height:\d+mm;overflow:hidden;\}$/.test(await reglaDe(0)),
+        "A: alto medido con html/body fijos: " + (await reglaDe(0)));
+
+      // B: automatico
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      await elegir("B");
+      comprobar(await p.eval("localStorage.getItem('" + KEY + "')") === "B", "se guardo 'B' en este equipo");
+      await p.eval("document.querySelector('[data-reimprimir=\"720\"]').click(); true");
+      await siguiente("reimpresion en B");
+      comprobar(/^@page\{size:80mm auto;margin:0;\}/.test(await reglaDe(1)), "B en la reimpresion: " + (await reglaDe(1)));
+
+      // C: medido + 1 mm. El alto de C es el de A + 1 para el mismo contenido
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      await elegir("C");
+      await p.eval("document.getElementById('impPruebaBtn').click(); true");
+      await siguiente("prueba en C");
+      const alto = (r) => Number((r.match(/size:80mm (\d+)mm/) || [])[1]);
+      comprobar(/html,body\{height:auto;overflow:hidden;\}/.test(await reglaDe(2)), "C: html/body en auto y overflow hidden");
+      comprobar(alto(await reglaDe(2)) === alto(await reglaDe(0)) + 1,
+        "C pide " + alto(await reglaDe(2)) + " mm = A (" + alto(await reglaDe(0)) + ") + 1");
+
+      // D: hoja fija de 297 mm; y la hoja de calibracion sale con el mismo modo
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      await elegir("D");
+      await p.eval("document.getElementById('impCalibracionBtn').click(); true");
+      await siguiente("calibracion en D");
+      const cal = (await p.impresos())[3];
+      comprobar(/^@page\{size:80mm 297mm;margin:0;\}/.test(cal.pagina || ""), "D: @page de 80 x 297 mm");
+      comprobar(cal.enMarco, "la calibracion se imprimio desde el iframe oculto, igual que una comanda");
+      const t = cal.texto.replace(new RegExp(String.fromCharCode(0xA0), "g"), " ").replace(/\s+/g, " ");
+      comprobar(/MODO: D · ALTO SOLICITADO: 297 mm · ANCHO: 80 mm/.test(t), "texto de calibracion: " + t.slice(0, 70));
+      const geo = await p.eval("window.__impresos.length"); // la geometria se mide en el HTML guardado
+      const htmls = await p.htmlImpresos();
+      const h = htmls[3];
+      comprobar(/class="cal-marco"[^>]*height:\s*297mm/.test(h), "marco del tamano de la pagina solicitada (297 mm)");
+      comprobar((h.match(/class="cal-marca/g) || []).length === 29, "regla con marcas cada 10 mm hasta 290 mm");
+      comprobar((h.match(/class="cal-num"/g) || []).length === 5, "un numero cada 50 mm (50 a 250)");
+      comprobar((h.match(/class="cal-borde"/g) || []).length === 2, "linea gruesa arriba y abajo");
+      comprobar(geo >= 4, "se imprimieron 4 documentos");
+
+      // El modo se conserva al recargar; un valor corrupto vuelve a A
+      await recargar(p);
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impModoHoja').value") === "D", "tras recargar el selector sigue en D");
+      await p.eval("localStorage.setItem('" + KEY + "','Z'); true");
+      await recargar(p);
+      await p.eval("document.getElementById('impresionBtn').click(); true");
+      comprobar(await p.eval("document.getElementById('impModoHoja').value") === "A", "un valor corrupto vuelve a A");
     });
 
     /* ------------------------------------------------------------ */
