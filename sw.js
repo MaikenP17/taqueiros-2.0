@@ -28,8 +28,12 @@
    guardo HTML ni supabase-publico.js (van a la red), asi que no hay
    copias viejas con la llave anterior; el cambio de version solo
    garantiza que el worker se reinstale y las PWA ya abiertas se
-   recarguen con el HTML nuevo. */
-const VERSION = "v2";
+   recarguen con el HTML nuevo.
+
+   v3: acceso "Mi pedido" arriba en index.html. Mismo criterio que v2:
+   el HTML no se cachea, el cambio de version fuerza la reinstalacion
+   del worker en las PWA ya instaladas. */
+const VERSION = "v3";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */
