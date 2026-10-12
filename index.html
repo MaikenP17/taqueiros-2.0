@@ -412,12 +412,18 @@
   .btn-copiar-link.copiado{background:var(--verde);}
 
   /* Buscador de pedidos */
+  /* Es un <button> (se alcanza con Tab y se activa con Enter/Espacio) que
+     se ve EXACTAMENTE igual que el enlace de antes: los 'reset' de abajo
+     quitan lo que el navegador le pone a un boton. */
   .buscar-pedido-link{
-    display:block; text-align:center; margin-top:1.2rem;
-    font-size:.85rem; color:var(--texto-secundario);
+    display:block; width:100%; margin-top:1.2rem; padding:0;
+    background:none; text-align:center;
+    font-size:.85rem; font-weight:inherit; line-height:inherit; letter-spacing:inherit;
+    color:var(--texto-secundario);
     text-decoration:underline; cursor:pointer;
   }
   .buscar-pedido-link:hover{color:var(--mostaza);}
+  .buscar-pedido-link:focus-visible{outline:3px solid var(--mostaza); outline-offset:3px; border-radius:6px;}
   .resultado-pedido{
     display:flex; align-items:center; gap:.7rem;
     padding:.8rem; margin-top:.6rem; border-radius:12px;
@@ -1004,7 +1010,7 @@
       <ul id="footerHours"></ul>
     </div>
   </div>
-  <a class="buscar-pedido-link" id="abrirBuscarPedido">🔎 ¿Buscas tu pedido?</a>
+  <button type="button" class="buscar-pedido-link" id="abrirBuscarPedido" aria-haspopup="dialog">🔎 ¿Buscas tu pedido?</button>
   <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
 </footer>
 

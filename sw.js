@@ -32,8 +32,13 @@
 
    v3: acceso "Mi pedido" arriba en index.html. Mismo criterio que v2:
    el HTML no se cachea, el cambio de version fuerza la reinstalacion
-   del worker en las PWA ya instaladas. */
-const VERSION = "v3";
+   del worker en las PWA ya instaladas.
+
+   v4: el enlace "Buscas tu pedido" del pie pasa a ser un boton (se
+   alcanza con Tab) y el panel gana la impresion de comandas
+   (ticket-comanda.js). Mismo criterio: nada de eso se cachea aqui, el
+   cambio de version solo fuerza la reinstalacion del worker. */
+const VERSION = "v4";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */
