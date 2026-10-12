@@ -90,16 +90,37 @@ async function leerEstadoMenu() {
 
 /* Precios y disponibilidad para validar un pedido.
    NO pasa por ningun cache: es la consulta que decide cuanto se
-   cobra, y tiene que ver el estado real de la base en ese instante. */
+   cobra, y tiene que ver el estado real de la base en ese instante.
+
+   Tambien trae si la CATEGORIA del producto esta activa: el sitio
+   esconde los productos de una categoria apagada, pero esconder no
+   es impedir; quien impide es esta consulta. Si la lectura de
+   categorias falla, falla todo (no se cobra a ciegas). */
 async function leerCatalogoParaCobrar() {
-  const filas = await consultarTabla("productos", "select=id,nombre,precio,disponible");
+  const [filas, categorias] = await Promise.all([
+    consultarTabla("productos", "select=id,nombre,precio,disponible,categoria"),
+    consultarTabla("categorias", "select=id,nombre,activa")
+  ]);
+
+  const categoriaPorId = new Map();
+  categorias.forEach((c) => categoriaPorId.set(c.id, {
+    nombre: c.nombre,
+    activa: c.activa !== false
+  }));
 
   const mapa = new Map();
-  filas.forEach((f) => mapa.set(f.id, {
-    nombre: f.nombre,
-    precio: Number(f.precio),
-    disponible: f.disponible !== false
-  }));
+  filas.forEach((f) => {
+    const cat = categoriaPorId.get(f.categoria);
+    mapa.set(f.id, {
+      nombre: f.nombre,
+      precio: Number(f.precio),
+      disponible: f.disponible !== false,
+      categoriaNombre: cat ? cat.nombre : null,
+      // Sin dato de categoria no se bloquea: el unico motivo para
+      // rechazar es que la categoria exista Y este apagada.
+      categoriaActiva: cat ? cat.activa : true
+    });
+  });
   return mapa;
 }
 

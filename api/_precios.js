@@ -77,6 +77,21 @@ async function validarItems(items) {
       continue;
     }
 
+    /* Categoria apagada: el producto no se puede pedir aunque este
+       marcado como disponible. Va en 'agotados' a proposito: es la
+       lista que el navegador ya sabe tratar (saca el producto del
+       carrito y avisa), asi el cliente no queda atrapado reintentando.
+       'motivo' le dice al que lea la respuesta POR QUE. */
+    if (producto.categoriaActiva === false) {
+      agotados.push({
+        id,
+        nombre: producto.nombre,
+        motivo: "categoria_apagada",
+        categoria: producto.categoriaNombre
+      });
+      continue;
+    }
+
     if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {
       return { ok: false, error: `Cantidad inválida para "${producto.nombre}"` };
     }
@@ -130,7 +145,17 @@ async function validarItems(items) {
   }
 
   if (agotados.length || preciosCambiados.length) {
-    return { ok: false, agotados, preciosCambiados };
+    /* 'error' es para quien consuma la API sin el navegador (el
+       navegador arma su propio mensaje con 'agotados'). Solo se
+       escribe cuando hay productos que no se pueden pedir. */
+    const error = agotados.length
+      ? agotados.map((a) => a.motivo === "categoria_apagada"
+          ? `"${a.nombre}" no está disponible por ahora (la categoría "${a.categoria}" está desactivada).`
+          : `"${a.nombre}" está agotado en este momento.`
+        ).join(" ")
+      : null;
+
+    return { ok: false, agotados, preciosCambiados, error };
   }
 
   if (subtotal <= 0) {
