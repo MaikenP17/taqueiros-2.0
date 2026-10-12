@@ -65,7 +65,7 @@ Abre las preferencias de la impresora (en la lista de impresoras →
 | --- | --- |
 | Tamaño de papel | Rollo de **80 mm** (el nombre varía: "80mm", "Roll 80", "80 x 297"…) |
 | Cortar papel | **Al final de cada documento** (cada ticket es un documento) |
-| Márgenes | Los más pequeños que permita (el ticket ya trae margen 0) |
+| Márgenes | Los más pequeños que permita (el ticket ya trae margen de página 0; ver 5.2) |
 | Densidad / velocidad | La que dé una impresión negra y nítida |
 
 El nombre exacto de cada opción depende del driver. Si algo no aparece,
@@ -170,8 +170,10 @@ una dirección muy largos, ñ y tildes. Comprueba:
 - [ ] Las **ñ** y las tildes salen bien (María, Muñoz, Peña, ñoños).
 - [ ] La franja "DOMICILIO · WEB · PAGADO" y el número se leen a un metro.
 - [ ] El nombre de cada producto se lee de lejos.
+- [ ] **No hay encabezado ni pie** de Chrome (ni fecha y título arriba, ni URL y "1/1" abajo).
 - [ ] El corte cae **debajo** de la línea final, sin comerse texto.
-- [ ] No sale papel en blanco extra después del ticket.
+- [ ] No sale papel en blanco extra después del ticket (unos 4–5 mm bajo "LOS TAQUEIROS · PEDIDO WEB", más lo que avance la propia impresora hasta la cuchilla).
+- [ ] El texto tiene un tamaño cómodo; si no, cámbialo en **Tamaño del ticket** (sección 5.1).
 
 | Si ocurre… | Prueba… |
 | --- | --- |
@@ -180,7 +182,92 @@ una dirección muy largos, ñ y tildes. Comprueba:
 | Mucho papel en blanco al final | Tamaño de papel del driver: debe ser rollo continuo / "auto" |
 | Un ticket sale partido en dos hojas | Rollo/alto de papel del driver demasiado corto |
 | No corta | "Cortar papel" del driver en "Al final de cada documento" |
+| El corte se come la última línea | Subir `MARGEN_INFERIOR_MM` en `ticket-comanda.js` (sección 5.3) |
+| Aparece encabezado o pie de Chrome | Sección 5.2: revisar el margen de página y, si hace falta, apagarlo en el perfil |
+| El texto sale muy grande o muy chico | **Tamaño del ticket** en ⚙️ (sección 5.1) |
 | Imprime en otra impresora | Sección 2: predeterminada y administración automática desactivada |
+
+### 5.1 Tamaño del ticket
+
+En **⚙️ → Tamaño del ticket** se elige **Pequeño / Normal / Grande**. Se
+guarda **solo en ese equipo** (en el navegador del perfil
+`C:\TaqueirosPanel`) y lo usan todas las impresiones de esa pantalla:
+comandas automáticas, **Reimprimir** y el ticket de prueba. Si el navegador
+no puede guardarlo, queda en **Normal**.
+
+| Tamaño | Escala del texto | Para qué |
+| --- | --- | --- |
+| Pequeño | 0,75 | Pedidos largos; menos papel |
+| **Normal** (por defecto) | 0,85 | Uso diario |
+| Grande | 1,00 | El diseño original; cocina con poca luz o vista cansada |
+
+La escala multiplica **todas** las fuentes por igual (variable CSS
+`--escala`), así que la jerarquía no cambia: número de pedido, cantidad
+(`2x`) y nombre del producto siguen siendo lo más grande; dirección, notas y
+datos del cliente, más chicos. Los bordes y separadores no se escalan.
+
+Después de cambiarlo, pulsa **Imprimir ticket de prueba** para verlo.
+
+### 5.2 Encabezado y pie de Chrome
+
+Chrome, al imprimir, agrega por su cuenta un encabezado (fecha, hora y
+título de la página) y un pie (URL y número de página). **No son parte del
+ticket**: se dibujan en el *margen de página*, y el ticket los elimina
+declarando ese margen en cero:
+
+```css
+@page { size: 80mm <alto>mm; margin: 0; }
+```
+
+- El margen de página es **0**; el aire del ticket lo pone el **contenido**:
+  3 mm arriba, y la columna de 72 mm **centrada** en los 80 mm (4 mm por
+  lado). Abajo, ver 5.3.
+- Se verificó en el motor de Chrome que con ese CSS el PDF sale **idéntico**
+  con el encabezado/pie activados y desactivados (= no se dibuja ninguno), y
+  que con el margen por defecto sí se dibujan.
+  `node pruebas/impresion/generar-pdfs.js` repite esa comprobación.
+- Además, mientras dura la impresión, la misma regla `@page` se repite en
+  el documento del panel (el que contiene al marco oculto) y se retira
+  después. Es una segunda barrera por si el motor de impresión leyera la
+  regla del documento padre y no la del marco.
+
+> **Si algún día vuelve a aparecer encabezado o pie, revisa ese margen
+> primero:** `@page{...margin:0...}` en `PLANTILLA` y en `ajustarPagina`
+> (`ticket-comanda.js`), y que nadie le haya puesto `padding` lateral al
+> `body` ni cambiado `margin:0`. Un margen de página distinto de 0 hace que
+> Chrome los dibuje.
+
+**Si el CSS está bien y aun así salen** (se vio con la DIG-POS892 al
+imprimir desde el marco oculto con `--kiosk-printing`), se apagan en el
+propio Chrome de la cocina; cualquiera de las dos sirve:
+
+1. **Por perfil:** cierra el panel de la cocina y abre Chrome **sin**
+   `--kiosk-printing` pero con el mismo perfil:
+   `chrome.exe --user-data-dir="C:\TaqueirosPanel"`. Abre cualquier página,
+   pulsa `Ctrl+P`, en **Más ajustes** desmarca **Encabezados y pies de
+   página** y cierra el diálogo sin imprimir. Chrome recuerda esa opción en
+   el perfil. Vuelve a abrir con el acceso directo de la cocina e imprime el
+   ticket de prueba para confirmarlo.
+2. **Por política (Windows):** en el Registro, clave
+   `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome`, valor `DWORD`
+   `PrintHeaderFooter` = `0` (requiere administrador). Aplica a todos los
+   perfiles del equipo.
+
+Ninguna de las dos se pudo probar desde aquí (no hay impresora): confírmalo
+siempre con el ticket de prueba.
+
+### 5.3 Papel en blanco al final
+
+Debajo de la última línea el ticket deja **`MARGEN_INFERIOR_MM` = 4 mm**
+(constante en `ticket-comanda.js`, `padding` inferior del `body`). La hoja
+mide exactamente lo que ocupa el ticket más ese margen, redondeado al mm
+superior: nunca hay un alto mínimo ni fijo, ni segunda página.
+
+- La impresora avanza sola el papel hasta la cuchilla antes de cortar, así
+  que este margen es solo aire. **Más margen = más papel gastado en cada
+  ticket.**
+- Si el corte se come "LOS TAQUEIROS · PEDIDO WEB", sube la constante (prueba
+  con 8) y sube el `?v=` del `<script>` en `panel.html`. Nada más.
 
 ---
 
@@ -243,7 +330,14 @@ Ninguna de las dos devuelve datos de clientes.
 ## 9. Para quien mantiene el código
 
 - Ticket: `ticket-comanda.js` (se carga desde `panel.html`; si cambia,
-  sube el `?v=` del `<script>`).
+  sube el `?v=` del `<script>` y la versión de `sw.js`). Sus constantes
+  de diseño: `ANCHO_PAGINA_MM`, `ANCHO_UTIL_MM`, `MARGEN_SUPERIOR_MM`,
+  `MARGEN_INFERIOR_MM` y `ESCALAS`.
+- PDFs de ejemplo (3 tamaños × prueba y pedido típico) en
+  `pruebas/impresion/ticket-*.pdf`; se regeneran con
+  `node pruebas/impresion/generar-pdfs.js`, que además comprueba 1 página,
+  80 mm de ancho y ausencia de encabezado/pie. Son una vista del **motor
+  de Chrome**, no del papel real.
 - Lógica de cola e impresión automática: sección "IMPRESION AUTOMATICA
   DE COMANDAS" de `panel.html`.
 - Pruebas: `node --test pruebas/ticket-comanda.test.js` (rápida) y
