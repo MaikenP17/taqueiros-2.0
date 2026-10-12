@@ -1,19 +1,24 @@
 /* Prueba de intrusion contra las tablas del menu.
    Debe demostrar: un anonimo LEE el menu pero NO puede modificarlo. */
+const { cabecerasSupabase, leerLlaveServicio } = require("../api/_llave.js");
+
 const BASE = "https://pzryobpriyewlxltditw.supabase.co";
-const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+const ANON = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
 /* La llave de servicio NUNCA va escrita aqui: este repositorio es publico.
-   Se lee del entorno:
+   Se lee del entorno y acepta la secreta (sb_secret_...) o la legacy:
      PowerShell:  $env:SUPABASE_SERVICE_ROLE_KEY = "..." ; node supabase/probar-menu-rls.js
-   (la misma que esta en Vercel; Supabase -> Project Settings -> API) */
-const SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!SR) {
-  console.error("Falta la variable de entorno SUPABASE_SERVICE_ROLE_KEY. Ver el comentario de arriba.");
+   (la misma que esta en Vercel; Supabase -> Project Settings -> API Keys)
+   Opcional: SUPABASE_ANON_KEY para probar con otra llave publica. */
+let SR;
+try {
+  SR = leerLlaveServicio();
+} catch (e) {
+  console.error(e.message + ". Ver el comentario de arriba.");
   process.exit(1);
 }
 
-const Ha = { apikey: ANON, Authorization: "Bearer " + ANON, "Content-Type": "application/json" };
-const Hs = { apikey: SR, Authorization: "Bearer " + SR, "Content-Type": "application/json" };
+const Ha = cabecerasSupabase(ANON);
+const Hs = cabecerasSupabase(SR);
 
 async function j(r) { const t = await r.text(); try { return JSON.parse(t); } catch (e) { return t; } }
 

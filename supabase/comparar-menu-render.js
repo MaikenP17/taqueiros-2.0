@@ -15,6 +15,7 @@
 ============================================================= */
 const fs = require("fs");
 const path = require("path");
+const { cabecerasSupabase, leerLlaveServicio } = require("../api/_llave.js");
 
 const RUTA_VIEJA = process.argv[2];
 if (!RUTA_VIEJA || !fs.existsSync(RUTA_VIEJA)) {
@@ -47,14 +48,20 @@ CATEGORIES.forEach((cat) => {
 
 // ---- Fuente B: lo que devuelve la base hoy ----
 const BASE = process.env.SUPABASE_URL;
-const SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!BASE || !SR) {
-  console.error("Faltan SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno.");
+let SR;
+try {
+  SR = leerLlaveServicio();
+} catch (e) {
+  console.error(e.message + ".");
+  process.exit(1);
+}
+if (!BASE) {
+  console.error("Falta SUPABASE_URL en el entorno.");
   process.exit(1);
 }
 
 (async () => {
-  const H = { apikey: SR, Authorization: "Bearer " + SR };
+  const H = cabecerasSupabase(SR);
   const cats = await (await fetch(BASE + "/rest/v1/categorias?select=*&order=orden.asc", { headers: H })).json();
   const prods = await (await fetch(BASE + "/rest/v1/productos?select=*&order=orden.asc", { headers: H })).json();
 
