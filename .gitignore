@@ -5,6 +5,11 @@
 *.env
 secrets.json
 credenciales*.json
+llaves*.txt
+llaves*.json
+*.key
+*.pem
+.dev.vars
 
 # Vercel
 .vercel

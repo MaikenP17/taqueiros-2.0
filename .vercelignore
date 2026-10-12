@@ -1,0 +1,7 @@
+# Vercel publica TODO el repositorio como archivos estaticos (no hay
+# paso de build). Estas carpetas son solo para trabajar: SQL de la base,
+# scripts de prueba y pruebas unitarias. Nada del sitio las carga, asi
+# que no hay razon para que queden servidas en internet.
+supabase
+pruebas
+.env.example
