@@ -1,4 +1,5 @@
 const { consultarPedidos, limpiarHuerfanos } = require("./_supabase.js");
+const { autorizadoCron } = require("./_cron.js");
 
 /* =============================================================
    MANTENER DESPIERTO EL PROYECTO DE SUPABASE
@@ -15,12 +16,7 @@ const { consultarPedidos, limpiarHuerfanos } = require("./_supabase.js");
 ============================================================= */
 module.exports = async (req, res) => {
   // Protegido igual que el cron de alertas: la URL es publica.
-  const secreto = process.env.CRON_SECRET;
-  const cabecera = req.headers["authorization"] || "";
-  const url = new URL(req.url, "http://localhost");
-  const clave = url.searchParams.get("clave");
-
-  if (!secreto || (cabecera !== `Bearer ${secreto}` && clave !== secreto)) {
+  if (!autorizadoCron(req)) {
     res.status(401).json({ error: "No autorizado" });
     return;
   }

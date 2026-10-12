@@ -1,5 +1,6 @@
 const { consultarPedidos, actualizarPedidoPorReferencia } = require("./_supabase.js");
 const { notificarWhatsApp } = require("./_notificar.js");
+const { autorizadoCron } = require("./_cron.js");
 
 /* =============================================================
    ALERTA DE PEDIDOS SIN ATENDER
@@ -14,26 +15,15 @@ const { notificarWhatsApp } = require("./_notificar.js");
 
    COMO SE PROTEGE
    La URL es publica, asi que exige un secreto (CRON_SECRET). Sin el
-   responde 401. Se acepta de dos formas:
-     - cabecera:  Authorization: Bearer <secreto>   (cron de Vercel)
-     - parametro: ?clave=<secreto>                   (crons externos)
+   responde 401. Se acepta de dos formas (ver _cron.js):
+     - cabecera:  Authorization: Bearer <secreto>   (preferida)
+     - parametro: ?clave=<secreto>                   (se mantiene por ahora)
 ============================================================= */
 
 const MINUTOS_LIMITE = 5;
 
-function autorizado(req) {
-  const secreto = process.env.CRON_SECRET;
-  if (!secreto) return false;
-
-  const cabecera = req.headers["authorization"] || "";
-  if (cabecera === `Bearer ${secreto}`) return true;
-
-  const url = new URL(req.url, "http://localhost");
-  return url.searchParams.get("clave") === secreto;
-}
-
 module.exports = async (req, res) => {
-  if (!autorizado(req)) {
+  if (!autorizadoCron(req)) {
     res.status(401).json({ error: "No autorizado" });
     return;
   }
