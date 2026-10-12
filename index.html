@@ -159,6 +159,23 @@
   .hero-scroll span{width:1px; height:34px; background:linear-gradient(var(--rojo-brillo), transparent); animation:pulse 1.8s ease infinite;}
   @keyframes pulse{0%,100%{opacity:.3;}50%{opacity:1;}}
 
+  /* Acceso rapido a "Mi pedido". Va en el relleno superior del hero
+     (position:absolute) para que NO empuje ni mueva nada: el relleno de
+     6rem ya existia y estaba vacio. Su borde derecho coincide con el del
+     boton del carrito, que queda justo encima. */
+  .hero-mi-pedido{
+    position:absolute; z-index:2; top:1rem; right:1rem;
+    display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
+    min-height:44px; padding:.5rem 1.1rem; border-radius:999px;
+    background:rgba(28,18,16,.55); color:var(--crema-suave);
+    border:2px solid rgba(247,236,214,.35);
+    font-weight:800; font-size:.9rem; letter-spacing:.02em; white-space:nowrap;
+    transition:border-color .2s ease, transform .2s ease;
+  }
+  .hero-mi-pedido:hover{border-color:var(--crema-suave); transform:translateY(-2px);}
+  .hero-mi-pedido:focus-visible{outline:3px solid var(--mostaza); outline-offset:3px;}
+  @media (min-width:641px){ .hero-mi-pedido{right:1.5rem;} }
+
   /* ---------- CATEGORY NAV ---------- */
   .cat-nav{
     position:sticky; top:64px; z-index:150;
@@ -691,6 +708,11 @@
 
 <!-- ================= HERO ================= -->
 <section class="hero">
+  <!-- Mismo buscador que el enlace del pie: ambos abren abrirBuscarPedido() -->
+  <button type="button" class="hero-mi-pedido" id="abrirMiPedidoTop" data-abre-buscador
+          aria-haspopup="dialog" aria-label="Mi pedido: buscar el estado de mi pedido">
+    <span aria-hidden="true">🔎</span> Mi pedido
+  </button>
   <div class="hero-eyebrow">Tacos · Birria · Antojitos</div>
   <div class="hero-logo-frame">
     <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
@@ -2578,14 +2600,20 @@ const ESTADO_LEGIBLE = {
 const buscarPedidoOverlay = document.getElementById("buscarPedidoOverlay");
 const buscarPedidoForm = document.getElementById("buscarPedidoForm");
 
-document.getElementById("abrirBuscarPedido").addEventListener("click", () => {
+function abrirBuscador(){
   buscarPedidoForm.reset();
   document.getElementById("resultadosBusqueda").innerHTML = "";
   fieldError("field-bp-telefono", "");
   fieldError("field-bp-total", "");
   buscarPedidoOverlay.classList.add("open");
   document.body.style.overflow = "hidden";
-});
+}
+
+/* Un solo flujo, dos puertas: el boton "Mi pedido" de arriba (hero) y el
+   enlace del pie. Cualquier elemento con data-abre-buscador lo abre. */
+document.getElementById("abrirBuscarPedido").addEventListener("click", abrirBuscador);
+document.querySelectorAll("[data-abre-buscador]").forEach(el =>
+  el.addEventListener("click", abrirBuscador));
 
 function cerrarBuscador(){
   buscarPedidoOverlay.classList.remove("open");
