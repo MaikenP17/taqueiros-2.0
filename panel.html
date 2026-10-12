@@ -347,6 +347,10 @@
   .acc-btn.copiar{background:var(--mostaza); color:var(--carbon);}
   .acc-btn.copiar:hover{background:#f0af1f;}
   .acc-btn.copiado{background:var(--verde) !important; color:var(--crema-suave) !important;}
+  .acc-btn.reimprimir{
+    display:block; width:100%; margin-top:.45rem; padding:.45rem .5rem;
+    font-size:.72rem; color:var(--texto-secundario);
+  }
 
   /* ---------- CRONOMETRO Y ESCALADA DE ALERTA ---------- */
   .cronometro{
@@ -416,6 +420,54 @@
   }
   .toast.show{transform:translate(-50%, 0);}
   .toast.error{background:var(--rojo);}
+
+  /* ---------- IMPRESION DE COMANDAS ---------- */
+  /* Reutiliza la forma del interruptor de abrir/cerrar. Apagado es
+     NEUTRO (gris), no rojo: no imprimir en esta pantalla no es un error. */
+  .switch-imp{cursor:pointer; max-width:100%; text-align:left; color:var(--texto-claro);}
+  /* La etiqueta es larga: en pantallas angostas pasa a dos lineas en
+     vez de empujar el interruptor fuera de la pantalla. */
+  .switch-imp .etiqueta{white-space:normal; min-width:0; line-height:1.25;}
+  .switch-imp .estado-imp, .switch-imp .switch-pista{flex:none;}
+  .switch-imp .switch-pista{background:#4a3a33;}
+  .switch-imp.on{border-color:rgba(92,122,59,.6); color:var(--verde-brillo);}
+  .switch-imp.on .switch-pista{background:var(--verde);}
+  .switch-imp.on .switch-pista::after{transform:translateX(20px);}
+  .switch-imp .estado-imp{
+    font-size:.66rem; letter-spacing:.06em; padding:.15rem .4rem; border-radius:6px;
+    background:rgba(247,236,214,.1); color:var(--texto-secundario);
+  }
+  .switch-imp.on .estado-imp{background:rgba(92,122,59,.3); color:var(--verde-brillo);}
+
+  .aviso-impresion{
+    display:flex; flex-direction:column; gap:.5rem;
+    padding:.7rem 1.2rem;
+    background:rgba(227,160,8,.16); border-bottom:1px solid rgba(227,160,8,.5);
+    color:var(--mostaza); font-size:.82rem; font-weight:700; line-height:1.45;
+  }
+  .aviso-impresion[hidden]{display:none;}
+  .aviso-impresion .fila-aviso{display:flex; align-items:center; gap:.7rem; flex-wrap:wrap;}
+  .aviso-impresion .fila-aviso.error{color:#ffb4ab;}
+  .aviso-impresion button{
+    background:var(--mostaza); color:var(--carbon);
+    padding:.45rem .9rem; border-radius:999px; font-weight:800; font-size:.78rem;
+  }
+  .aviso-impresion button:hover{background:#f0af1f;}
+
+  .imp-lista{display:flex; flex-direction:column; margin:.2rem 0 1rem;}
+  .imp-lista .fila{
+    display:flex; justify-content:space-between; gap:1rem; padding:.5rem 0;
+    border-bottom:1px solid rgba(247,236,214,.06); font-size:.84rem;
+  }
+  .imp-lista .fila span:first-child{color:var(--texto-secundario);}
+  .imp-lista .fila span:last-child{font-weight:800; text-align:right;}
+  .imp-lista .fila .malo{color:var(--mostaza);}
+  .imp-lista .fila .bueno{color:var(--verde-brillo);}
+  .modal-horarios .btn-prueba{
+    width:100%; padding:.85rem; border-radius:999px; font-weight:800; font-size:.9rem;
+    background:var(--mostaza); color:var(--carbon);
+  }
+  .modal-horarios .btn-prueba:hover{background:#f0af1f;}
 </style>
 </head>
 <body>
@@ -463,6 +515,13 @@
       <span class="etiqueta" id="switchTexto">Abierto</span>
       <span class="switch-pista"></span>
     </button>
+    <button class="switch-local switch-imp" id="switchImpresion" type="button" role="switch" aria-checked="false"
+            title="Marca ESTA pantalla como la de la cocina: imprime sola cada comanda web pagada en la impresora predeterminada de este equipo">
+      <span class="etiqueta">🖨️ Imprimir comandas en esta pantalla</span>
+      <span class="estado-imp" id="estadoImpresion">INACTIVA</span>
+      <span class="switch-pista"></span>
+    </button>
+    <button class="tool-btn" id="impresionBtn" aria-label="Ajustes de impresión" title="Ajustes de impresión y ticket de prueba">⚙️</button>
     <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">🕓 Horario</button>
     <a class="tool-btn" href="menu-admin.html" title="Agotar productos y cambiar precios">🍽️ Menú</a>
     <a class="tool-btn" href="historial.html" title="Pedidos anteriores y resumen del día">📊 Historial</a>
@@ -473,6 +532,9 @@
     <span class="foco"></span>
     <span>SIN CONEXIÓN — No estás recibiendo pedidos nuevos</span>
   </div>
+
+  <!-- Avisos de impresion: oculto mientras no haya nada que decir -->
+  <div class="aviso-impresion" id="avisoImpresion" role="status" hidden></div>
 
   <main class="board" id="board"></main>
 </div>
@@ -497,12 +559,29 @@
   </div>
 </div>
 
+<div class="modal-fondo" id="modalImpresion">
+  <div class="modal-horarios" role="dialog" aria-modal="true" aria-label="Impresion de comandas">
+    <h2>Impresión de comandas</h2>
+    <p class="ayuda">La opción «Imprimir comandas en esta pantalla» se guarda solo en este equipo. Actívala únicamente en el computador de la cocina: ahí cada comanda web pagada sale sola por la impresora predeterminada.</p>
+
+    <div class="imp-lista" id="impLista"></div>
+
+    <button class="btn-prueba" id="impPruebaBtn" type="button">🖨️ Imprimir ticket de prueba</button>
+    <p class="ayuda" style="margin-top:.8rem; margin-bottom:0;">El ticket de prueba trae datos inventados largos (nombre, dirección, notas, ñ y tildes) para calibrar la impresora.</p>
+
+    <div class="acciones-modal">
+      <button class="btn-cancelar" id="impCerrarBtn" type="button">Cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
 <script src="supabase-publico.js?v=1"></script>
+<script src="ticket-comanda.js?v=1"></script>
 <script>
 /* =========================================================
    CONFIGURACIÓN DE SUPABASE
@@ -716,12 +795,15 @@ async function entrarAlPanel(){
   soundBtn.classList.toggle("activo", sonidoActivo);
   soundBtn.textContent = sonidoActivo ? "🔔 Sonido" : "🔇 Silenciado";
   actualizarBotonNotif();
+  pintarImpresion();
 
   dibujarTablero();
   await cargarConfiguracion();
   await cargarSaludNotificaciones();
+  await comprobarColumnasImpresion();
   await cargarPedidos();
   suscribirse();
+  pedirPantallaEncendida();
 }
 
 /* Se decide ANTES de mostrar nada: o entra directo, o pide la
@@ -768,6 +850,9 @@ db.auth.onAuthStateChange((evento, sesion) => {
     // Se borra de pantalla todo dato de clientes
     pedidos = [];
     panelIniciado = false;
+    colaImpresion.length = 0;
+    enCola.clear();
+    pendientesSinImprimir = [];
 
     const app = document.getElementById("app");
     if(!app.hidden){
@@ -828,6 +913,10 @@ async function cargarPedidos(){
   }
   pedidos = data || [];
   render();
+
+  // Al abrir, al reconectar y al volver la pestana: lo que quedo sin imprimir
+  if(impresionActiva && columnasImpresion !== "ok") comprobarColumnasImpresion();
+  revisarImpresion();
 }
 
 /* =========================================================
@@ -1106,6 +1195,9 @@ function suscribirse(){
         anunciarPedido(fila);
       }
       render();
+
+      // El pedido que acaba de entrar se imprime de una vez
+      revisarImpresion(esNuevoEnElTablero && fila.estado === "nuevo" ? fila : null);
     })
     .on("postgres_changes", { event:"*", schema:"public", table:"salud_notificaciones" }, (payload) => {
       // Si el WhatsApp automatico se cae, el aviso aparece sin recargar
@@ -1512,6 +1604,8 @@ function tarjeta(p){
       : "") +
     '<div class="pedido-total"><span>Total</span><span>' + formatoCOP(p.total) + '</span></div>' +
     '<div class="pedido-acciones">' + acciones.join("") + '</div>' +
+    // Fila propia: la de arriba ya va justa y un boton mas la desbordaria
+    '<button class="acc-btn sec reimprimir" data-reimprimir="' + p.id + '" title="Imprimir de nuevo la comanda (sale marcada REIMPRESIÓN)">🖨️ Reimprimir</button>' +
   '</article>';
 }
 
@@ -1625,10 +1719,11 @@ setInterval(async () => {
 document.getElementById("board").addEventListener("click", async (e) => {
   const btnMover = e.target.closest("[data-mover]");
   const btnCopiar = e.target.closest("[data-copiar]");
+  const btnReimprimir = e.target.closest("[data-reimprimir]");
   const tarjetaEl = e.target.closest(".pedido");
 
   // Abrir la tarjeta la marca como vista y deja de parpadear
-  if(tarjetaEl && !btnMover && !btnCopiar){
+  if(tarjetaEl && !btnMover && !btnCopiar && !btnReimprimir){
     const id = Number(tarjetaEl.dataset.id);
     if(!vistos.has(id)){
       vistos.add(id);
@@ -1642,6 +1737,13 @@ document.getElementById("board").addEventListener("click", async (e) => {
     e.stopPropagation();
     const p = pedidos.find(x => x.id === Number(btnCopiar.dataset.copiar));
     if(p) copiarComanda(p, btnCopiar);
+    return;
+  }
+
+  if(btnReimprimir){
+    e.stopPropagation();
+    const p = pedidos.find(x => x.id === Number(btnReimprimir.dataset.reimprimir));
+    if(p) reimprimirPedido(p);
     return;
   }
 
@@ -1725,6 +1827,500 @@ function construirComanda(p){
 
   return lineas.join("\n");
 }
+
+/* =========================================================
+   IMPRESION AUTOMATICA DE COMANDAS
+
+   La cocina imprime las comandas web en una termica conectada a UN
+   computador. Esa pantalla se marca con el interruptor "Imprimir
+   comandas en esta pantalla" (se guarda solo en ese equipo, apagado
+   por defecto). Las demas pantallas no imprimen nada solas.
+
+   -------------------------------------------------------------
+   NUNCA DOS VECES
+   -------------------------------------------------------------
+   Tres capas, de la mas fuerte a la mas debil:
+
+   1. LA BASE (la que manda). reclamar_impresion(id) marca el pedido
+      como impreso con un UPDATE condicional ("solo si todavia es
+      nulo") y devuelve true UNA sola vez. Si dos pantallas lo piden
+      a la vez, una recibe true y la otra false. Recargar o
+      reconectar no cambia nada: la marca ya esta en la base.
+   2. RESPALDO LOCAL. Si el SQL 02 todavia no se ha corrido, se usa
+      una lista guardada en el navegador de este equipo (con un
+      candado entre pestanas). Evita duplicados en ESTE equipo, no
+      entre equipos distintos: por eso se avisa que falta el SQL.
+   3. LA COLA. Un pedido que ya esta en cola o imprimiendose no se
+      vuelve a encolar.
+
+   El reclamo se hace JUSTO ANTES de imprimir, no al encolar. Asi un
+   pedido que espera su turno (o una pestana oculta) no queda
+   "reservado" sin salir en papel.
+
+   -------------------------------------------------------------
+   QUE SE IMPRIME SOLO
+   -------------------------------------------------------------
+   Pedidos pagados (estado_pago = aprobado), activos (nuevo, en
+   preparacion, listo) y de la jornada en curso. Entregados y
+   cancelados jamas salen solos. Un pedido que entra EN VIVO se
+   imprime en cuanto llega. Al abrir o reconectar, los pendientes se
+   imprimen uno a uno; si son mas de LIMITE_AUTOMATICO se muestra un
+   aviso con un boton, para no vaciar medio rollo de papel de golpe.
+========================================================= */
+const IMPRESION_KEY = "taqueiros-panel-imprimir-v1";     // "on" | "off", por equipo
+const IMPRESOS_KEY  = "taqueiros-impresos-local-v1";     // respaldo sin SQL
+const LIMITE_AUTOMATICO = 5;           // mas pendientes que esto: se pregunta
+const PAUSA_ENTRE_TICKETS_MS = 2500;   // la termica corta entre un ticket y otro
+const REINTENTO_RECLAMO_MS = 15000;    // si no hubo red al reclamar
+const ESTADOS_IMPRIMIBLES = ["nuevo", "en_preparacion", "listo"];
+
+let impresionActiva = false;
+try{ impresionActiva = localStorage.getItem(IMPRESION_KEY) === "on"; }catch(e){}
+
+/* "desconocido" | "ok" | "faltan" (falta correr el SQL 02) */
+let columnasImpresion = "desconocido";
+
+let impresosLocal = cargarImpresosLocal();
+const enCola = new Set();            // ids de pedidos en cola o imprimiendose (auto)
+const colaImpresion = [];            // { tipo: "auto"|"reimpresion"|"prueba", pedido }
+const reclamoFallido = new Map();    // id -> momento del ultimo reclamo sin red
+let procesandoCola = false;
+let pendientesSinImprimir = [];      // ids que esperan el boton "Imprimir pendientes"
+let errorImpresion = "";
+let ultimaImpresion = null;          // { numero, hora }
+let wakeLock = null;
+let pidiendoWakeLock = false;
+let reintentoProgramado = false;
+
+function cargarImpresosLocal(){
+  try{ return new Set(JSON.parse(localStorage.getItem(IMPRESOS_KEY) || "[]").map(Number)); }
+  catch(e){ return new Set(); }
+}
+function guardarImpresosLocal(){
+  try{
+    // Solo los ultimos 500 (los ids crecen, los viejos ya no importan)
+    const ids = [...impresosLocal].sort((a, b) => a - b).slice(-500);
+    localStorage.setItem(IMPRESOS_KEY, JSON.stringify(ids));
+  }catch(e){ /* sin almacenamiento: queda solo en memoria */ }
+}
+
+/* Anota en el respaldo local y dice si ESTA llamada fue la primera.
+   Relee el almacenamiento y usa un candado entre pestanas, porque dos
+   pestanas del mismo navegador comparten la lista. */
+async function reclamarLocal(id){
+  const tomar = () => {
+    const actual = cargarImpresosLocal();
+    if(actual.has(id)){ impresosLocal = actual; return false; }
+    actual.add(id);
+    impresosLocal = actual;
+    guardarImpresosLocal();
+    return true;
+  };
+  if(navigator.locks && typeof navigator.locks.request === "function"){
+    try{ return await navigator.locks.request("taqueiros-impresion-local", tomar); }
+    catch(e){ /* sin candado: se intenta igual */ }
+  }
+  return tomar();
+}
+
+/* El error significa "esa funcion o columna no existe todavia" */
+function faltaElSql(error){
+  if(!error) return false;
+  const codigo = String(error.code || "");
+  const mensaje = String(error.message || "").toLowerCase();
+  return codigo === "PGRST202" || codigo === "42883" || codigo === "42703" ||
+         codigo === "PGRST204" || codigo === "PGRST205" ||
+         mensaje.includes("could not find the function") ||
+         mensaje.includes("impreso_en") && mensaje.includes("does not exist");
+}
+
+async function comprobarColumnasImpresion(){
+  try{
+    const { error } = await db.from("pedidos").select("impreso_en").limit(1);
+    if(!error) columnasImpresion = "ok";
+    else if(faltaElSql(error)) columnasImpresion = "faltan";
+    // Cualquier otro error (red): se queda como estaba y se reintenta luego
+  }catch(e){ /* sin red: igual */ }
+  pintarImpresion();
+}
+
+/* ---------- Que pedidos se pueden imprimir solos ---------- */
+function esImprimible(p){
+  if(!p || p.estado_pago !== "aprobado") return false;
+  if(!ESTADOS_IMPRIMIBLES.includes(p.estado)) return false;
+
+  // Solo la jornada en curso (un evento en vivo puede traer un pedido viejo)
+  if(jornada){
+    const creado = new Date(p.creado_en).getTime();
+    if(creado < Date.parse(jornada.inicio) || creado >= Date.parse(jornada.fin)) return false;
+  }
+  return true;
+}
+function yaImpreso(p){
+  return !!p.impreso_en || impresosLocal.has(p.id);
+}
+function porLlegada(a, b){
+  const ta = new Date(a.pagado_en || a.creado_en).getTime();
+  const tb = new Date(b.pagado_en || b.creado_en).getTime();
+  return (ta - tb) || (a.id - b.id);
+}
+
+/* Decide que imprimir. Se llama despues de cargar pedidos, de cada
+   evento en vivo y al encender el interruptor.
+   'filaViva' = el pedido que acaba de entrar en tiempo real (si lo hay):
+   ese se imprime siempre, sin pasar por el limite de pendientes. */
+function revisarImpresion(filaViva){
+  if(!impresionActiva){
+    pendientesSinImprimir = [];
+    pintarImpresion();
+    return;
+  }
+
+  const ahora = Date.now();
+  const pend = pedidos
+    .filter(p => esImprimible(p) && !yaImpreso(p) && !enCola.has(p.id))
+    .filter(p => !(reclamoFallido.get(p.id) > ahora - REINTENTO_RECLAMO_MS))
+    .sort(porLlegada);
+
+  const paraEncolar = [];
+  if(filaViva){
+    const i = pend.findIndex(p => p.id === filaViva.id);
+    if(i >= 0) paraEncolar.push(...pend.splice(i, 1));
+  }
+
+  if(pend.length <= LIMITE_AUTOMATICO){
+    paraEncolar.push(...pend);
+    pendientesSinImprimir = [];
+  }else{
+    pendientesSinImprimir = pend.map(p => p.id);
+  }
+
+  paraEncolar.forEach(p => encolarImpresion(p, "auto"));
+  pintarImpresion();
+}
+
+/* ---------- Cola ---------- */
+function encolarImpresion(pedido, tipo){
+  if(tipo === "auto"){
+    if(enCola.has(pedido.id)) return;
+    enCola.add(pedido.id);
+  }
+  if(tipo === "reimpresion" &&
+     colaImpresion.some(t => t.tipo === "reimpresion" && t.pedido.id === pedido.id)){
+    return;   // doble toque sobre el boton: una sola reimpresion
+  }
+  colaImpresion.push({ tipo, pedido });
+  pintarImpresion();
+  procesarCola();
+}
+
+function pausa(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+/* Imprimir desde una pestana oculta o minimizada no es fiable: se
+   espera a que vuelva a estar a la vista. El pedido sigue sin
+   reclamar mientras tanto, asi que otra pantalla puede tomarlo. */
+function esperarPestanaVisible(){
+  if(document.visibilityState === "visible") return Promise.resolve();
+  return new Promise(resolver => {
+    const alVolver = () => {
+      if(document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", alVolver);
+      resolver();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+  });
+}
+
+/* true  = esta pantalla gano el pedido y debe imprimirlo
+   false = ya lo imprimio otra pantalla (o ya no es imprimible)
+   null  = no se pudo saber (sin red): se reintenta mas tarde */
+async function reclamarImpresion(p){
+  if(columnasImpresion !== "faltan"){
+    const { data, error } = await db.rpc("reclamar_impresion", { p_id: p.id });
+
+    if(!error){
+      columnasImpresion = "ok";
+      impresosLocal.add(p.id);     // gane o pierda, ya esta resuelto
+      guardarImpresosLocal();
+      if(data === true){
+        const fila = pedidos.find(x => x.id === p.id);
+        if(fila && !fila.impreso_en) fila.impreso_en = new Date().toISOString();
+      }
+      return data === true;
+    }
+
+    if(faltaElSql(error)){
+      columnasImpresion = "faltan";   // y se cae al respaldo local
+      pintarImpresion();
+    }else{
+      console.warn("[Impresion] No se pudo reclamar el pedido " + p.id + ":", error.message);
+      return null;
+    }
+  }
+  return await reclamarLocal(p.id);
+}
+
+async function ejecutarTrabajo(t){
+  if(!window.TicketComanda) throw new Error("ticket-comanda.js no cargó");
+
+  if(t.tipo === "auto"){
+    const p = t.pedido;
+    if(!impresionActiva) return false;
+    await esperarPestanaVisible();
+    if(!impresionActiva) return false;     // lo apagaron mientras esperaba
+
+    const gano = await reclamarImpresion(p);
+    if(gano === null){
+      reclamoFallido.set(p.id, Date.now());
+      programarReintento();
+      return false;
+    }
+    if(gano !== true) return false;
+
+    await TicketComanda.imprimir(p, {});
+    ultimaImpresion = { numero: numeroPedido(p), hora: new Date() };
+    errorImpresion = "";
+    return true;
+  }
+
+  if(t.tipo === "reimpresion"){
+    const p = t.pedido;
+    await esperarPestanaVisible();
+    await TicketComanda.imprimir(p, {
+      reimpresion: true,
+      numeroReimpresion: (Number(p.reimpresiones) || 0) + 1,
+      impresoEn: p.impreso_en || null
+    });
+    ultimaImpresion = { numero: numeroPedido(p) + " (reimpresión)", hora: new Date() };
+    errorImpresion = "";
+
+    // Solo cuenta; no toca la marca original. Si falta el SQL, no importa.
+    if(columnasImpresion !== "faltan"){
+      db.rpc("registrar_reimpresion", { p_id: p.id }).then(({ data, error }) => {
+        if(!error && data != null) p.reimpresiones = data;
+        else if(error && faltaElSql(error)) columnasImpresion = "faltan";
+      }).catch(() => {});
+    }
+    return true;
+  }
+
+  if(t.tipo === "prueba"){
+    await esperarPestanaVisible();
+    await TicketComanda.imprimir(TicketComanda.pedidoDePrueba(), { prueba: true });
+    ultimaImpresion = { numero: "ticket de prueba", hora: new Date() };
+    return true;
+  }
+  return false;
+}
+
+async function procesarCola(){
+  if(procesandoCola) return;
+  procesandoCola = true;
+  try{
+    while(colaImpresion.length){
+      const trabajo = colaImpresion.shift();
+      let imprimio = false;
+      try{
+        imprimio = await ejecutarTrabajo(trabajo);
+      }catch(err){
+        console.error("[Impresion] Falló el trabajo:", err);
+        const num = trabajo.pedido && trabajo.tipo !== "prueba" ? numeroPedido(trabajo.pedido) : "el ticket";
+        errorImpresion = "No se pudo imprimir " + num + ". Revisa la impresora y usa «Reimprimir» en su tarjeta.";
+        avisar("No se pudo imprimir " + num, true);
+      }finally{
+        if(trabajo.tipo === "auto") enCola.delete(trabajo.pedido.id);
+      }
+      pintarImpresion();
+
+      // Tiempo para que la impresora termine y corte antes del siguiente
+      if(imprimio) await pausa(PAUSA_ENTRE_TICKETS_MS);
+    }
+  }finally{
+    procesandoCola = false;
+    pintarImpresion();
+  }
+}
+
+/* Si un reclamo no pudo hablar con la base (parpadeo de red), se
+   vuelve a mirar en un rato sin esperar al siguiente evento. */
+function programarReintento(){
+  if(reintentoProgramado) return;
+  reintentoProgramado = true;
+  setTimeout(() => {
+    reintentoProgramado = false;
+    revisarImpresion();
+  }, REINTENTO_RECLAMO_MS + 500);
+}
+
+function imprimirPendientes(){
+  const ids = new Set(pendientesSinImprimir);
+  pendientesSinImprimir = [];
+  pedidos.filter(p => ids.has(p.id)).sort(porLlegada)
+    .forEach(p => encolarImpresion(p, "auto"));
+  pintarImpresion();
+}
+
+function reimprimirPedido(p){
+  avisar("🖨️ Reimprimiendo " + numeroPedido(p));
+  encolarImpresion(p, "reimpresion");
+}
+
+/* ---------- Pantalla encendida (Wake Lock) ---------- */
+async function pedirPantallaEncendida(){
+  if(!impresionActiva || wakeLock || pidiendoWakeLock) return;
+  if(!("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+  pidiendoWakeLock = true;
+  try{
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; pintarImpresion(); });
+  }catch(e){
+    wakeLock = null;   // sin permiso o sin soporte: no pasa nada
+  }finally{
+    pidiendoWakeLock = false;
+    pintarImpresion();
+  }
+}
+function soltarPantalla(){
+  const w = wakeLock;
+  wakeLock = null;
+  if(w){ try{ w.release(); }catch(e){} }
+}
+
+/* El navegador suelta el bloqueo al ocultar la pestana: se vuelve a pedir */
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible") pedirPantallaEncendida();
+});
+
+/* ---------- Interfaz ---------- */
+function horaImpresion(d){
+  return d.toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit", hour12:true });
+}
+
+function pintarImpresion(){
+  // Interruptor de la cabecera
+  const sw = document.getElementById("switchImpresion");
+  if(sw){
+    sw.classList.toggle("on", impresionActiva);
+    sw.setAttribute("aria-checked", impresionActiva ? "true" : "false");
+    document.getElementById("estadoImpresion").textContent = impresionActiva ? "ACTIVA" : "INACTIVA";
+  }
+
+  pintarAvisosImpresion();
+  pintarModalImpresion();
+}
+
+function pintarAvisosImpresion(){
+  const caja = document.getElementById("avisoImpresion");
+  if(!caja) return;
+  caja.textContent = "";
+
+  const agregar = (texto, esError, boton) => {
+    const fila = document.createElement("div");
+    fila.className = "fila-aviso" + (esError ? " error" : "");
+    const t = document.createElement("span");
+    t.textContent = texto;
+    fila.appendChild(t);
+    if(boton) fila.appendChild(boton);
+    caja.appendChild(fila);
+  };
+
+  // Estos avisos solo salen en la pantalla que imprime: las demas
+  // pantallas siguen viendose exactamente igual que antes.
+  if(impresionActiva && columnasImpresion === "faltan"){
+    agregar("⚠️ Falta ejecutar el SQL 02 en Supabase. Mientras tanto, esta pantalla " +
+            "solo evita repetir comandas en este equipo.");
+  }
+
+  if(impresionActiva && pendientesSinImprimir.length){
+    const n = pendientesSinImprimir.length;
+    const boton = document.createElement("button");
+    boton.type = "button";
+    boton.textContent = "Imprimir pendientes";
+    boton.addEventListener("click", imprimirPendientes);
+    agregar("🖨️ " + n + (n === 1 ? " pedido pagado sin imprimir" : " pedidos pagados sin imprimir") +
+            " (son más de " + LIMITE_AUTOMATICO + ", no se imprimen solos).", false, boton);
+  }
+
+  if(errorImpresion){
+    agregar("⚠️ " + errorImpresion, true);
+  }
+
+  caja.hidden = caja.childElementCount === 0;
+}
+
+function pintarModalImpresion(){
+  const lista = document.getElementById("impLista");
+  if(!lista) return;
+  lista.textContent = "";
+
+  const fila = (etiqueta, valor, clase) => {
+    const f = document.createElement("div");
+    f.className = "fila";
+    const a = document.createElement("span");
+    a.textContent = etiqueta;
+    const b = document.createElement("span");
+    b.textContent = valor;
+    if(clase) b.className = clase;
+    f.appendChild(a);
+    f.appendChild(b);
+    lista.appendChild(f);
+  };
+
+  fila("Esta pantalla", impresionActiva ? "ACTIVA: imprime sola" : "INACTIVA",
+       impresionActiva ? "bueno" : "");
+  fila("En cola", String(colaImpresion.length + (procesandoCola ? 1 : 0)));
+  fila("Última impresión", ultimaImpresion
+    ? ultimaImpresion.numero + " · " + horaImpresion(ultimaImpresion.hora) : "—");
+
+  if(columnasImpresion === "ok") fila("Base de datos", "Lista: no repite entre pantallas", "bueno");
+  else if(columnasImpresion === "faltan") fila("Base de datos", "Falta ejecutar el SQL 02 en Supabase", "malo");
+  else fila("Base de datos", "Sin comprobar");
+
+  if(!("wakeLock" in navigator)) fila("Pantalla encendida", "No disponible en este navegador", "malo");
+  else if(!impresionActiva) fila("Pantalla encendida", "—");
+  else fila("Pantalla encendida", wakeLock ? "Se mantiene encendida" : "No se pudo asegurar",
+            wakeLock ? "bueno" : "malo");
+}
+
+document.getElementById("switchImpresion").addEventListener("click", () => {
+  impresionActiva = !impresionActiva;
+  try{ localStorage.setItem(IMPRESION_KEY, impresionActiva ? "on" : "off"); }catch(e){}
+
+  if(impresionActiva){
+    pedirPantallaEncendida();
+    avisar("🖨️ Esta pantalla imprimirá las comandas");
+    if(columnasImpresion !== "ok") comprobarColumnasImpresion();
+    revisarImpresion();
+  }else{
+    soltarPantalla();
+    // Lo que esperaba turno de impresion automatica se descarta
+    for(let i = colaImpresion.length - 1; i >= 0; i--){
+      if(colaImpresion[i].tipo === "auto"){
+        enCola.delete(colaImpresion[i].pedido.id);
+        colaImpresion.splice(i, 1);
+      }
+    }
+    pendientesSinImprimir = [];
+    errorImpresion = "";
+    avisar("Impresión automática apagada en esta pantalla");
+  }
+  pintarImpresion();
+});
+
+const modalImpresion = document.getElementById("modalImpresion");
+document.getElementById("impresionBtn").addEventListener("click", () => {
+  pintarModalImpresion();
+  modalImpresion.classList.add("open");
+});
+function cerrarModalImpresion(){ modalImpresion.classList.remove("open"); }
+document.getElementById("impCerrarBtn").addEventListener("click", cerrarModalImpresion);
+modalImpresion.addEventListener("click", (e) => { if(e.target === modalImpresion) cerrarModalImpresion(); });
+
+document.getElementById("impPruebaBtn").addEventListener("click", () => {
+  avisar("🖨️ Imprimiendo ticket de prueba");
+  cerrarModalImpresion();   // el dialogo de impresion (si sale) no queda tapado
+  encolarImpresion(null, "prueba");
+});
 
 /* =========================================================
    INSTALACION COMO APLICACION
