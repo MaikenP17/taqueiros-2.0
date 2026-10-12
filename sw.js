@@ -22,8 +22,14 @@
 ============================================================= */
 
 /* Al subir una version nueva del worker, cambia este numero. Las
-   caches viejas se borran solas al activarse. */
-const VERSION = "v1";
+   caches viejas se borran solas al activarse.
+
+   v2: migracion a la llave publishable de Supabase. Este worker nunca
+   guardo HTML ni supabase-publico.js (van a la red), asi que no hay
+   copias viejas con la llave anterior; el cambio de version solo
+   garantiza que el worker se reinstale y las PWA ya abiertas se
+   recarguen con el HTML nuevo. */
+const VERSION = "v2";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */

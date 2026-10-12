@@ -991,6 +991,9 @@
 <!-- Widget de pagos Wompi (necesario para abrir el checkout embebido) -->
 <script src="https://checkout.wompi.co/widget.js"></script>
 
+<!-- Direccion y llave publishable de Supabase (una sola copia) -->
+<script src="supabase-publico.js?v=1"></script>
+
 <script>
 /* =========================================================
    EL MENU VIENE DE LA BASE DE DATOS
@@ -2529,8 +2532,8 @@ statusOverlay.addEventListener("click", (e) => {
    celular Y total exacto, mira solo las ultimas 24 horas y nunca
    devuelve direccion, correo ni productos.
 ========================================================= */
-const SUPABASE_URL_PUBLICO = "https://pzryobpriyewlxltditw.supabase.co";
-const SUPABASE_ANON_PUBLICO = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+const SUPABASE_URL_PUBLICO = window.TAQUEIROS_SUPABASE.url;
+const SUPABASE_KEY_PUBLICA = window.TAQUEIROS_SUPABASE.publishableKey;
 
 const ESTADO_LEGIBLE = {
   nuevo:          "✅ Recibido",
@@ -2591,8 +2594,8 @@ buscarPedidoForm.addEventListener("submit", async (e) => {
     const resp = await fetch(SUPABASE_URL_PUBLICO + "/rest/v1/rpc/buscar_mis_pedidos", {
       method: "POST",
       headers: {
-        "apikey": SUPABASE_ANON_PUBLICO,
-        "Authorization": "Bearer " + SUPABASE_ANON_PUBLICO,
+        // Llave publishable: NO es JWT, va solo en apikey (nunca como Bearer)
+        "apikey": SUPABASE_KEY_PUBLICA,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({ telefono: telefono, total_pagado: total })

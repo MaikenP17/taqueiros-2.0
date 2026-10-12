@@ -443,7 +443,10 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
+        integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
+        crossorigin="anonymous"></script>
+<script src="supabase-publico.js?v=1"></script>
 <script>
 /* =========================================================
    ADMINISTRACION DEL MENU
@@ -467,10 +470,10 @@
    Supabase devolvio la fila escrita. Nada se pinta antes. Si falla,
    el formulario queda tal cual y se dice por que, en espanol.
 ========================================================= */
-const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
+const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
 
-const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -1047,7 +1050,7 @@ async function subirFoto(foto, alAvanzar){
     const xhr = new XMLHttpRequest();
     xhr.open("POST", SUPABASE_URL + "/storage/v1/object/" + BUCKET + "/" + nombre);
     xhr.setRequestHeader("Authorization", "Bearer " + token);
-    xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("apikey", SUPABASE_PUBLISHABLE_KEY);
     xhr.setRequestHeader("x-upsert", "false");
     xhr.timeout = 90000;
 

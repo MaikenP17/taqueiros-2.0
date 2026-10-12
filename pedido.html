@@ -190,6 +190,7 @@
   <div class="aviso"><div class="ic">🌮</div>Buscando tu pedido…</div>
 </div>
 
+<script src="supabase-publico.js?v=1"></script>
 <script>
 /* =========================================================
    SEGUIMIENTO DEL PEDIDO
@@ -199,8 +200,8 @@
    únicamente el pedido de la referencia consultada y sin datos
    sensibles (nunca teléfono ni correo).
 ========================================================= */
-const SUPABASE_URL = "https://pzryobpriyewlxltditw.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
+const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
 
 const WHATSAPP_NUMBER = "573125249438";
 
@@ -247,8 +248,8 @@ async function consultarPedido(ref){
   const resp = await fetch(SUPABASE_URL + "/rest/v1/rpc/seguimiento", {
     method: "POST",
     headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+      // Llave publishable: NO es JWT, va solo en apikey (nunca como Bearer)
+      "apikey": SUPABASE_PUBLISHABLE_KEY,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({ ref: ref })

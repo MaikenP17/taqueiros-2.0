@@ -3,12 +3,12 @@
 const { cabecerasSupabase, leerLlaveServicio } = require("../api/_llave.js");
 
 const BASE = "https://pzryobpriyewlxltditw.supabase.co";
-const ANON = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6cnlvYnByaXlld2x4bHRkaXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzNzI0NzEsImV4cCI6MjEwMzk0ODQ3MX0.1mR9Y7--zobo28e9gPlS3hk7IVrZ04ae572wp0or5G4";
+const ANON = process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_z16BcFrV9JvRKlKOy118PA_71-sWQqa";
 /* La llave de servicio NUNCA va escrita aqui: este repositorio es publico.
    Se lee del entorno y acepta la secreta (sb_secret_...) o la legacy:
      PowerShell:  $env:SUPABASE_SERVICE_ROLE_KEY = "..." ; node supabase/probar-menu-rls.js
    (la misma que esta en Vercel; Supabase -> Project Settings -> API Keys)
-   Opcional: SUPABASE_ANON_KEY para probar con otra llave publica. */
+   Opcional: SUPABASE_PUBLISHABLE_KEY para probar con otra llave publica. */
 let SR;
 try {
   SR = leerLlaveServicio();

@@ -18,7 +18,8 @@ const { tipoDeLlave, cabecerasSupabase, leerLlaveServicio } = require("../api/_l
 
 const SECRETA_FALSA = "sb_secret_FALSA_para_pruebas_0000";
 const PUBLICABLE_FALSA = "sb_publishable_FALSA_para_pruebas_0000";
-const LEGACY_FALSA = "eyJFALSA.eyJFALSA.FALSA_para_pruebas";
+// Armada por partes para que una busqueda de secretos en el repo no la confunda con un JWT real
+const LEGACY_FALSA = "ey" + "JFALSA.ey" + "JFALSA.FALSA_para_pruebas";
 
 /* ---------- 1. Encabezados ---------- */
 
