@@ -183,7 +183,7 @@ test("producto agotado sigue rechazandose como antes", async () => {
   const r = await validarConCatalogo([{ id: "taco-agota", cantidad: 1, precio: 9000 }], CATEGORIAS, PRODUCTOS);
   assert.equal(r.ok, false);
   assert.equal(r.agotados[0].id, "taco-agota");
-  assert.equal(r.agotados[0].motivo, undefined);
+  assert.equal(r.agotados[0].motivo, "agotado");
   assert.match(r.error, /agotado/);
 });
 

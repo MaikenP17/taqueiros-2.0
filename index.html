@@ -1177,13 +1177,32 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados, desconocidos){
   });
 
   // --- Agotados: se sacan del carrito ---
+  /* El servidor dice POR QUE no se puede pedir cada producto:
+       "categoria_apagada" -> la categoria esta desactivada
+       cualquier otro      -> se agoto
+     y el texto tiene que decir la verdad: un producto de una
+     categoria apagada no "se acabo", simplemente no esta por ahora. */
   (agotados || []).forEach(a => {
-    productosAgotados.add(a.id);
+    const categoriaApagada = a.motivo === "categoria_apagada";
+
+    if(categoriaApagada){
+      // La seccion se esconde ya, sin esperar al siguiente sondeo
+      CATEGORIES.forEach(cat => {
+        if(cat.products.some(p => p.id === a.id)) categoriasInactivas.add(cat.id);
+      });
+    }else{
+      productosAgotados.add(a.id);
+    }
+
+    const frase = categoriaApagada
+      ? a.nombre + " no está disponible por ahora"
+      : "Se nos acabó " + a.nombre;
+
     if(cart[a.id]){
       delete cart[a.id];
-      lineas.push("\u{1F6AB} Se nos acabó " + a.nombre + ", lo quitamos del carrito.");
+      lineas.push("\u{1F6AB} " + frase + ", lo quitamos del carrito.");
     }else{
-      lineas.push("\u{1F6AB} Se nos acabó " + a.nombre + ".");
+      lineas.push("\u{1F6AB} " + frase + ".");
     }
   });
 
@@ -1244,6 +1263,7 @@ function purgarCarritoHuerfano(){
 function aplicarEstadoMenu(){
   /* Categorias apagadas: se esconde la seccion entera y su boton de
      la barra de navegacion. */
+  const enCategoriaApagada = new Set();   // ids de productos dentro de una categoria apagada
   CATEGORIES.forEach(cat => {
     const apagada = categoriasInactivas.has(cat.id);
     const seccion = document.getElementById("cat-" + cat.id);
@@ -1253,7 +1273,10 @@ function aplicarEstadoMenu(){
     if(boton) boton.hidden = apagada;
 
     // Lo que hay dentro de una categoria apagada no se puede pedir
-    if(apagada) cat.products.forEach(p => productosAgotados.add(p.id));
+    if(apagada) cat.products.forEach(p => {
+      productosAgotados.add(p.id);
+      enCategoriaApagada.add(p.id);
+    });
   });
 
   document.querySelectorAll(".card[data-id]").forEach(card => {
@@ -1265,16 +1288,25 @@ function aplicarEstadoMenu(){
   // Si algo del carrito se agoto, se saca y se avisa
   const enCarritoAgotados = Object.keys(cart).filter(id => productosAgotados.has(id));
   if(enCarritoAgotados.length){
-    const nombres = enCarritoAgotados.map(id => {
+    const sinExistencia = [];   // se agotaron: "se nos acabó"
+    const noDisponibles = [];   // su categoria esta apagada: "no está disponible por ahora"
+    enCarritoAgotados.forEach(id => {
       const pr = findProduct(id);
       delete cart[id];
-      return pr ? pr.name : id;
+      (enCategoriaApagada.has(id) ? noDisponibles : sinExistencia).push(pr ? pr.name : id);
     });
     saveCart();
     renderQtyControls();
     updateCartUI(false);
-    alert("Se nos acabó: " + nombres.join(", ") +
-          ".\nLo quitamos de tu carrito para que puedas seguir con el resto.");
+
+    const frases = [];
+    if(sinExistencia.length) frases.push("Se nos acabó: " + sinExistencia.join(", ") + ".");
+    if(noDisponibles.length){
+      frases.push(noDisponibles.join(", ") +
+        (noDisponibles.length === 1 ? " no está disponible por ahora." : " no están disponibles por ahora."));
+    }
+    alert(frases.join("\n") +
+          "\nLo quitamos de tu carrito para que puedas seguir con el resto.");
   }
 }
 

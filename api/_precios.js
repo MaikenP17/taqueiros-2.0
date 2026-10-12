@@ -72,16 +72,20 @@ async function validarItems(items) {
     const producto = catalogo.get(id);
     if (!producto) { desconocidos.push(id); continue; }
 
+    /* 'motivo' le dice al navegador POR QUE no se puede pedir, para
+       que cuente la verdad:
+         "agotado"           -> el producto se acabo ("se nos acabo")
+         "categoria_apagada" -> la categoria esta desactivada ("no esta
+                                disponible por ahora") */
     if (!producto.disponible) {
-      agotados.push({ id, nombre: producto.nombre });
+      agotados.push({ id, nombre: producto.nombre, motivo: "agotado" });
       continue;
     }
 
     /* Categoria apagada: el producto no se puede pedir aunque este
        marcado como disponible. Va en 'agotados' a proposito: es la
        lista que el navegador ya sabe tratar (saca el producto del
-       carrito y avisa), asi el cliente no queda atrapado reintentando.
-       'motivo' le dice al que lea la respuesta POR QUE. */
+       carrito y avisa), asi el cliente no queda atrapado reintentando. */
     if (producto.categoriaActiva === false) {
       agotados.push({
         id,
