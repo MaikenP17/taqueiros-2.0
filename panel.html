@@ -3,9 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Panel de Comandas | Los Taqueiros</title>
+<title>Panel de Comandas</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+<!-- Nombre y logo del restaurante: UNA sola copia, en marca.js. Ese
+     archivo tambien completa el titulo y los iconos de la pestana. -->
+<script src="marca.js?v=1"></script>
 
 <!-- Instalable como aplicacion: sin barra de direcciones y sin
      pestanas que cerrar por accidente -->
@@ -15,7 +17,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Comandas">
-<link rel="apple-touch-icon" href="/Recursos/logo/logo.png">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,27 +107,62 @@
   }
   .login-error{color:#ff8f85; font-size:.82rem; text-align:center; margin-top:.9rem; min-height:1.1em;}
 
-  /* ---------- HEADER ---------- */
-  header{
+  /* ---------- BARRA SUPERIOR ----------
+     Solo lo que se usa durante el servicio: menu, marca, conexion,
+     Abierto/Cerrado, imprimir, sonido y el aviso de WhatsApp. Todo lo
+     demas vive en el menu lateral (#menuLateral).
+
+     Monitor y tablet: una sola fila. Celular (<= 640px): dos filas
+     fijas, con el menu y el estado arriba y los dos interruptores
+     abajo. Nada se parte "donde caiga". */
+  :root{ --alto-barra:64px; }   /* alto real de la barra en una fila */
+  header.barra{
     position:sticky; top:0; z-index:100;
-    display:flex; align-items:center; gap:1rem; flex-wrap:wrap;
-    padding:.85rem 1.2rem;
+    display:flex; align-items:center; gap:.6rem;
+    padding:.6rem 1.2rem;
     background:rgba(28,18,16,.96); backdrop-filter:blur(10px);
     border-bottom:1px solid var(--borde);
   }
-  .brand{display:flex; align-items:center; gap:.7rem; margin-right:auto;}
-  .brand img{height:40px; width:40px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px;}
-  .brand .txt{display:flex; flex-direction:column; line-height:1.15;}
-  .brand .txt strong{font-family:'Anton', sans-serif; font-size:1.05rem; letter-spacing:.03em;}
-  .brand .txt small{color:var(--texto-secundario); font-size:.72rem;}
+  .barra-servicio{display:contents;}
 
+  .menu-btn{
+    width:44px; height:44px; flex:none; border-radius:12px;
+    background:var(--carbon-2); border:1px solid var(--borde);
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:background .2s ease, border-color .2s ease;
+  }
+  .menu-btn:hover,
+  .menu-btn[aria-expanded="true"]{background:var(--carbon-3); border-color:rgba(247,236,214,.28);}
+  .menu-lineas, .menu-lineas::before, .menu-lineas::after{
+    display:block; width:20px; height:2px; border-radius:2px; background:var(--texto-claro);
+  }
+  .menu-lineas{position:relative;}
+  .menu-lineas::before, .menu-lineas::after{content:""; position:absolute; left:0;}
+  .menu-lineas::before{top:-6px;}
+  .menu-lineas::after{top:6px;}
+
+  .brand{display:flex; align-items:center; gap:.65rem; margin-right:auto; min-width:0;}
+  .brand img{height:40px; width:40px; flex:none; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px;}
+  .brand .txt{display:flex; flex-direction:column; line-height:1.15; min-width:0;}
+  .brand .txt strong{
+    font-family:'Anton', sans-serif; font-size:1.05rem; letter-spacing:.03em;
+    text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .brand .txt small{
+    color:var(--texto-secundario); font-size:.72rem;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  /* 'conn' lo repinta pintarConexion() reemplazando className: por eso
+     todo su estilo cuelga de .conn y de .online / .offline, nunca de
+     una clase extra. */
   .conn{
-    display:flex; align-items:center; gap:.45rem;
+    display:flex; align-items:center; gap:.45rem; flex:none;
     font-size:.75rem; font-weight:700; color:var(--texto-secundario);
     background:var(--carbon-2); border:1px solid var(--borde);
-    padding:.5rem .8rem; border-radius:999px;
+    height:36px; padding:0 .75rem; border-radius:999px; white-space:nowrap;
   }
-  .conn .dot{width:8px; height:8px; border-radius:50%; background:var(--mostaza);}
+  .conn .dot{width:8px; height:8px; border-radius:50%; flex:none; background:var(--mostaza);}
   .conn.online .dot{background:var(--verde-brillo); box-shadow:0 0 0 3px rgba(127,168,85,.2);}
   .conn.offline .dot{background:var(--rojo-brillo);}
 
@@ -143,9 +179,9 @@
 
   /* ---------- INTERRUPTOR ABIERTO / CERRADO ---------- */
   .switch-local{
-    display:inline-flex; align-items:center; gap:.5rem;
+    display:inline-flex; align-items:center; gap:.5rem; flex:none;
     background:var(--carbon-2); border:1px solid var(--borde);
-    border-radius:999px; padding:.4rem .5rem .4rem .9rem;
+    border-radius:999px; padding:.4rem .5rem .4rem .9rem; min-height:40px;
     font-size:.78rem; font-weight:800;
   }
   .switch-local .etiqueta{white-space:nowrap;}
@@ -212,7 +248,7 @@
   .board{
     display:grid; grid-template-columns:repeat(5, minmax(280px, 1fr));
     gap:1rem; padding:1.2rem; align-items:start;
-    overflow-x:auto; min-height:calc(100vh - 72px);
+    overflow-x:auto; min-height:calc(100vh - var(--alto-barra) - 8px);
   }
   @media (max-width:1400px){ .board{grid-template-columns:repeat(5, minmax(265px, 1fr));} }
   @media (max-width:1100px){
@@ -223,7 +259,7 @@
   .col{
     background:var(--carbon-2); border:1px solid var(--borde);
     border-radius:var(--radio); display:flex; flex-direction:column;
-    max-height:calc(100vh - 100px);
+    max-height:calc(100vh - var(--alto-barra) - 36px);
   }
   .col-head{
     display:flex; align-items:center; gap:.6rem;
@@ -384,18 +420,32 @@
   .pedido.sin-ver.espera-alta{ animation:alerta-alta 1s ease-in-out infinite; }
 
   /* ---------- AVISO: WHATSAPP AUTOMATICO CAIDO ---------- */
+  /* Solo un icono pequeno, y solo cuando falla. El texto completo esta
+     en el tooltip (title), en el aria-label y, al tocarlo, en el
+     recuadro #avisoWhatsappDetalle. */
   .aviso-wsp{
-    display:none; align-items:center; gap:.45rem;
-    background:rgba(227,160,8,.16); border:1px solid rgba(227,160,8,.5);
-    color:var(--mostaza); border-radius:999px;
-    padding:.5rem .85rem; font-size:.74rem; font-weight:800;
-    cursor:help;
+    display:none; align-items:center; justify-content:center; flex:none;
+    width:36px; height:36px; border-radius:50%;
+    background:rgba(227,160,8,.16); border:1px solid rgba(227,160,8,.55);
+    color:var(--mostaza); font-size:1rem; line-height:1;
+    cursor:pointer;
   }
+  .aviso-wsp:hover, .aviso-wsp[aria-expanded="true"]{background:rgba(227,160,8,.3);}
   .aviso-wsp.visible{display:inline-flex;}
+  .wsp-detalle{
+    /* Por encima del banner de desconexion (150): es lo que se acaba de pedir ver */
+    position:fixed; top:calc(var(--alto-barra) + .5rem); right:.75rem; z-index:160;
+    width:min(340px, calc(100vw - 1.5rem));
+    background:var(--carbon-2); border:1px solid rgba(227,160,8,.55);
+    border-radius:12px; padding:.8rem .9rem; box-shadow:0 18px 44px rgba(0,0,0,.55);
+    color:var(--texto-claro); font-size:.8rem; line-height:1.5;
+  }
+  .wsp-detalle[hidden]{display:none;}
+  .wsp-detalle strong{display:block; color:var(--mostaza); margin-bottom:.25rem; font-size:.84rem;}
 
   /* ---------- BANNER DE DESCONEXION ---------- */
   .banner-caido{
-    position:sticky; top:0; z-index:150;
+    position:sticky; top:var(--alto-barra); z-index:150;
     display:none; align-items:center; justify-content:center; gap:.6rem;
     padding:.8rem 1.2rem; text-align:center;
     background:var(--rojo); color:var(--crema-suave);
@@ -425,9 +475,11 @@
   /* Reutiliza la forma del interruptor de abrir/cerrar. Apagado es
      NEUTRO (gris), no rojo: no imprimir en esta pantalla no es un error. */
   .switch-imp{cursor:pointer; max-width:100%; text-align:left; color:var(--texto-claro);}
-  /* La etiqueta es larga: en pantallas angostas pasa a dos lineas en
-     vez de empujar el interruptor fuera de la pantalla. */
-  .switch-imp .etiqueta{white-space:normal; min-width:0; line-height:1.25;}
+  /* La etiqueta tiene dos versiones: la completa en monitor ancho y la
+     corta ("Imprimir") en el resto. El nombre accesible es siempre el
+     completo (aria-label del boton). */
+  .switch-imp .etiqueta{white-space:nowrap; min-width:0; line-height:1.25;}
+  .switch-imp .et-larga{display:none;}
   .switch-imp .estado-imp, .switch-imp .switch-pista{flex:none;}
   .switch-imp .switch-pista{background:#4a3a33;}
   .switch-imp.on{border-color:rgba(92,122,59,.6); color:var(--verde-brillo);}
@@ -479,6 +531,143 @@
     border:1px solid var(--borde); border-radius:8px;
     padding:.45rem .6rem; font-family:inherit; font-size:.85rem; font-weight:800;
   }
+
+  /* ---------- MENU LATERAL ----------
+     Por encima de la barra (100) y del banner de desconexion (150),
+     por debajo de los modales (800): al elegir una opcion el menu se
+     cierra y el modal queda solo. */
+  .menu-fondo{
+    position:fixed; inset:0; z-index:700;
+    background:rgba(10,6,5,.62); backdrop-filter:blur(3px);
+    opacity:0; visibility:hidden;
+    transition:opacity .25s ease, visibility 0s linear .25s;
+  }
+  .menu-fondo.open{opacity:1; visibility:visible; transition:opacity .25s ease;}
+
+  .menu-lateral{
+    position:fixed; top:0; left:0; bottom:0; z-index:710;
+    width:280px; max-width:calc(100vw - 3rem);
+    display:flex; flex-direction:column;
+    background:var(--carbon-2); border-right:1px solid var(--borde);
+    box-shadow:18px 0 50px rgba(0,0,0,.5);
+    padding-bottom:env(safe-area-inset-bottom);
+    transform:translateX(-104%); visibility:hidden;
+    transition:transform .28s cubic-bezier(.2,.8,.3,1), visibility 0s linear .28s;
+  }
+  .menu-lateral.open{
+    transform:none; visibility:visible;
+    transition:transform .28s cubic-bezier(.2,.8,.3,1);
+  }
+  .menu-lateral:focus{outline:none;}
+
+  .menu-cabecera{
+    display:flex; align-items:center; gap:.7rem;
+    padding:.9rem .9rem .9rem 1.1rem; border-bottom:1px solid var(--borde);
+  }
+  .menu-cabecera img{
+    height:42px; width:42px; flex:none; object-fit:contain;
+    border-radius:10px; background:var(--crema); padding:4px;
+  }
+  .menu-cabecera .txt{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.2;}
+  /* El nombre del restaurante puede ser largo: aqui hay sitio para que
+     pase a dos lineas en vez de cortarse. */
+  .menu-cabecera .txt strong{
+    font-family:'Anton', sans-serif; font-size:1rem; letter-spacing:.03em;
+    text-transform:uppercase; overflow-wrap:anywhere;
+  }
+  .menu-cabecera .txt small{color:var(--texto-secundario); font-size:.72rem;}
+  .menu-cerrar{
+    width:44px; height:44px; flex:none; border-radius:12px;
+    background:transparent; color:var(--texto-secundario); font-size:1.15rem;
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:background .2s ease, color .2s ease;
+  }
+  .menu-cerrar:hover{background:var(--carbon-3); color:var(--texto-claro);}
+
+  .menu-lista{
+    flex:1; display:flex; flex-direction:column; gap:.25rem;
+    padding:.7rem; overflow-y:auto;
+  }
+  .menu-item{
+    display:flex; align-items:center; gap:.8rem; width:100%; min-height:52px;
+    padding:.6rem .8rem; border-radius:12px;
+    background:transparent; color:var(--texto-claro);
+    font-size:.95rem; font-weight:700; text-align:left; text-decoration:none;
+    transition:background .2s ease;
+  }
+  .menu-item:hover{background:var(--carbon-3);}
+  .menu-item .menu-ico{flex:none; width:1.6rem; text-align:center; font-size:1.2rem; line-height:1;}
+  .menu-item .menu-txt{flex:1; min-width:0; display:flex; flex-direction:column; line-height:1.25;}
+  /* Estado (permiso de notificaciones): segunda linea bajo la etiqueta */
+  .menu-item .menu-estado{
+    font-size:.74rem; font-weight:700; color:var(--texto-secundario);
+  }
+  .menu-item.activo .menu-estado{color:var(--verde-brillo);}
+  .menu-item.separado{
+    margin-top:auto; border-top:1px solid var(--borde); border-radius:0 0 12px 12px;
+    padding-top:.9rem;
+  }
+  .menu-item.peligro{color:#e0a29b;}
+  .menu-item.peligro:hover{background:var(--rojo-oscuro); color:var(--crema-suave);}
+
+  .menu-btn:focus-visible, .menu-cerrar:focus-visible, .menu-item:focus-visible,
+  .aviso-wsp:focus-visible, .tool-btn:focus-visible, .switch-local:focus-visible{
+    outline:2px solid var(--mostaza); outline-offset:2px;
+  }
+
+  /* ---------- BARRA: ADAPTACION A PANTALLAS ANGOSTAS ----------
+       >= 1180   monitor: etiqueta larga "Imprimir comandas en esta pantalla"
+       901-1179  etiqueta corta "Imprimir"; sonido solo icono
+       641-900   tablet: una fila; Imprimir = icono + ACTIVA/INACTIVA
+       <= 900    En vivo = solo el punto (el banner rojo dice el resto)
+       <= 640    celular: dos filas fijas
+       <= 370    Imprimir = solo icono + estado */
+  .barra .tool-btn{height:40px; padding:0 .85rem;}
+  @media (min-width:1180px){
+    .switch-imp .et-larga{display:inline;}
+    .switch-imp .et-corta{display:none;}
+  }
+  @media (max-width:1000px){
+    .barra-sonido .txt{display:none;}
+    .barra .barra-sonido{width:40px; padding:0; justify-content:center;}
+  }
+  @media (max-width:900px){
+    .switch-imp .et-corta{display:none;}
+    /* En vivo = solo el punto (verde / mostaza / rojo parpadeante). El
+       texto sigue en el DOM para lectores de pantalla y, si se pierde la
+       conexion, el banner rojo de abajo lo dice con todas las letras. */
+    .conn{position:relative; width:36px; padding:0; justify-content:center;}
+    .conn #connTxt{
+      position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap;
+    }
+    .conn.offline .dot{animation:parpadeo .9s ease-in-out infinite;}
+  }
+  @media (max-width:640px){
+    :root{ --alto-barra:109px; }
+    header.barra{
+      display:grid; grid-template-columns:auto minmax(0,1fr) auto auto auto;
+      align-items:center; gap:.5rem; padding:.5rem .75rem;
+    }
+    .barra > *{grid-row:1;}
+    .barra-servicio{
+      grid-row:2; grid-column:1 / -1; display:flex; gap:.5rem;
+    }
+    .barra-servicio .switch-local{min-width:0; gap:.4rem; padding:.4rem .45rem .4rem .75rem;}
+    .barra-servicio .switch-imp{flex:1 1 auto; justify-content:space-between;}
+    .barra-servicio .switch-imp .estado-imp{padding:.15rem .35rem;}
+    .switch-imp .et-corta{display:inline;}
+    .brand{margin-right:0; gap:.5rem;}
+    .brand img{height:36px; width:36px;}
+    .brand .txt strong{font-size:.98rem;}
+    .wsp-detalle{right:.5rem;}
+  }
+  @media (max-width:370px){
+    .switch-imp .et-corta{display:none;}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .menu-fondo, .menu-lateral, .menu-btn, .menu-item, .menu-cerrar{transition:none !important;}
+    .conn.offline .dot{animation:none !important;}
+  }
 </style>
 </head>
 <body>
@@ -486,7 +675,7 @@
 <!-- ================= LOGIN ================= -->
 <div class="login-screen" id="loginScreen">
   <form class="login-card" id="loginForm" data-estado="verificando">
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <img data-marca-logo alt="">
     <h1>Panel de comandas</h1>
     <p class="sub">Acceso solo para el restaurante</p>
 
@@ -509,35 +698,63 @@
 
 <!-- ================= PANEL ================= -->
 <div id="app" hidden>
-  <header>
+  <header class="barra">
+    <button class="menu-btn" id="menuBtn" type="button" aria-label="Menú del panel"
+            aria-expanded="false" aria-controls="menuLateral" title="Menú">
+      <span class="menu-lineas" aria-hidden="true"></span>
+    </button>
+
     <div class="brand">
-      <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+      <img data-marca-logo data-marca-decorativo alt="">
       <div class="txt">
-        <strong>COMANDAS</strong>
+        <strong data-marca-nombre></strong>
         <small id="fechaHoy"></small>
       </div>
     </div>
 
-    <div class="aviso-wsp" id="avisoWhatsapp" title="">⚠️ WhatsApp automático no está funcionando</div>
-    <div class="conn" id="conn"><span class="dot"></span><span id="connTxt">Conectando…</span></div>
-    <button class="tool-btn activo" id="soundBtn" title="Activar o silenciar el sonido">🔔 Sonido</button>
-    <button class="tool-btn" id="notifBtn" title="Permitir notificaciones del navegador">🔕 Notificaciones</button>
-    <button class="switch-local abierto" id="switchLocal" title="Abrir o cerrar el local manualmente">
-      <span class="etiqueta" id="switchTexto">Abierto</span>
-      <span class="switch-pista"></span>
+    <div class="conn" id="conn" role="status"><span class="dot"></span><span id="connTxt">Conectando…</span></div>
+
+    <div class="barra-servicio">
+      <button class="switch-local abierto" id="switchLocal" title="Abrir o cerrar el local manualmente">
+        <span class="etiqueta" id="switchTexto">Abierto</span>
+        <span class="switch-pista"></span>
+      </button>
+      <button class="switch-local switch-imp" id="switchImpresion" type="button" role="switch" aria-checked="false"
+              aria-label="Imprimir comandas en esta pantalla"
+              title="Imprimir comandas en esta pantalla: marca ESTA pantalla como la de la cocina; imprime sola cada comanda web pagada en la impresora predeterminada de este equipo">
+        <span class="etiqueta">🖨️ <span class="et-larga">Imprimir comandas en esta pantalla</span><span class="et-corta">Imprimir</span></span>
+        <span class="estado-imp" id="estadoImpresion">INACTIVA</span>
+        <span class="switch-pista"></span>
+      </button>
+    </div>
+
+    <button class="tool-btn activo barra-sonido" id="soundBtn" type="button" title="Activar o silenciar el sonido"
+            aria-label="Sonido: activado" aria-pressed="true">
+      <span class="ico" aria-hidden="true">🔔</span><span class="txt">Sonido</span>
     </button>
-    <button class="switch-local switch-imp" id="switchImpresion" type="button" role="switch" aria-checked="false"
-            title="Marca ESTA pantalla como la de la cocina: imprime sola cada comanda web pagada en la impresora predeterminada de este equipo">
-      <span class="etiqueta">🖨️ Imprimir comandas en esta pantalla</span>
-      <span class="estado-imp" id="estadoImpresion">INACTIVA</span>
-      <span class="switch-pista"></span>
-    </button>
-    <button class="tool-btn" id="impresionBtn" aria-label="Ajustes de impresión" title="Ajustes de impresión y ticket de prueba">⚙️</button>
-    <button class="tool-btn" id="horariosBtn" title="Ver y editar el horario">🕓 Horario</button>
-    <a class="tool-btn" href="menu-admin.html" title="Agotar productos y cambiar precios">🍽️ Menú</a>
-    <a class="tool-btn" href="historial.html" title="Pedidos anteriores y resumen del día">📊 Historial</a>
-    <button class="tool-btn peligro" id="logoutBtn" title="Cierra la sesión del panel">🔒 Cerrar sesión</button>
+    <button class="aviso-wsp" id="avisoWhatsapp" type="button" title=""
+            aria-label="WhatsApp automático no está funcionando"
+            aria-expanded="false" aria-controls="avisoWhatsappDetalle">⚠️</button>
   </header>
+
+  <!-- Detalle del aviso de WhatsApp: se abre al tocar el icono ⚠️ -->
+  <div class="wsp-detalle" id="avisoWhatsappDetalle" role="status" hidden></div>
+
+  <!-- ===== MENU LATERAL =====
+       Las opciones salen del arreglo MENU_LATERAL (script de abajo);
+       aqui solo estan el marco y el contenedor. -->
+  <div class="menu-fondo" id="menuFondo"></div>
+  <aside class="menu-lateral" id="menuLateral" role="dialog" aria-modal="true" aria-label="Menú del panel" tabindex="-1">
+    <div class="menu-cabecera">
+      <img data-marca-logo data-marca-decorativo alt="">
+      <div class="txt">
+        <strong data-marca-nombre></strong>
+        <small>Panel de comandas</small>
+      </div>
+      <button class="menu-cerrar" id="menuCerrar" type="button" aria-label="Cerrar menú" title="Cerrar menú">✕</button>
+    </div>
+    <nav class="menu-lista" id="menuLista" aria-label="Opciones del panel"></nav>
+  </aside>
 
   <div class="banner-caido" id="bannerCaido">
     <span class="foco"></span>
@@ -752,6 +969,159 @@ function avisar(mensaje, esError){
 }
 
 /* =========================================================
+   MARCA Y MENÚ LATERAL
+
+   MARCA (nombre y logo) viene de marca.js: es el UNICO sitio donde
+   se escribe el nombre del restaurante.
+
+   MENU_LATERAL es la lista de opciones del menu (☰), en orden. Para
+   agregar una (Pedidos manuales, Dashboard, Caja...) basta con
+   sumar un objeto aqui: no hay que tocar el HTML ni el CSS.
+
+     id         id del elemento. Las opciones que ya existian
+                CONSERVAN el id del boton original (horariosBtn,
+                impresionBtn, notifBtn, logoutBtn): su manejador sigue
+                colgado de ese id mas abajo, sin cambios.
+     icono      emoji o simbolo corto
+     texto      etiqueta de la opcion
+     titulo     tooltip (opcional)
+     href       si existe, la opcion es un enlace; si no, un boton
+     alElegir   funcion a ejecutar al elegirla (para opciones nuevas
+                que no tengan manejador propio)
+     estado     true: muestra una etiqueta de estado a la derecha
+     peligro    true: color de accion destructiva
+     separado   true: va al final, separada del resto
+
+   Siempre que se elige una opcion el menu se cierra solo.
+========================================================= */
+const MARCA = window.TAQUEIROS_MARCA;
+
+const MENU_LATERAL = [
+  { id:"menuHistorial",  icono:"📊", texto:"Historial",
+    href:"historial.html", titulo:"Pedidos anteriores y resumen del día" },
+  { id:"menuProductos",  icono:"🍽️", texto:"Menú",
+    href:"menu-admin.html", titulo:"Agotar productos y cambiar precios" },
+  { id:"horariosBtn",    icono:"🕓", texto:"Horario",
+    titulo:"Ver y editar el horario" },
+  { id:"impresionBtn",   icono:"⚙️", texto:"Configuración",
+    titulo:"Tamaño del ticket, modo de hoja, ticket de prueba y hoja de calibración" },
+  { id:"notifBtn",       icono:"🔕", texto:"Notificaciones", estado:true,
+    titulo:"Permitir notificaciones del navegador" },
+  { id:"logoutBtn",      icono:"🔒", texto:"Cerrar sesión", peligro:true, separado:true,
+    titulo:"Cierra la sesión del panel" }
+];
+
+(function construirMenuLateral(){
+  const lista = document.getElementById("menuLista");
+  MENU_LATERAL.forEach(op => {
+    const el = document.createElement(op.href ? "a" : "button");
+    if(op.href) el.href = op.href; else el.type = "button";
+    if(op.id) el.id = op.id;
+    el.className = "menu-item" + (op.peligro ? " peligro" : "") + (op.separado ? " separado" : "");
+    if(op.titulo) el.title = op.titulo;
+
+    const ico = document.createElement("span");
+    ico.className = "menu-ico";
+    ico.setAttribute("aria-hidden", "true");
+    ico.textContent = op.icono;
+    const txt = document.createElement("span");
+    txt.className = "menu-txt";
+    txt.appendChild(document.createTextNode(op.texto));
+    if(op.estado){
+      const est = document.createElement("small");
+      est.className = "menu-estado";
+      txt.appendChild(est);
+    }
+    el.appendChild(ico);
+    el.appendChild(txt);
+    if(typeof op.alElegir === "function") el.addEventListener("click", op.alElegir);
+    lista.appendChild(el);
+  });
+})();
+
+const menuBtn = document.getElementById("menuBtn");
+const menuLateral = document.getElementById("menuLateral");
+const menuFondo = document.getElementById("menuFondo");
+const menuCerrarBtn = document.getElementById("menuCerrar");
+let menuAbierto = false;
+
+function abrirMenu(){
+  if(menuAbierto) return;
+  menuAbierto = true;
+  cerrarDetalleWhatsapp(false);
+  menuFondo.classList.add("open");
+  menuLateral.classList.add("open");
+  menuBtn.setAttribute("aria-expanded", "true");
+  // El foco entra al menu (al propio panel, como en un dialogo): el
+  // primer Tab llega a la primera opcion, sin anillo de foco a la vista.
+  menuLateral.focus();
+}
+
+function cerrarMenu(devolverFoco = true){
+  if(!menuAbierto) return;
+  menuAbierto = false;
+  menuFondo.classList.remove("open");
+  menuLateral.classList.remove("open");
+  menuBtn.setAttribute("aria-expanded", "false");
+  if(devolverFoco) menuBtn.focus();
+}
+
+menuBtn.addEventListener("click", () => { menuAbierto ? cerrarMenu() : abrirMenu(); });
+menuFondo.addEventListener("click", () => cerrarMenu());
+menuCerrarBtn.addEventListener("click", () => cerrarMenu());
+// Elegir una opcion cierra el menu. Esto corre DESPUES del manejador
+// original de cada boton (burbujea desde el boton hasta la lista).
+document.getElementById("menuLista").addEventListener("click", (e) => {
+  if(e.target.closest(".menu-item")) cerrarMenu();
+});
+
+/* Aviso de WhatsApp caido: el icono ⚠️ de la barra abre este recuadro
+   con el texto completo (lo rellena pintarSaludNotificaciones). */
+const avisoWsp = document.getElementById("avisoWhatsapp");
+const detalleWsp = document.getElementById("avisoWhatsappDetalle");
+
+function abrirDetalleWhatsapp(){
+  if(!detalleWsp.textContent) return;
+  detalleWsp.hidden = false;
+  avisoWsp.setAttribute("aria-expanded", "true");
+}
+function cerrarDetalleWhatsapp(devolverFoco){
+  if(detalleWsp.hidden) return;
+  detalleWsp.hidden = true;
+  avisoWsp.setAttribute("aria-expanded", "false");
+  if(devolverFoco) avisoWsp.focus();
+}
+avisoWsp.addEventListener("click", () => {
+  detalleWsp.hidden ? abrirDetalleWhatsapp() : cerrarDetalleWhatsapp(false);
+});
+
+document.addEventListener("click", (e) => {
+  if(detalleWsp.hidden) return;
+  if(detalleWsp.contains(e.target) || avisoWsp.contains(e.target)) return;
+  cerrarDetalleWhatsapp(false);
+});
+
+document.addEventListener("keydown", (e) => {
+  if(e.key === "Escape"){
+    if(menuAbierto){ e.preventDefault(); cerrarMenu(); }
+    else if(!detalleWsp.hidden){ cerrarDetalleWhatsapp(true); }
+    return;
+  }
+
+  // Con el menu abierto el foco no se escapa a la pagina de atras
+  if(e.key === "Tab" && menuAbierto){
+    const foco = [...menuLateral.querySelectorAll("button, a[href]")].filter(el => el.offsetParent !== null);
+    if(!foco.length) return;
+    const primero = foco[0], ultimo = foco[foco.length - 1];
+    if(e.shiftKey && (document.activeElement === primero || document.activeElement === menuLateral)){
+      e.preventDefault(); ultimo.focus();
+    }else if(!e.shiftKey && document.activeElement === ultimo){
+      e.preventDefault(); primero.focus();
+    }
+  }
+});
+
+/* =========================================================
    LOGIN
 ========================================================= */
 const loginScreen = document.getElementById("loginScreen");
@@ -826,9 +1196,7 @@ async function entrarAlPanel(){
   document.getElementById("fechaHoy").textContent =
     new Date().toLocaleDateString("es-CO", { weekday:"long", day:"numeric", month:"long" });
 
-  const soundBtn = document.getElementById("soundBtn");
-  soundBtn.classList.toggle("activo", sonidoActivo);
-  soundBtn.textContent = sonidoActivo ? "🔔 Sonido" : "🔇 Silenciado";
+  pintarSonido();
   actualizarBotonNotif();
   pintarImpresion();
 
@@ -1306,27 +1674,42 @@ function anunciarPedido(pedido){
       new Notification("Nuevo pedido " + numeroPedido(pedido), {
         body: pedido.cliente_nombre + " · " + formatoCOP(pedido.total)
               + "\n" + (TEXTO_TIPO[pedido.tipo_pedido] || ""),
-        icon: "Recursos/logo/logo.png",
+        icon: MARCA.logo,
         tag: "pedido-" + pedido.id
       });
     }catch(e){ /* algunos navegadores lo bloquean */ }
   }
 }
 
-document.getElementById("soundBtn").addEventListener("click", (e) => {
+/* El boton lleva icono y texto en spans separados: en pantallas
+   angostas el CSS oculta el texto y queda solo el icono. */
+function pintarSonido(){
+  const btn = document.getElementById("soundBtn");
+  btn.classList.toggle("activo", sonidoActivo);
+  btn.querySelector(".ico").textContent = sonidoActivo ? "🔔" : "🔇";
+  btn.querySelector(".txt").textContent = sonidoActivo ? "Sonido" : "Silenciado";
+  btn.setAttribute("aria-pressed", sonidoActivo ? "true" : "false");
+  btn.setAttribute("aria-label", "Sonido: " + (sonidoActivo ? "activado" : "silenciado"));
+}
+
+document.getElementById("soundBtn").addEventListener("click", () => {
   sonidoActivo = !sonidoActivo;
   localStorage.setItem(SONIDO_KEY, sonidoActivo ? "on" : "off");
-  e.currentTarget.classList.toggle("activo", sonidoActivo);
-  e.currentTarget.textContent = sonidoActivo ? "🔔 Sonido" : "🔇 Silenciado";
+  pintarSonido();
   if(sonidoActivo) sonar();
 });
 
+/* La opcion "Notificaciones" del menu muestra el permiso actual del
+   navegador: Activas / Desactivadas (aun no se pidio) / Bloqueadas. */
 function actualizarBotonNotif(){
   const btn = document.getElementById("notifBtn");
   if(!("Notification" in window)){ btn.style.display = "none"; return; }
-  const ok = Notification.permission === "granted";
+  const permiso = Notification.permission;
+  const ok = permiso === "granted";
   btn.classList.toggle("activo", ok);
-  btn.textContent = ok ? "🔔 Notificaciones" : "🔕 Notificaciones";
+  btn.querySelector(".menu-ico").textContent = ok ? "🔔" : "🔕";
+  btn.querySelector(".menu-estado").textContent =
+    ok ? "Activas" : (permiso === "denied" ? "Bloqueadas" : "Desactivadas");
 }
 
 document.getElementById("notifBtn").addEventListener("click", async () => {
@@ -1482,21 +1865,37 @@ async function cargarSaludNotificaciones(){
 
 function pintarSaludNotificaciones(salud){
   const aviso = document.getElementById("avisoWhatsapp");
-  if(!salud){ aviso.classList.remove("visible"); return; }
+  if(!salud){
+    aviso.classList.remove("visible");
+    cerrarDetalleWhatsapp(false);
+    return;
+  }
 
   // Solo se avisa si el ULTIMO intento fallo. Un fallo aislado ya
   // superado no tiene por que alarmar.
   const caido = salud.ultimo_ok === false;
   aviso.classList.toggle("visible", caido);
+  if(!caido) cerrarDetalleWhatsapp(false);
 
   if(caido){
     const cuando = salud.ultimo_intento
       ? new Date(salud.ultimo_intento).toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit", hour12:true })
       : "";
-    aviso.title = "Último intento fallido" + (cuando ? " a las " + cuando : "") +
+    const detalle = "Último intento fallido" + (cuando ? " a las " + cuando : "") +
       (salud.fallos_seguidos > 1 ? " (" + salud.fallos_seguidos + " fallos seguidos)" : "") +
       ". Motivo: " + (salud.ultimo_error || "desconocido") +
       ". Los pedidos SI están llegando al panel; solo falla el aviso por WhatsApp.";
+    const titulo = "WhatsApp automático no está funcionando";
+
+    // El texto completo esta en tres sitios: tooltip (mouse), nombre
+    // accesible (lector de pantalla) y recuadro al tocar el icono.
+    aviso.title = titulo + ". " + detalle;
+    aviso.setAttribute("aria-label", titulo + ". " + detalle);
+    detalleWsp.textContent = "";
+    const t = document.createElement("strong");
+    t.textContent = "⚠️ " + titulo;
+    detalleWsp.appendChild(t);
+    detalleWsp.appendChild(document.createTextNode(detalle));
   }
 }
 

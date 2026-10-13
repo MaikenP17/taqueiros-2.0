@@ -54,8 +54,14 @@
    defecto y los pedidos largos se parten en hojas limpias con la linea
    "#<numero> - continuacion" (ticket-comanda.js y panel.html). Mismo
    criterio: nada de eso se cachea aqui; el cambio de version fuerza la
-   reinstalacion del worker. */
-const VERSION = "v7";
+   reinstalacion del worker.
+
+   v8: la barra superior del panel se ordena y el resto de opciones pasa
+   a un menu lateral (panel.html); el nombre y el logo del restaurante
+   salen de marca.js. Mismo criterio: nada de eso se cachea aqui (el
+   HTML y marca.js van a la red); el cambio de version fuerza la
+   reinstalacion del worker para que el panel instalado tome el cambio. */
+const VERSION = "v8";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
 /* Solo recursos que no revelan datos ni cambian con el negocio */

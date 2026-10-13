@@ -16,6 +16,11 @@
                                    cada ticket que se "imprimio"
      PANEL_BASE=C:\ruta\panel.html version anterior del panel, para
                                    comparar capturas lado a lado
+     SOLO="^(18|19)\."             corre solo los escenarios cuyo nombre
+                                   case con la expresion
+     FUENTES_REALES=1              deja cargar Google Fonts: las capturas
+                                   salen con Anton / Libre Franklin, como
+                                   las ve la cocina (necesita internet)
 
    Tarda ~2 minutos: respeta las pausas reales entre tickets.
 ============================================================= */
@@ -34,6 +39,10 @@ const CHROME = process.env.CHROME || [
 const PUERTO_WEB = 8098;
 const PUERTO_CDP = 9333;
 const PAUSA_TICKETS_MS = 2500;   // la misma que panel.html
+// FUENTES_REALES=1 deja pasar Google Fonts (Anton / Libre Franklin) para que
+// las capturas sean lo que ve la cocina. Sin esto salen con la fuente de
+// respaldo del sistema, mas ancha, y el resultado es determinista sin red.
+const FUENTES_REALES = process.env.FUENTES_REALES === "1";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -113,7 +122,8 @@ class Pagina {
         this.errores.push("log: " + m.params.entry.text + " " + (m.params.entry.url || ""));
       } else if (m.method === "Fetch.requestPaused") {
         const url = m.params.request.url;
-        if (url.startsWith("http://127.0.0.1:" + PUERTO_WEB)) {
+        if (url.startsWith("http://127.0.0.1:" + PUERTO_WEB) ||
+            (FUENTES_REALES && /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(url))) {
           cdp.send("Fetch.continueRequest", { requestId: m.params.requestId }, sessionId).catch(() => {});
         } else {
           // Fuentes y CDN externos: respuesta vacia, sin ruido de red
@@ -158,6 +168,33 @@ class Pagina {
     const r = await this.cdp.send("Page.captureScreenshot", { format: "png" }, this.sid);
     fs.writeFileSync(archivo, Buffer.from(r.data, "base64"));
   }
+  async tamano(ancho, alto) {
+    await this.cdp.send("Emulation.setDeviceMetricsOverride",
+      { width: ancho, height: alto, deviceScaleFactor: 1, mobile: false }, this.sid);
+    await sleep(350);
+  }
+  /* Clic REAL con el mouse en el centro del elemento (o en x,y): si algo
+     lo tapa, el clic cae en lo que lo tapa, igual que en la pantalla. */
+  async clic(selector, x, y) {
+    if (x === undefined) {
+      const r = await this.eval("(function(){var e=document.querySelector(" + JSON.stringify(selector) +
+        ");if(!e)return null;e.scrollIntoView({block:'center'});var r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()");
+      if (!r) throw new Error("clic: no existe " + selector);
+      x = r.x; y = r.y;
+    }
+    for (const type of ["mousePressed", "mouseReleased"]) {
+      await this.cdp.send("Input.dispatchMouseEvent",
+        { type, x, y, button: "left", clickCount: 1 }, this.sid);
+    }
+    await sleep(60);
+  }
+  async tecla(key, extra) {
+    const codigos = { Escape: 27, Tab: 9 };
+    const p = { key, code: key, windowsVirtualKeyCode: codigos[key] || 0, ...(extra || {}) };
+    await this.cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...p }, this.sid);
+    await this.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...p }, this.sid);
+    await sleep(60);
+  }
 }
 
 /* ---------------- Datos ---------------- */
@@ -187,6 +224,8 @@ let alIniciarEscenario = async () => {};
 async function escenario(nombre, fn) {
   // SOLO_CAPTURAS=1 salta lo demas (para iterar rapido sobre el diseno)
   if (process.env.SOLO_CAPTURAS && !/^Capturas/.test(nombre)) return;
+  // SOLO="^(18|19|20)\." corre solo los escenarios cuyo nombre case
+  if (process.env.SOLO && !new RegExp(process.env.SOLO).test(nombre)) return;
   console.log("\n▶ " + nombre);
   try { await alIniciarEscenario(); await fn(); }
   catch (e) { comprobar(false, "ERROR en el escenario: " + e.message); }
@@ -240,8 +279,8 @@ async function escenario(nombre, fn) {
     // deterministas (siempre con las fuentes de respaldo del sistema).
     await cdp.send("Network.enable", {}, sessionId);
     await cdp.send("Network.setBlockedURLs", {
-      urls: ["https://fonts.googleapis.com/*", "https://fonts.gstatic.com/*", "https://*.jsdelivr.net/*",
-             "https://unpkg.com/*", "https://checkout.wompi.co/*"]
+      urls: [...(FUENTES_REALES ? [] : ["https://fonts.googleapis.com/*", "https://fonts.gstatic.com/*"]),
+             "https://*.jsdelivr.net/*", "https://unpkg.com/*", "https://checkout.wompi.co/*"]
     }, sessionId);
     await cdp.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] }, sessionId);
     await cdp.send("Page.addScriptToEvaluateOnNewDocument", { source: SCRIPT_GRABADORA }, sessionId);
@@ -726,6 +765,262 @@ async function escenario(nombre, fn) {
     });
 
     /* ------------------------------------------------------------ */
+    await escenario("18. Menu lateral: abre y cierra con ☰, Esc, clic fuera y la X; cada opcion hace lo de siempre", async () => {
+      await admin.reset([]);
+      const p = await abrirPanel("A", false);
+      await p.eval("window.__sentinela = 1; window.__notif = 0; window.__confirm = null;" +
+        "Notification.requestPermission = function(){ window.__notif++; return Promise.resolve('default'); };" +
+        // Los enlaces no navegan: se anota a donde irian (no se ensucia la consola con otras paginas)
+        "document.addEventListener('click', function(e){ var a = e.target.closest && e.target.closest('a');" +
+        "  if(a){ e.preventDefault(); window.__enlace = a.getAttribute('href'); } }, true); true");
+      const m = () => p.eval("(function(){var m=document.getElementById('menuLateral'),b=document.getElementById('menuBtn');" +
+        "var r=m.getBoundingClientRect();var cs=getComputedStyle(m);" +
+        "return {abierto:m.classList.contains('open'),expandido:b.getAttribute('aria-expanded')," +
+        "visibilidad:cs.visibility,izq:Math.round(r.left),ancho:Math.round(r.width)," +
+        "foco:document.activeElement.id,focoDentro:m.contains(document.activeElement)};})()");
+      const abrir = async () => { await p.clic("#menuBtn"); await sleep(450); };
+
+      // Cerrado de inicio
+      let s = await m();
+      comprobar(!s.abierto && s.expandido === "false" && s.visibilidad === "hidden",
+        "cerrado de inicio: aria-expanded=false y fuera del orden de tabulacion (visibility hidden)");
+      comprobar(await p.eval("!document.querySelector('header.barra #horariosBtn, header.barra #impresionBtn, header.barra #notifBtn, header.barra #logoutBtn, header.barra a[href]')"),
+        "la barra ya no tiene Horario, Configuracion, Notificaciones, Cerrar sesion, Menu ni Historial");
+
+      // Abrir con ☰
+      await abrir();
+      s = await m();
+      comprobar(s.abierto && s.expandido === "true" && s.visibilidad === "visible", "☰ lo abre y marca aria-expanded=true");
+      comprobar(s.izq === 0 && s.ancho === 280, "panel de 280 px pegado a la izquierda: left=" + s.izq + " ancho=" + s.ancho);
+      comprobar(s.focoDentro, "el foco entra al menu (activo: " + (await p.eval("document.activeElement.className || document.activeElement.id")) + ")");
+      comprobar(await p.eval("(function(){var m=document.getElementById('menuLateral');return m.getAttribute('role')==='dialog'&&m.getAttribute('aria-modal')==='true'&&!!m.getAttribute('aria-label')&&document.getElementById('menuBtn').getAttribute('aria-controls')==='menuLateral';})()"),
+        "role=dialog, aria-modal, aria-label y aria-controls en su sitio");
+      const texto = await p.eval("Array.from(document.querySelectorAll('#menuLista .menu-item')).map(function(e){return e.querySelector('.menu-txt').firstChild.textContent;}).join('|')");
+      comprobar(texto === "Historial|Menú|Horario|Configuración|Notificaciones|Cerrar sesión", "orden de opciones: " + texto);
+      comprobar(await p.eval("(function(){var l=document.querySelectorAll('#menuLista .menu-item');var u=l[l.length-1],pen=l[l.length-2];return u.classList.contains('separado')&&u.getBoundingClientRect().top>pen.getBoundingClientRect().bottom+4;})()"),
+        "Cerrar sesion va al final, separado");
+      comprobar(await p.eval("['horariosBtn','impresionBtn','notifBtn','logoutBtn'].every(function(id){var e=document.getElementById(id);return e&&e.closest('#menuLateral');})"),
+        "los IDs originales (horariosBtn, impresionBtn, notifBtn, logoutBtn) viven en el menu");
+      comprobar(await p.eval("(function(){var a=document.querySelectorAll('#menuLista a');return a.length===2&&a[0].getAttribute('href')==='historial.html'&&a[1].getAttribute('href')==='menu-admin.html';})()"),
+        "enlaces originales: historial.html y menu-admin.html");
+
+      // Cerrar con Esc: el foco vuelve al boton ☰
+      await p.tecla("Escape"); await sleep(450);
+      s = await m();
+      comprobar(!s.abierto && s.expandido === "false" && s.visibilidad === "hidden", "Esc lo cierra");
+      comprobar(s.foco === "menuBtn", "el foco vuelve al boton ☰ (activo: " + s.foco + ")");
+
+      // Clic fuera (sobre el fondo oscurecido, lejos del panel)
+      await abrir();
+      await p.clic(null, 900, 450); await sleep(450);
+      s = await m();
+      comprobar(!s.abierto && s.expandido === "false", "un clic fuera lo cierra");
+      comprobar(s.foco === "menuBtn", "y el foco vuelve a ☰");
+
+      // La X
+      await abrir();
+      await p.clic("#menuCerrar"); await sleep(450);
+      comprobar(!(await m()).abierto, "la X lo cierra");
+
+      // ☰ otra vez, con el menu abierto, lo cierra
+      await abrir();
+      await p.eval("document.getElementById('menuBtn').click(); true"); await sleep(450);
+      comprobar(!(await m()).abierto, "☰ con el menu abierto lo vuelve a cerrar");
+
+      // Tab no se escapa del menu
+      await abrir();
+      for (let i = 0; i < 8; i++) await p.tecla("Tab");
+      comprobar((await m()).focoDentro, "con 8 Tab seguidos el foco sigue dentro del menu");
+      await p.tecla("Escape"); await sleep(450);
+
+      // --- Cada opcion dispara su accion original y cierra el menu ---
+      await abrir();
+      await p.clic("#horariosBtn"); await sleep(450);
+      comprobar(await p.eval("document.getElementById('modalHorarios').classList.contains('open')"), "Horario abre el modal de horario");
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+      await p.clic("#cancelarHorarios"); await sleep(300);
+
+      await abrir();
+      await p.clic("#impresionBtn"); await sleep(450);
+      comprobar(await p.eval("document.getElementById('modalImpresion').classList.contains('open')"), "Configuracion abre el modal de impresion");
+      comprobar(await p.eval("['impTamano','impModoHoja','impPruebaBtn','impCalibracionBtn'].every(function(id){return !!document.getElementById(id);})"),
+        "con tamano del ticket, modo de hoja, ticket de prueba y hoja de calibracion");
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+      await p.clic("#impCerrarBtn"); await sleep(300);
+
+      await abrir();
+      await p.clic("#notifBtn"); await sleep(300);
+      const permiso = await p.eval("Notification.permission");
+      comprobar(permiso === "granted" || (await p.eval("window.__notif")) === 1,
+        "Notificaciones ejecuta su manejador original (permiso '" + permiso + "', requestPermission llamado " + (await p.eval("window.__notif")) + " vez)");
+      const estadoNotif = await p.eval("document.querySelector('#notifBtn .menu-estado').textContent");
+      comprobar(/^(Activas|Desactivadas|Bloqueadas)$/.test(estadoNotif), "muestra el estado del permiso: " + estadoNotif);
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+
+      await abrir();
+      await p.clic("#menuLista a:nth-of-type(1)"); await sleep(300);
+      comprobar(await p.eval("window.__enlace") === "historial.html", "Historial sigue el enlace historial.html");
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+      await abrir();
+      await p.clic("#menuLista a:nth-of-type(2)"); await sleep(300);
+      comprobar(await p.eval("window.__enlace") === "menu-admin.html", "Menu sigue el enlace menu-admin.html");
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+
+      // Cerrar sesion: pide confirmacion; si se cancela el panel sigue
+      await p.eval("window.confirm = function(t){ window.__confirm = t; return false; }; true");
+      await abrir();
+      await p.clic("#logoutBtn"); await sleep(300);
+      comprobar(/¿Cerrar sesión\?/.test(await p.eval("window.__confirm || ''")), "Cerrar sesion pide la confirmacion de siempre");
+      comprobar(await p.eval("window.__sentinela") === 1 && await p.eval("!document.getElementById('app').hidden"),
+        "al cancelar el panel sigue abierto");
+      comprobar(!(await m()).abierto, "…y el menu se cerro");
+      // Si se confirma: signOut y recarga
+      await p.eval("window.confirm = function(){ return true; }; true");
+      await abrir();
+      await p.clic("#logoutBtn");
+      await p.esperar("function(){return window.__sentinela === undefined && document.readyState==='complete';}", 8000, "recarga tras cerrar sesion");
+      comprobar(true, "al confirmar, cierra sesion y recarga la pagina");
+    });
+
+    /* ------------------------------------------------------------ */
+    await escenario("19. Barra superior: cabe en 1280, 768 y 390 px y sus interruptores siguen funcionando", async () => {
+      await admin.reset([]);
+      const p = await abrirPanel("A", false);
+      const medir = () => p.eval("(function(){var ids=['menuBtn','conn','switchLocal','switchImpresion','soundBtn'];" +
+        "var o={sinDesborde:document.documentElement.scrollWidth<=innerWidth,dentro:true,tops:{},alto:0};" +
+        "ids.forEach(function(id){var r=document.getElementById(id).getBoundingClientRect();" +
+        "if(!(r.width>0&&r.left>=0&&r.right<=innerWidth+0.5))o.dentro=false;o.tops[id]=Math.round(r.top+r.height/2);});" +
+        "o.alto=Math.round(document.querySelector('header.barra').getBoundingClientRect().height);" +
+        "o.solapa=(function(){var rs=ids.map(function(id){return document.getElementById(id).getBoundingClientRect();});" +
+        "for(var i=0;i<rs.length;i++)for(var j=i+1;j<rs.length;j++){var a=rs[i],b=rs[j];" +
+        "if(a.left<b.right-0.5&&b.left<a.right-0.5&&a.top<b.bottom-0.5&&b.top<a.bottom-0.5)return true;}return false;})();" +
+        "return o;})()");
+
+      for (const ancho of [1280, 768, 390]) {
+        await p.tamano(ancho, 900);
+        const r = await medir();
+        const cs = Object.values(r.tops); const unaFila = Math.max(...cs) - Math.min(...cs) < 6;
+        const mismo = (x, y) => Math.abs(r.tops[x] - r.tops[y]) < 6;
+        comprobar(r.dentro && r.sinDesborde && !r.solapa,
+          ancho + " px: todo dentro de la pantalla, sin scroll horizontal ni botones encimados (alto de barra " + r.alto + " px)");
+        if (ancho >= 768) comprobar(unaFila, ancho + " px: la barra es de una sola fila");
+        else comprobar(mismo("switchLocal", "switchImpresion") && r.tops.switchLocal > r.tops.menuBtn + 20 &&
+            mismo("menuBtn", "conn") && mismo("menuBtn", "soundBtn"),
+          ancho + " px: dos filas ordenadas (menu, estado y sonido arriba; Abierto e Imprimir abajo)");
+      }
+
+      // Etiquetas: larga en monitor ancho, corta en el resto, nombre accesible siempre completo
+      await p.tamano(1280, 900);
+      comprobar(/Imprimir comandas en esta pantalla/.test(await p.eval("document.getElementById('switchImpresion').innerText")),
+        "1280 px: el interruptor dice «Imprimir comandas en esta pantalla»");
+      const textoImp = () => p.eval("document.getElementById('switchImpresion').innerText.replace(/\\s+/g,' ').trim()");
+      await p.tamano(1000, 900);
+      const t1000 = await textoImp();
+      comprobar(/^.{1,4} Imprimir INACTIVA$/.test(t1000), "1000 px: etiqueta corta, con el estado visible: «" + t1000 + "»");
+      await p.tamano(768, 900);
+      const t768 = await textoImp();
+      comprobar(/^.{1,4} INACTIVA$/.test(t768), "768 px: icono + estado, sin texto: «" + t768 + "»");
+      comprobar(await p.eval("document.getElementById('conn').classList.contains('online')") &&
+        (await p.eval("document.getElementById('connTxt').getBoundingClientRect().width")) <= 2,
+        "768 px: conectado = solo el punto verde");
+      await p.tamano(390, 900);
+      const t390 = await textoImp();
+      comprobar(/^.{1,4} Imprimir INACTIVA$/.test(t390), "390 px: hay sitio en la segunda fila: «" + t390 + "»");
+      await p.tamano(768, 900);
+      comprobar(await p.eval("document.getElementById('switchImpresion').getAttribute('aria-label')") === "Imprimir comandas en esta pantalla",
+        "el nombre accesible del interruptor es siempre el completo");
+
+      // Interruptores con clic real, en celular (el caso mas apretado)
+      await p.tamano(390, 900);
+      await p.eval("window.confirm = function(){ return true; }; true");
+      await p.clic("#switchLocal");
+      await p.esperar("function(){return document.getElementById('switchTexto').textContent==='Cerrado';}", 4000, "Cerrado");
+      comprobar(await p.eval("document.getElementById('switchLocal').classList.contains('cerrado')"), "Abierto/Cerrado: el clic cierra el local");
+      await p.clic("#switchLocal");
+      await p.esperar("function(){return document.getElementById('switchTexto').textContent==='Abierto';}", 4000, "Abierto");
+      comprobar(true, "y otro clic lo vuelve a abrir");
+
+      await p.clic("#switchImpresion");
+      await p.esperar("function(){return document.getElementById('estadoImpresion').textContent==='ACTIVA';}", 4000, "ACTIVA");
+      comprobar(await p.eval("document.getElementById('switchImpresion').getAttribute('aria-checked')") === "true" &&
+        await p.eval("localStorage.getItem('" + IMPRESION_KEY + "')") === "on", "Imprimir: ACTIVA, aria-checked=true y guardado en este equipo");
+      await p.clic("#switchImpresion");
+      await p.esperar("function(){return document.getElementById('estadoImpresion').textContent==='INACTIVA';}", 4000, "INACTIVA");
+      comprobar(true, "y se apaga con otro clic");
+
+      await p.clic("#soundBtn");
+      comprobar(await p.eval("document.getElementById('soundBtn').getAttribute('aria-pressed')") === "false" &&
+        await p.eval("localStorage.getItem('taqueiros-panel-sonido-v1')") === "off", "Sonido: se silencia y se guarda");
+      comprobar(await p.eval("getComputedStyle(document.querySelector('#soundBtn .txt')).display") === "none" &&
+        await p.eval("document.querySelector('#soundBtn .ico').textContent") === "🔇", "en celular el boton de sonido es solo icono (🔇)");
+      await p.clic("#soundBtn");
+      comprobar(await p.eval("localStorage.getItem('taqueiros-panel-sonido-v1')") === "on", "y se reactiva");
+
+      // En vivo: punto en celular mientras todo va bien; la palabra aparece cuando se pierde
+      comprobar(await p.eval("document.getElementById('conn').classList.contains('online')") &&
+        (await p.eval("document.getElementById('connTxt').getBoundingClientRect().width")) <= 2,
+        "390 px: conectado = solo el punto verde (el texto «En vivo» queda para lectores de pantalla)");
+      comprobar(await p.eval("getComputedStyle(document.querySelector('#conn .dot')).backgroundColor") === "rgb(127, 168, 85)",
+        "…y el punto es verde");
+      await p.eval("window.__mock.canal('closed'); window.dispatchEvent(new Event('offline')); true");
+      await p.esperar("function(){return document.getElementById('connTxt').textContent==='Desconectado';}", 5000, "Desconectado");
+      comprobar(await p.eval("getComputedStyle(document.querySelector('#conn .dot')).backgroundColor") === "rgb(225, 74, 66)" &&
+        await p.eval("document.getElementById('bannerCaido').classList.contains('visible')") &&
+        (await p.eval("document.getElementById('bannerCaido').getBoundingClientRect().height")) > 30,
+        "390 px: al perder la conexion el punto se pone rojo y sale el banner «SIN CONEXIÓN»");
+      const r2 = await medir();
+      comprobar(r2.dentro && r2.sinDesborde && !r2.solapa, "390 px: y la barra sigue cabiendo");
+      // Tablet, con la peor combinacion: sin conexion + WhatsApp caido. El
+      // nombre del restaurante y la fecha deben verse enteros.
+      await p.tamano(768, 900);
+      await p.eval("pintarSaludNotificaciones({ ultimo_ok: false, fallos_seguidos: 1, ultimo_error: 'x' }); true");
+      const r3 = await medir();
+      comprobar(r3.dentro && r3.sinDesborde && !r3.solapa && r3.alto < 80, "768 px: sin conexion y con WhatsApp caido la barra sigue en una fila y cabe");
+      comprobar(await p.eval("(function(){var e=document.querySelector('.brand strong'),f=document.getElementById('fechaHoy');" +
+        "return e.scrollWidth<=e.clientWidth && f.scrollWidth<=f.clientWidth;})()"),
+        "768 px: el nombre y la fecha no se truncan (con la fuente real; con la de respaldo, mas ancha, puede variar)");
+      await p.eval("pintarSaludNotificaciones({ ultimo_ok: true, fallos_seguidos: 0 }); true");
+      await p.tamano(390, 900);
+      await p.eval("window.__mock.canal('joined'); window.dispatchEvent(new Event('online')); true");
+      await p.esperar("function(){return document.getElementById('connTxt').textContent==='En vivo';}", 8000, "En vivo otra vez");
+      comprobar(true, "al volver la conexion vuelve «En vivo»");
+    });
+
+    /* ------------------------------------------------------------ */
+    await escenario("20. Aviso de WhatsApp: icono pequeno que solo sale si falla, con el texto completo", async () => {
+      await admin.reset([]);
+      const p = await abrirPanel("A", false);
+      for (const ancho of [1280, 390]) {
+        await p.tamano(ancho, 900);
+        await p.eval("pintarSaludNotificaciones({ ultimo_ok: true, fallos_seguidos: 0 }); true");
+        comprobar(await p.eval("getComputedStyle(document.getElementById('avisoWhatsapp')).display") === "none",
+          ancho + " px: con WhatsApp bien, el icono no aparece");
+        await p.eval("pintarSaludNotificaciones({ ultimo_ok: false, fallos_seguidos: 3, ultimo_intento: new Date().toISOString(), ultimo_error: 'HTTP 500 prueba' }); true");
+        const w = await p.eval("document.getElementById('avisoWhatsapp').getBoundingClientRect().width");
+        comprobar(w > 0 && w <= 40, ancho + " px: con WhatsApp caido aparece un icono pequeno (" + Math.round(w) + " px)");
+        const titulo = await p.eval("document.getElementById('avisoWhatsapp').title");
+        comprobar(/WhatsApp automático no está funcionando/.test(titulo) && /HTTP 500 prueba/.test(titulo) && /3 fallos seguidos/.test(titulo) && /SI están llegando/.test(titulo),
+          "tooltip con el texto completo y el motivo");
+        comprobar(await p.eval("document.getElementById('avisoWhatsapp').getAttribute('aria-label')") === titulo, "mismo texto como nombre accesible");
+
+        // Tocarlo muestra el recuadro; Esc y clic fuera lo cierran
+        await p.clic("#avisoWhatsapp");
+        comprobar(await p.eval("!document.getElementById('avisoWhatsappDetalle').hidden") &&
+          /HTTP 500 prueba/.test(await p.eval("document.getElementById('avisoWhatsappDetalle').textContent")) &&
+          await p.eval("document.getElementById('avisoWhatsapp').getAttribute('aria-expanded')") === "true",
+          ancho + " px: al tocarlo se ve el texto completo");
+        const caja = await p.eval("(function(){var r=document.getElementById('avisoWhatsappDetalle').getBoundingClientRect();return {l:r.left,r:r.right};})()");
+        comprobar(caja.l >= 0 && caja.r <= ancho, "el recuadro cabe en la pantalla");
+        await p.tecla("Escape");
+        comprobar(await p.eval("document.getElementById('avisoWhatsappDetalle').hidden"), "Esc lo cierra");
+        await p.clic("#avisoWhatsapp");
+        await p.clic(null, 40, 600);
+        comprobar(await p.eval("document.getElementById('avisoWhatsappDetalle').hidden"), "un clic fuera lo cierra");
+        await p.eval("pintarSaludNotificaciones({ ultimo_ok: true, fallos_seguidos: 0 }); true");
+      }
+    });
+
+    /* ------------------------------------------------------------ */
     if (process.env.TICKETS) {
       fs.mkdirSync(process.env.TICKETS, { recursive: true });
       await escenario("Guardando los documentos de ticket que se imprimieron", async () => {
@@ -839,6 +1134,41 @@ async function escenario(nombre, fn) {
         await sleep(300);
         await pg.captura(path.join(process.env.CAPTURAS, "modal-390.png"), 390, 900);
         comprobar(pg.errores.length === 0, "avisos: sin errores de consola");
+      });
+
+      // Barra superior y menu lateral, tal como los ve la cocina: impresion
+      // ACTIVA, en 1280 (monitor), 768 (tablet) y 390 px (celular).
+      await escenario("Capturas de la barra superior y del menu lateral a 1280, 768 y 390 px", async () => {
+        const iso = new Date().toISOString();
+        await admin.reset([
+          pedido(811, { impreso_en: iso, indicaciones: "Sin cebolla", costo_domicilio: 5000, subtotal: 19000, total: 24000 }),
+          pedido(812, { estado: "en_preparacion", impreso_en: iso, tipo_pedido: "llevar" }),
+          pedido(813, { estado: "listo", impreso_en: iso })
+        ]);
+        const pg = await abrirPanel("barra", true);
+        await pg.esperar("function(){return document.querySelectorAll('.pedido').length>0;}", 8000, "pedidos");
+        await sleep(400);
+        await pg.eval("var s=document.createElement('style');s.textContent='*{animation:none!important;transition:none!important}';document.head.appendChild(s);document.querySelectorAll('.cronometro').forEach(function(c){c.textContent='T'});true");
+        const aqui = (n) => path.join(process.env.CAPTURAS, n);
+
+        for (const ancho of [1280, 768, 390]) {
+          await pg.tamano(ancho, 900);
+          await pg.captura(aqui("barra-" + ancho + "-menu-cerrado.png"), ancho, 900);
+          await pg.eval("document.getElementById('menuBtn').click(); document.activeElement.blur(); true");
+          await pg.captura(aqui("barra-" + ancho + "-menu-abierto.png"), ancho, 900);
+          await pg.eval("document.getElementById('menuBtn').click(); document.activeElement.blur(); true");
+        }
+
+        // Con todo lo que puede salir mal a la vez: WhatsApp caido, sin conexion, Cerrado
+        await pg.eval("pintarSaludNotificaciones({ ultimo_ok: false, fallos_seguidos: 3, ultimo_intento: new Date().toISOString(), ultimo_error: 'HTTP 500' });" +
+          "window.__mock.canal('closed'); window.dispatchEvent(new Event('offline')); true");
+        await pg.esperar("function(){return document.getElementById('connTxt').textContent==='Desconectado';}", 5000, "Desconectado");
+        await pg.eval("document.getElementById('avisoWhatsapp').click(); true");
+        for (const ancho of [1280, 768, 390]) {
+          await pg.captura(aqui("barra-" + ancho + "-con-avisos.png"), ancho, 900);
+        }
+        comprobar(pg.errores.length === 0, "barra y menu: sin errores de consola" +
+          (pg.errores.length ? " -> " + pg.errores.slice(0, 3).join(" | ") : ""));
       });
     }
 

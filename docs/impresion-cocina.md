@@ -156,8 +156,9 @@ para confirmar que no sale ni encabezado ni pie.
 
 1. Abre el acceso directo, inicia sesión con el usuario del panel (la
    sesión queda guardada en ese perfil).
-2. Activa **"Imprimir comandas en esta pantalla"** (arriba). El
-   indicador debe pasar a **ACTIVA**. Ese interruptor se guarda **solo
+2. Activa **"Imprimir comandas en esta pantalla"** (en la barra de arriba;
+   en pantallas angostas dice solo **Imprimir**). El indicador debe pasar a
+   **ACTIVA**. Ese interruptor se guarda **solo
    en este equipo**: no lo actives en otros computadores ni en el celular.
 3. Opcional: para que arranque con Windows, copia el acceso directo a
    `shell:startup` (Win + R → `shell:startup`).
@@ -198,8 +199,8 @@ ventana del panel **visible**.
 
 ## 5. Comprobar con el ticket de prueba
 
-1. En el panel, pulsa el engranaje **⚙️** (junto al interruptor de
-   impresión).
+1. En el panel, abre el menú **☰** (arriba a la izquierda) y elige
+   **Configuración**.
 2. Revisa que "Base de datos" diga **Lista** y "Pantalla encendida" diga
    que se mantiene encendida.
 3. Pulsa **Imprimir ticket de prueba**.
@@ -223,17 +224,17 @@ una dirección muy largos, ñ y tildes. Comprueba:
 | Texto cortado a los lados | Preferencias del driver: papel de 80 mm y márgenes mínimos |
 | ~3 cm de blanco al final | Es normal: distancia del cabezal a la cuchilla (sección 5.3) |
 | Mucho más blanco al final | Tamaño de papel del driver: la hoja de 80 × 297 mm de la sección 1; el driver recorta el blanco del final |
-| Blanco de 6 a 9 cm **arriba** | El modo de hoja no es D: ⚙️ → *Modo de hoja* → D (sección 5.4) |
+| Blanco de 6 a 9 cm **arriba** | El modo de hoja no es D: ☰ → Configuración → *Modo de hoja* → D (sección 5.4) |
 | Un pedido sale en dos hojas | Si tiene más de ~20 productos es lo esperado (sección 5.5); si es corto, revisa que el tamaño de hoja del driver sea 297 mm |
 | No corta | "Cortar papel" del driver en "Al final de cada documento" |
 | El corte se come la última línea | Subir `MARGEN_INFERIOR_MM` en `ticket-comanda.js` (sección 5.3) |
 | Aparece encabezado o pie de Chrome | Sección 5.2: revisar el margen de página y, si hace falta, apagarlo en el perfil |
-| El texto sale muy grande o muy chico | **Tamaño del ticket** en ⚙️ (sección 5.1) |
+| El texto sale muy grande o muy chico | **Tamaño del ticket** en ☰ → Configuración (sección 5.1) |
 | Imprime en otra impresora | Sección 2: predeterminada y administración automática desactivada |
 
 ### 5.1 Tamaño del ticket
 
-En **⚙️ → Tamaño del ticket** se elige **Pequeño / Normal / Grande**. Se
+En **☰ → Configuración → Tamaño del ticket** se elige **Pequeño / Normal / Grande**. Se
 guarda **solo en ese equipo** (en el navegador del perfil
 `C:\TaqueirosPanel`) y lo usan todas las impresiones de esa pantalla:
 comandas automáticas, **Reimprimir** y el ticket de prueba. Si el navegador
@@ -350,7 +351,7 @@ hoja del driver 80 × 297 mm, "Cut at end of document", Chrome con
 
 D es el modo **por defecto**: un equipo sin valor guardado, o con un valor
 inválido, usa D. Un equipo que ya eligió otro modo conserva el suyo. En el
-selector del panel (⚙️ → *Modo de hoja*) D dice *«recomendado para la
+selector del panel (☰ → Configuración → *Modo de hoja*) D dice *«recomendado para la
 DIG-POS892»*; A, B y C siguen disponibles solo como opciones de prueba.
 
 **Lo que se revisó en el código** cuando se vio el blanco arriba: nada del
@@ -359,7 +360,7 @@ vertical ni `margin:auto` vertical; el `body` solo se centra a lo ancho).
 Se imprime únicamente el iframe oculto de `imprimir()`. El centrado lo hace
 el driver con las hojas más cortas que la suya.
 
-#### Modo de hoja (⚙️ → *Modo de hoja*)
+#### Modo de hoja (☰ → Configuración → *Modo de hoja*)
 
 Se guarda **por equipo** (en el navegador del perfil `C:\TaqueirosPanel`);
 si no hay nada guardado o el valor no es válido, es **D**. Lo usan por igual
@@ -378,7 +379,7 @@ contenido del ticket es idéntico.
 > PDF del modo B sale en tamaño Carta (215,9 × 279,4 mm). Es normal; en la
 > impresora real decide el driver. El modo B existe para ver justo eso.
 
-#### Hoja de calibración (⚙️ → *Imprimir hoja de calibración*)
+#### Hoja de calibración (☰ → Configuración → *Imprimir hoja de calibración*)
 
 Pasa por el **mismo camino** que una comanda (mismo iframe, misma regla
 `@page` y mismo modo). Dibuja, con `position:fixed` (no mueve nada):
@@ -537,6 +538,12 @@ Ninguna de las dos devuelve datos de clientes.
   de Chrome**, no del papel real.
 - Lógica de cola e impresión automática: sección "IMPRESION AUTOMATICA
   DE COMANDAS" de `panel.html`.
+- Barra y menú del panel: la barra superior solo lleva lo del servicio
+  (☰, marca, En vivo, Abierto/Cerrado, Imprimir, Sonido y el aviso de
+  WhatsApp). Lo demás (Historial, Menú, Horario, Configuración,
+  Notificaciones, Cerrar sesión) sale del arreglo `MENU_LATERAL` de
+  `panel.html`: para sumar una opción se agrega un objeto ahí. El nombre y
+  el logo del restaurante viven solo en `marca.js`.
 - Pruebas: `node --test pruebas/ticket-comanda.test.js` (rápida) y
   `node pruebas/impresion/e2e.js` (navegador sin interfaz con Supabase
   simulado, ~2 minutos). Ver el encabezado de `e2e.js` para guardar los
