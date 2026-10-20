@@ -38,6 +38,13 @@
 -- politicas y funciones de un solo restaurante.
 --
 -- Al final devuelve una fila por comprobacion: OK o FALLA.
+--
+-- SI ALGO FALLA, COMO UBICAR EL PASO
+--   * Los bloques "do $do$" repiten el error asi:  MR paso <paso>: <mensaje> [elemento: <objeto>]
+--   * Para SQL plano, el editor muestra el numero de linea: en VS Code usa Ctrl+G y busca hacia
+--     arriba el marcador "-- >>> PASO ..." mas cercano. Lista de marcadores: buscar ">>> PASO".
+--   * Si fallan las comprobaciones finales, el error dice "LA MIGRACION SE REVIRTIO" y las lista.
+--   En cualquier caso todo se revierte: la base queda como antes.
 -- =============================================================
 
 begin;
@@ -48,7 +55,7 @@ set local lock_timeout = '20s';
 
 
 -- =============================================================
--- 0) PRECONDICIONES Y FOTO DEL "ANTES"
+-- >>> PASO 0) PRECONDICIONES Y FOTO DEL "ANTES"
 -- =============================================================
 do $do$
 declare
@@ -114,7 +121,7 @@ create temp table _mr_flags (k text primary key, v boolean not null);
 
 
 -- =============================================================
--- 1) EL RESTAURANTE POR DEFECTO (TRANSITORIO)
+-- >>> PASO 1) EL RESTAURANTE POR DEFECTO (TRANSITORIO)
 -- =============================================================
 -- Valor por defecto de las columnas restaurante_id mientras el codigo
 -- actual no sabe de restaurantes. SE RETIRA EN EL SIGUIENTE PASO:
@@ -134,10 +141,10 @@ grant execute on function public.restaurante_taqueiros_id() to authenticated, se
 
 
 -- =============================================================
--- 2) TABLAS NUEVAS
+-- >>> PASO 2) TABLAS NUEVAS
 -- =============================================================
 
--- 2.1 restaurantes ---------------------------------------------------
+-- >>> PASO 2.1 restaurantes ---------------------------------------------------
 create table if not exists public.restaurantes (
   id                 uuid primary key default gen_random_uuid(),
   -- Para subdominio o ruta (taqueiros.tuapp.com). Solo minusculas,
@@ -171,7 +178,7 @@ select public.restaurante_taqueiros_id(), 'taqueiros', 'Los Taqueiros', 'activo'
        coalesce((select c.hora_corte_jornada from public.configuracion c order by c.id limit 1), '05:00'::time)
 on conflict (id) do nothing;
 
--- 2.2 restaurante_secretos ------------------------------------------
+-- >>> PASO 2.2 restaurante_secretos ------------------------------------------
 -- Datos privados de cada restaurante. SIN politicas para anon ni
 -- authenticated (y sin privilegios): solo el servidor, con la llave
 -- secreta. Hoy estos valores viven en variables de entorno de Vercel;
@@ -194,7 +201,7 @@ insert into public.restaurante_secretos (restaurante_id)
 values (public.restaurante_taqueiros_id())
 on conflict (restaurante_id) do nothing;
 
--- 2.3 miembros -------------------------------------------------------
+-- >>> PASO 2.3 miembros -------------------------------------------------------
 create table if not exists public.miembros (
   user_id        uuid not null references auth.users(id) on delete cascade,
   restaurante_id uuid not null references public.restaurantes(id) on delete cascade,
@@ -215,7 +222,7 @@ select p.id, public.restaurante_taqueiros_id(), 'dueno', true, p.creado_en
 from public.personal p
 on conflict (user_id, restaurante_id) do nothing;
 
--- 2.4 superadmins ----------------------------------------------------
+-- >>> PASO 2.4 superadmins ----------------------------------------------------
 -- Solo para Carlos. Ningun cliente la ve (salvo su propia fila, si fuera superadmin).
 create table if not exists public.superadmins (
   user_id   uuid primary key references auth.users(id) on delete cascade,
@@ -227,13 +234,13 @@ create table if not exists public.superadmins (
 --   2. Quita los "--" de la linea de abajo, pega tu UID y ejecuta SOLO esa linea:
 -- insert into public.superadmins (user_id) values ('PEGA-AQUI-TU-UID') on conflict do nothing;
 
--- 2.5 contadores_pedido (numero de pedido por restaurante) ----------
+-- >>> PASO 2.5 contadores_pedido (numero de pedido por restaurante) ----------
 create table if not exists public.contadores_pedido (
   restaurante_id uuid primary key references public.restaurantes(id) on delete cascade,
   ultimo         bigint not null default 0 check (ultimo >= 0)
 );
 
--- 2.6 tarifas_domicilio ---------------------------------------------
+-- >>> PASO 2.6 tarifas_domicilio ---------------------------------------------
 -- Hoy las tarifas estan escritas en api/_domicilio.js y en index.html
 -- (TARIFAS_DOMICILIO). El codigo SIGUE leyendo de ahi; el siguiente
 -- paso lo pasa a esta tabla. precio null = fuera de cobertura.
@@ -257,7 +264,7 @@ on conflict (restaurante_id, hasta) do nothing;
 
 
 -- =============================================================
--- 3) FUNCIONES AUXILIARES DE SEGURIDAD
+-- >>> PASO 3) FUNCIONES AUXILIARES DE SEGURIDAD
 -- =============================================================
 -- Todas STABLE, SECURITY INVOKER (a proposito: leen miembros /
 -- superadmins con la identidad de quien pregunta, y esas tablas solo
@@ -351,15 +358,21 @@ $$;
 
 -- Permisos: nada para PUBLIC/anon; authenticated y el servidor si.
 do $do$
-declare f text;
+declare
+  v_paso constant text := '3 permisos de las funciones auxiliares';
+  v_item text := '';
+  f text;
 begin
   foreach f in array array[
     'public.es_superadmin()', 'public.es_miembro(uuid)', 'public.rol_en(uuid)',
     'public.restaurante_actual()', 'public.es_servidor()', 'public.es_personal()'
   ] loop
+    v_item := f;
     execute format('revoke all on function %s from public, anon', f);
     execute format('grant execute on function %s to authenticated, service_role', f);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
@@ -395,16 +408,20 @@ revoke all on function public.personal_a_miembros() from public, anon, authentic
 
 
 -- =============================================================
--- 4) restaurante_id EN LAS TABLAS DE NEGOCIO
+-- >>> PASO 4) restaurante_id EN LAS TABLAS DE NEGOCIO
 -- =============================================================
 -- Una sola sentencia por tabla: agrega la columna NOT NULL con el
 -- valor por defecto transitorio (Taqueiros). Postgres rellena las
 -- filas existentes SIN ejecutar UPDATEs, asi que no se disparan
 -- triggers, no cambia 'actualizado_en' y Realtime no emite eventos.
 do $do$
-declare t text;
+declare
+  v_paso constant text := '4 agregar restaurante_id a las tablas de negocio';
+  v_item text := '';
+  t text;
 begin
   foreach t in array array['pedidos','categorias','productos','configuracion','salud_notificaciones'] loop
+    v_item := t;
     if not exists (select 1 from information_schema.columns
                    where table_schema = 'public' and table_name = t and column_name = 'restaurante_id') then
       execute format(
@@ -413,12 +430,16 @@ begin
       insert into _mr_flags (k, v) values ('rid_nuevo_' || t, true) on conflict (k) do nothing;
     end if;
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 4.1 categorias y productos: la llave primaria pasa a ser por restaurante
+-- >>> PASO 4.1 categorias y productos: la llave primaria pasa a ser por restaurante
 do $do$
 declare
+  v_paso constant text := '4.1 llaves primarias y foranea de categorias/productos';
+  v_item text := '';
   r record;
 begin
   -- Fuera las llaves foraneas de productos hacia categorias (se rehacen compuestas)
@@ -453,15 +474,20 @@ begin
     add constraint productos_categoria_fkey
     foreign key (restaurante_id, categoria) references public.categorias (restaurante_id, id)
     on update cascade;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 4.2 configuracion y salud_notificaciones: una fila POR RESTAURANTE
+-- >>> PASO 4.2 configuracion y salud_notificaciones: una fila POR RESTAURANTE
 -- La columna 'id' se conserva (el codigo actual consulta id = 1): la
 -- fila de Taqueiros sigue siendo id = 1; las de los demas usaran 0, asi
 -- esas consultas jamas se cruzan con otro restaurante.
 do $do$
-declare r record;
+declare
+  v_paso constant text := '4.2 llave primaria de configuracion y salud_notificaciones';
+  v_item text := '';
+  r record;
 begin
   if not exists (select 1 from pg_constraint
                  where conrelid = 'public.configuracion'::regclass and contype = 'p'
@@ -486,10 +512,12 @@ begin
   end if;
   alter table public.salud_notificaciones drop constraint if exists salud_una_sola_fila;
   alter table public.salud_notificaciones alter column id set default 0;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 4.3 Nombres de categoria unicos POR restaurante (antes: globales)
+-- >>> PASO 4.3 Nombres de categoria unicos POR restaurante (antes: globales)
 create or replace function public.norm_texto(t text)
 returns text
 language sql
@@ -509,7 +537,7 @@ create unique index if not exists categorias_restaurante_nombre_norm_uq
   on public.categorias (restaurante_id, public.norm_texto(nombre));
 drop index if exists public.categorias_nombre_norm_uq;
 
--- 4.4 Indices
+-- >>> PASO 4.4 Indices
 create index if not exists pedidos_restaurante_creado_idx    on public.pedidos (restaurante_id, creado_en desc);
 create index if not exists pedidos_restaurante_estado_idx    on public.pedidos (restaurante_id, estado);
 create index if not exists pedidos_restaurante_alerta_idx    on public.pedidos (restaurante_id, pagado_en)
@@ -518,12 +546,15 @@ create index if not exists categorias_restaurante_orden_idx  on public.categoria
 create index if not exists productos_restaurante_cat_idx     on public.productos (restaurante_id, categoria, orden);
 create index if not exists tarifas_restaurante_idx           on public.tarifas_domicilio (restaurante_id, hasta);
 
--- 4.5 Numero de pedido POR restaurante
+-- >>> PASO 4.5 Numero de pedido POR restaurante
 -- 'numero' es lo que se le muestra al cliente. Para los pedidos que ya
 -- existen vale exactamente su id de hoy (no cambia ningun numero). Se
 -- rellena con ALTER ... USING: reescribe la tabla sin ejecutar
 -- triggers ni UPDATEs (no toca 'actualizado_en' ni emite eventos).
 do $do$
+declare
+  v_paso constant text := '4.5 columna numero de pedido';
+  v_item text := '';
 begin
   if not exists (select 1 from information_schema.columns
                  where table_schema = 'public' and table_name = 'pedidos' and column_name = 'numero') then
@@ -531,6 +562,8 @@ begin
     alter table public.pedidos alter column numero type bigint using id;
     insert into _mr_flags (k, v) values ('numero_nuevo', true) on conflict (k) do nothing;
   end if;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
@@ -600,11 +633,11 @@ create trigger pedidos_asignar_numero
   before insert on public.pedidos
   for each row execute function public.asignar_numero_pedido();
 
--- 4.6 Preparacion: cuando se hizo el reembolso de un pedido cancelado.
+-- >>> PASO 4.6 Preparacion: cuando se hizo el reembolso de un pedido cancelado.
 -- Solo la columna; ningun codigo la usa todavia.
 alter table public.pedidos add column if not exists reembolsado_en timestamptz;
 
--- 4.7 Alta automatica de un restaurante nuevo: secretos, contador,
+-- >>> PASO 4.7 Alta automatica de un restaurante nuevo: secretos, contador,
 -- configuracion y estado del WhatsApp. SECURITY DEFINER porque esas
 -- tablas no tienen politicas para clientes.
 create or replace function public.aprovisionar_restaurante()
@@ -647,10 +680,10 @@ create trigger restaurantes_aprovisionar
 
 
 -- =============================================================
--- 5) TRIGGERS DE PROTECCION
+-- >>> PASO 5) TRIGGERS DE PROTECCION
 -- =============================================================
 
--- 5.1 Dinero y numero del pedido: de solo lectura para el navegador.
+-- >>> PASO 5.1 Dinero y numero del pedido: de solo lectura para el navegador.
 -- Es la misma funcion de seguridad.sql (SIN SECURITY DEFINER, ver la
 -- advertencia alli) con dos columnas mas: numero y reembolsado_en
 -- (que restaurante_id no cambie lo cuida bloquear_cambio_restaurante).
@@ -693,7 +726,7 @@ create trigger pedidos_proteger_pago
   before update on public.pedidos
   for each row execute function public.proteger_campos_de_pago();
 
--- 5.2 Un registro nunca cambia de restaurante desde el navegador.
+-- >>> PASO 5.2 Un registro nunca cambia de restaurante desde el navegador.
 create or replace function public.bloquear_cambio_restaurante()
 returns trigger
 language plpgsql
@@ -710,18 +743,24 @@ end;
 $$;
 
 do $do$
-declare t text;
+declare
+  v_paso constant text := '5.2 triggers de restaurante inmutable';
+  v_item text := '';
+  t text;
 begin
   foreach t in array array['pedidos','categorias','productos','configuracion','salud_notificaciones','tarifas_domicilio'] loop
+    v_item := t;
     execute format('drop trigger if exists %I on public.%I', t || '_restaurante_inmutable', t);
     execute format(
       'create trigger %I before update on public.%I for each row execute function public.bloquear_cambio_restaurante()',
       t || '_restaurante_inmutable', t);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 5.3 La cocina solo cambia el ESTADO (y las marcas de impresion).
+-- >>> PASO 5.3 La cocina solo cambia el ESTADO (y las marcas de impresion).
 create or replace function public.limitar_edicion_por_rol()
 returns trigger
 language plpgsql
@@ -746,7 +785,7 @@ create trigger pedidos_limitar_rol
   before update on public.pedidos
   for each row execute function public.limitar_edicion_por_rol();
 
--- 5.4 El dueno edita el nombre y la config de su restaurante; plan,
+-- >>> PASO 5.4 El dueno edita el nombre y la config de su restaurante; plan,
 -- estado, vigencia, modulos y slug son de Carlos (servidor/superadmin).
 create or replace function public.proteger_campos_restaurante()
 returns trigger
@@ -780,22 +819,28 @@ create trigger restaurantes_proteger
   for each row execute function public.proteger_campos_restaurante();
 
 do $do$
-declare f text;
+declare
+  v_paso constant text := '5 permisos de las funciones de proteccion';
+  v_item text := '';
+  f text;
 begin
   foreach f in array array[
     'public.bloquear_cambio_restaurante()', 'public.limitar_edicion_por_rol()',
     'public.proteger_campos_restaurante()', 'public.proteger_campos_de_pago()',
     'public.norm_texto(text)', 'public.jornada_de(timestamptz,time)'
   ] loop
+    v_item := f;
     execute format('revoke all on function %s from public, anon', f);
     execute format('grant execute on function %s to authenticated, service_role', f);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
 
 -- =============================================================
--- 6) VALIDACIONES DE CATEGORIAS Y PRODUCTOS (SQL 01, por restaurante)
+-- >>> PASO 6) VALIDACIONES DE CATEGORIAS Y PRODUCTOS (SQL 01, por restaurante)
 -- =============================================================
 -- Mismas reglas que supabase/01-productos-fotos.sql; la diferencia es
 -- que ahora la categoria se busca DENTRO del restaurante y la foto
@@ -905,12 +950,15 @@ create trigger productos_validar
 
 
 -- =============================================================
--- 7) IMPRESION (SQL 02) — columnas y funciones, ahora por restaurante
+-- >>> PASO 7) IMPRESION (SQL 02) — columnas y funciones, ahora por restaurante
 -- =============================================================
 -- Si el SQL 02 ya se corrio, esto no cambia nada de lo existente.
 -- Si NO se habia corrido, deja las columnas listas (los pedidos pagados
 -- que ya existen se dan por impresos, igual que haria el 02).
 do $do$
+declare
+  v_paso constant text := '7 columnas de impresion';
+  v_item text := '';
 begin
   if not exists (select 1 from information_schema.columns
                  where table_schema = 'public' and table_name = 'pedidos' and column_name = 'impreso_en') then
@@ -918,6 +966,8 @@ begin
     alter table public.pedidos alter column impreso_en type timestamptz
       using (case when estado <> 'pendiente_pago' then coalesce(pagado_en, creado_en) end);
   end if;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
@@ -995,7 +1045,7 @@ grant execute on function public.registrar_reimpresion(bigint) to authenticated,
 
 
 -- =============================================================
--- 8) JORNADA, RESUMEN E HISTORIAL — ahora por restaurante
+-- >>> PASO 8) JORNADA, RESUMEN E HISTORIAL — ahora por restaurante
 -- =============================================================
 -- ANTES: eran SECURITY DEFINER, no comprobaban quien llamaba y leian
 -- TODOS los pedidos (buscar_historial devolvia nombre, telefono y
@@ -1010,15 +1060,21 @@ grant execute on function public.registrar_reimpresion(bigint) to authenticated,
 -- firma vieja SECURITY DEFINER que sobreviviera seguiria leyendo los
 -- pedidos de todos los restaurantes (en produccion hubo mas de una firma).
 do $do$
-declare r record;
+declare
+  v_paso constant text := '8 borrar firmas viejas de funciones';
+  v_item text := '';
+  r record;
 begin
   for r in select p.oid::regprocedure::text as firma
            from pg_proc p
            where p.pronamespace = 'public'::regnamespace
              and p.proname in ('limites_jornada', 'resumen_jornada', 'buscar_historial',
                                'jornadas_con_pedidos', 'buscar_mis_pedidos') loop
+    v_item := r.firma;
     execute format('drop function %s', r.firma);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
@@ -1221,19 +1277,25 @@ as $$
 $$;
 
 do $do$
-declare f text;
+declare
+  v_paso constant text := '8 permisos de las funciones de historial';
+  v_item text := '';
+  f text;
 begin
   foreach f in array array[
     'public.limites_jornada(date,uuid)', 'public.resumen_jornada(date,uuid)',
     'public.buscar_historial(date,date,text,text,uuid)', 'public.jornadas_con_pedidos(integer,uuid)'
   ] loop
+    v_item := f;
     execute format('revoke all on function %s from public, anon', f);
     execute format('grant execute on function %s to authenticated, service_role', f);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 8.1 Las dos puertas publicas (anon) que se conservan -------------------
+-- >>> PASO 8.1 Las dos puertas publicas (anon) que se conservan -------------------
 -- seguimiento(ref): sin cambios. Busca por la referencia exacta
 -- (imposible de adivinar), devuelve 1 fila y nunca telefono, correo ni
 -- datos de pago. 'numero' sigue siendo el id (lo que muestra el panel hoy).
@@ -1321,12 +1383,12 @@ grant execute on function public.buscar_mis_pedidos(text, integer, uuid) to anon
 revoke all on function public.seguimiento(text) from public;
 grant execute on function public.seguimiento(text) to anon, authenticated, service_role;
 
--- 8.2 Limpieza de huerfanos: solo el servidor (la intencion original;
+-- >>> PASO 8.2 Limpieza de huerfanos: solo el servidor (la intencion original;
 -- en Supabase "revoke from public" no le quitaba el permiso a anon).
 revoke all on function public.limpiar_pedidos_huerfanos(integer) from public, anon, authenticated;
 grant execute on function public.limpiar_pedidos_huerfanos(integer) to service_role;
 
--- 8.3 Para las pruebas de aislamiento: borrar pedidos de prueba consume
+-- >>> PASO 8.3 Para las pruebas de aislamiento: borrar pedidos de prueba consume
 -- numeros de la secuencia de ids, y el panel actual muestra el id. Esta
 -- funcion (solo servidor) deja la secuencia en el ultimo id real.
 create or replace function public.realinear_secuencia_pedidos()
@@ -1351,7 +1413,7 @@ grant execute on function public.realinear_secuencia_pedidos() to service_role;
 
 
 -- =============================================================
--- 9) SEGURIDAD (RLS)
+-- >>> PASO 9) SEGURIDAD (RLS)
 -- =============================================================
 alter table public.restaurantes          enable row level security;
 alter table public.restaurante_secretos  enable row level security;
@@ -1367,23 +1429,29 @@ alter table public.salud_notificaciones  enable row level security;
 alter table public.personal              enable row level security;
 alter table public.intentos_buscar_pedido enable row level security;
 
--- 9.1 Fuera TODAS las politicas de estas tablas (las de es_personal(),
+-- >>> PASO 9.1 Fuera TODAS las politicas de estas tablas (las de es_personal(),
 -- las de lectura publica del menu, cualquiera creada a mano en el
 -- dashboard y las mr_ de una corrida anterior) y se recrean abajo.
 do $do$
-declare r record;
+declare
+  v_paso constant text := '9.1 borrar politicas anteriores';
+  v_item text := '';
+  r record;
 begin
   for r in select schemaname, tablename, policyname from pg_policies
            where schemaname = 'public'
              and tablename in ('restaurantes','restaurante_secretos','miembros','superadmins','contadores_pedido',
                                'tarifas_domicilio','pedidos','categorias','productos','configuracion',
                                'salud_notificaciones','personal','intentos_buscar_pedido') loop
+    v_item := r.tablename || '.' || r.policyname;
     execute format('drop policy %I on %I.%I', r.policyname, r.schemaname, r.tablename);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
--- 9.2 Privilegios de tabla: anon no toca nada; los secretos y los
+-- >>> PASO 9.2 Privilegios de tabla: anon no toca nada; los secretos y los
 -- contadores tampoco son accesibles para authenticated.
 revoke all on table
   public.restaurantes, public.restaurante_secretos, public.miembros, public.superadmins,
@@ -1400,7 +1468,7 @@ revoke truncate, references, trigger on table
   public.productos, public.configuracion, public.salud_notificaciones
 from authenticated;
 
--- 9.3 Politicas.  sa = superadmin.  Todas TO authenticated.
+-- >>> PASO 9.3 Politicas.  sa = superadmin.  Todas TO authenticated.
 -- Para que Postgres cachee el resultado se usa (select funcion(...)).
 
 -- restaurantes: cada miembro ve el suyo; el dueno edita nombre/config
@@ -1507,7 +1575,7 @@ create policy mr_tarifas_delete on public.tarifas_domicilio for delete to authen
 
 
 -- =============================================================
--- 10) STORAGE — fotos de productos por carpeta {restaurante_id}/
+-- >>> PASO 10) STORAGE — fotos de productos por carpeta {restaurante_id}/
 -- =============================================================
 -- Las fotos de Taqueiros que ya existen estan en la RAIZ del bucket
 -- (p-xxxx.webp) y sus URLs estan guardadas en productos.imagen. Mover
@@ -1523,6 +1591,22 @@ on conflict (id) do update set
   public             = true,
   file_size_limit    = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
+-- Prueba REAL (no por membresia de roles, que da falsos negativos): se crea y se
+-- borra una politica de prueba en storage.objects. Si postgres no puede, se avisa
+-- con un mensaje claro y la migracion se revierte entera (dejar las politicas
+-- antiguas, que usan es_personal(), abriria las fotos a miembros de otros restaurantes).
+do $do$
+begin
+  begin
+    execute 'create policy mr_prueba_permiso on storage.objects for select to authenticated using (false)';
+    execute 'drop policy mr_prueba_permiso on storage.objects';
+  exception when others then
+    raise exception 'MR paso 10 (Storage): este usuario no puede crear politicas en storage.objects (%). Crea las 4 politicas desde Storage > Policies del dashboard o ejecuta este archivo con el rol dueno de storage.objects', sqlerrm
+      using errcode = sqlstate;
+  end;
+end
+$do$;
 
 create or replace function public.puede_gestionar_fotos(p_ruta text)
 returns boolean
@@ -1567,26 +1651,32 @@ create policy mr_productos_fotos_delete on storage.objects for delete to authent
 
 
 -- =============================================================
--- 11) REALTIME
+-- >>> PASO 11) REALTIME
 -- =============================================================
 -- Las tablas que el panel escucha siguen en la publicacion. Los
 -- eventos de INSERT/UPDATE respetan RLS: cada sesion solo recibe filas
 -- que su politica de SELECT le deja ver.
 do $do$
-declare t text;
+declare
+  v_paso constant text := '11 publicacion de Realtime';
+  v_item text := '';
+  t text;
 begin
   foreach t in array array['pedidos','productos','configuracion','salud_notificaciones'] loop
+    v_item := t;
     if not exists (select 1 from pg_publication_tables
                    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
     end if;
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
 
 -- =============================================================
--- 12) BARRIDO: ninguna funcion de public la ejecuta anon
+-- >>> PASO 12) BARRIDO: ninguna funcion de public la ejecuta anon
 -- =============================================================
 -- En Supabase, "revoke ... from public" NO le quita el permiso a anon
 -- (las funciones nuevas se le otorgan por defecto). Aqui se revoca a
@@ -1596,7 +1686,10 @@ $do$;
 -- Solo se pueden revocar las funciones propias; las de otro dueno las
 -- detecta la comprobacion final.
 do $do$
-declare r record;
+declare
+  v_paso constant text := '12 barrido de EXECUTE para anon';
+  v_item text := '';
+  r record;
 begin
   for r in select p.oid::regprocedure::text as firma
            from pg_proc p
@@ -1605,15 +1698,18 @@ begin
              and p.oid not in ('public.seguimiento(text)'::regprocedure,
                                'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
              and pg_has_role(current_user, p.proowner, 'usage')
-             and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e') loop
+             and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e') loop
+    v_item := r.firma;
     execute format('revoke execute on function %s from public, anon', r.firma);
   end loop;
+exception when others then
+  raise exception 'MR paso %: % [elemento: %]', v_paso, sqlerrm, v_item using errcode = sqlstate;
 end
 $do$;
 
 
 -- =============================================================
--- 13) COMPROBACIONES  (una fila por verificacion: OK o FALLA)
+-- >>> PASO 13) COMPROBACIONES  (una fila por verificacion: OK o FALLA)
 -- =============================================================
 -- Si alguna FALLA, la transaccion completa se revierte y el error
 -- lista cuales fallaron. Si todo esta OK, se confirma y se muestra
@@ -1635,24 +1731,26 @@ from (values
     null),
 
   ('RLS activo en TODAS las tablas de public',
-    not exists (select 1 from pg_tables where schemaname = 'public' and not rowsecurity),
-    (select string_agg(tablename, ', ') from pg_tables where schemaname = 'public' and not rowsecurity)),
+    not exists (select 1 from pg_class c
+                where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and not c.relrowsecurity
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')),
+    (select string_agg(c.relname, ', ') from pg_class c
+     where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and not c.relrowsecurity
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e'))),
 
   ('ninguna tabla de negocio desconocida sin restaurante_id',
-    (select coalesce(string_agg(t.tablename, ', '), '') = '' from pg_tables t
-     where t.schemaname = 'public'
-       and t.tablename not in ('restaurantes', 'superadmins', 'personal')
-       and not exists (select 1 from information_schema.columns c
-                       where c.table_schema = 'public' and c.table_name = t.tablename and c.column_name = 'restaurante_id')
-       and not exists (select 1 from pg_depend d
-                       where d.objid = to_regclass(format('public.%I', t.tablename))::oid and d.deptype = 'e')),
-    (select string_agg(t.tablename, ', ') from pg_tables t
-     where t.schemaname = 'public'
-       and t.tablename not in ('restaurantes', 'superadmins', 'personal')
-       and not exists (select 1 from information_schema.columns c
-                       where c.table_schema = 'public' and c.table_name = t.tablename and c.column_name = 'restaurante_id')
-       and not exists (select 1 from pg_depend d
-                       where d.objid = to_regclass(format('public.%I', t.tablename))::oid and d.deptype = 'e'))),
+    not exists (select 1 from pg_class c
+                where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')
+                  and c.relname not in ('restaurantes', 'superadmins', 'personal')
+                  and not exists (select 1 from pg_attribute a
+                                  where a.attrelid = c.oid and a.attname = 'restaurante_id' and a.attnum > 0 and not a.attisdropped)
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')),
+    (select string_agg(c.relname, ', ') from pg_class c
+     where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')
+       and c.relname not in ('restaurantes', 'superadmins', 'personal')
+       and not exists (select 1 from pg_attribute a
+                       where a.attrelid = c.oid and a.attname = 'restaurante_id' and a.attnum > 0 and not a.attisdropped)
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e'))),
 
   ('restaurante_id es NOT NULL en todas las tablas que lo tienen',
     not exists (select 1 from information_schema.columns
@@ -1760,11 +1858,17 @@ from (values
     null),
 
   ('anon: sin privilegios sobre ninguna tabla de negocio',
-    not exists (select 1 from pg_tables t
-                where t.schemaname = 'public'
-                  and has_table_privilege('anon', format('public.%I', t.tablename), 'select,insert,update,delete')),
-    (select string_agg(t.tablename, ', ') from pg_tables t
-     where t.schemaname = 'public' and has_table_privilege('anon', format('public.%I', t.tablename), 'select,insert,update,delete'))),
+    -- Por OID, nunca por nombre armado a mano: has_table_privilege('anon', 'public.' || relname)
+    -- falla con 'relation "public.pg_statistic" does not exist' si Postgres la evalua sobre
+    -- filas de OTROS esquemas antes de aplicar el filtro de esquema (no garantiza el orden).
+    not exists (select 1 from pg_class c
+                where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
+                  and has_table_privilege('anon', c.oid, 'select,insert,update,delete')),
+    (select string_agg(c.relname, ', ') from pg_class c
+     where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
+       and has_table_privilege('anon', c.oid, 'select,insert,update,delete'))),
 
   ('ninguna politica de public alcanza a anon ni a PUBLIC',
     not exists (select 1 from pg_policies where schemaname = 'public' and roles && array['anon'::name, 'public'::name]),
@@ -1787,13 +1891,13 @@ from (values
                 where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p')
                   and p.oid not in ('public.seguimiento(text)'::regprocedure,
                                     'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
-                  and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
                   and has_function_privilege('anon', p.oid, 'execute')),
     (select string_agg(p.proname, ', ') from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p')
        and p.oid not in ('public.seguimiento(text)'::regprocedure,
                          'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
-       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
        and has_function_privilege('anon', p.oid, 'execute'))),
 
   ('funciones auxiliares: existen, STABLE, sin SECURITY DEFINER, authenticated si y anon no',
@@ -1856,7 +1960,7 @@ from (values
                   and p.oid not in ('public.config_jornada(uuid)'::regprocedure,
                                     'public.seguimiento(text)'::regprocedure,
                                     'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
-                  and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
                   and (has_function_privilege('anon', p.oid, 'execute')
                        or has_function_privilege('authenticated', p.oid, 'execute'))),
     (select string_agg(p.oid::regprocedure::text, ', ') from pg_proc p
@@ -1865,7 +1969,7 @@ from (values
        and p.oid not in ('public.config_jornada(uuid)'::regprocedure,
                          'public.seguimiento(text)'::regprocedure,
                          'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
-       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
        and (has_function_privilege('anon', p.oid, 'execute')
             or has_function_privilege('authenticated', p.oid, 'execute')))),
 
@@ -1874,13 +1978,13 @@ from (values
   ('ninguna vista de public que lean anon o authenticated salta RLS',
     not exists (select 1 from pg_class c
                 where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
-                  and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')
+                  and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
                   and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('authenticated', c.oid, 'select'))
                   and not (c.relkind = 'v' and exists (select 1 from unnest(coalesce(c.reloptions, '{}')) o
                                                       where lower(o) in ('security_invoker=true', 'security_invoker=on', 'security_invoker=1')))),
     (select string_agg(c.relname, ', ') from pg_class c
      where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
-       and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')
+       and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
        and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('authenticated', c.oid, 'select'))
        and not (c.relkind = 'v' and exists (select 1 from unnest(coalesce(c.reloptions, '{}')) o
                                            where lower(o) in ('security_invoker=true', 'security_invoker=on', 'security_invoker=1'))))),
