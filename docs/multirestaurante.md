@@ -165,6 +165,22 @@ Pasaron de DEFINER sin control a **funciones de quien llama** (RLS filtra a su r
 opcional `p_restaurante`; sin él usan el restaurante de la membresía del usuario, así que **el panel actual no
 cambia nada**. Si alguien pide un restaurante que no es suyo recibe vacío/`null`.
 
+### Las dos puertas públicas
+
+`seguimiento(ref)` no cambia: referencia exacta (`TAQ-<ms>-<6 hex>`, imposible de adivinar), una fila, sin teléfono ni
+correo. `buscar_mis_pedidos(telefono, total)` se acota a un restaurante y tiene **límite de intentos**: 10 consultas por
+(restaurante, celular) en 24 h, guardadas en `intentos_buscar_pedido` (sin acceso para clientes). Pasado el límite
+responde vacío, que el sitio ya muestra como “No encontramos pedidos”. Sin el límite, quien conoce un celular
+probaba totales (pocas centenas de valores) hasta dar con la referencia y `seguimiento` le entregaba la dirección.
+
+### Lo que la migración se niega a dejar pasar
+
+Además de las comprobaciones de tablas y políticas, el SQL 10 se detiene (y revierte) si encuentra en `public`:
+una función `SECURITY DEFINER` que no conoce y que `anon` o `authenticated` pueden llamar (aunque sea de otro dueño
+y no la pueda revocar), una vista sin `security_invoker` legible por clientes, o un trigger en `auth.users` que
+escriba en `personal`, `miembros` o `superadmins` (daría membresía automática a cada cuenta nueva). Además borra
+**todas** las firmas de las funciones que reemplaza, y al confirmar avisa a PostgREST que recargue su esquema.
+
 ### Storage (fotos)
 
 Rutas nuevas: `{restaurante_id}/archivo`. Políticas: solo un miembro con rol **dueño** (o superadmin) escribe,
@@ -199,11 +215,11 @@ sobre eventos `DELETE` en la sección 9.
 | `restaurantes` | leer el suyo; editar `nombre` y `config` | leer el suyo | leer el suyo | todo | — |
 | `miembros` | ver su propia fila | ídem | ídem | todo | — |
 | `superadmins` | — (cada quien ve solo su fila) | — | — | su propia fila | — |
-| `restaurante_secretos`, `contadores_pedido` | — | — | — | — | — |
+| `restaurante_secretos`, `contadores_pedido`, `intentos_buscar_pedido` | — | — | — | — | — |
 | Fotos (Storage) | escribir/listar/borrar en su carpeta | — | — | todo | solo lectura pública |
 | `reclamar_impresion`, `registrar_reimpresion` | su restaurante | su restaurante | su restaurante | todo | — |
 | `resumen_jornada`, `buscar_historial`, `jornadas_con_pedidos`, `limites_jornada` | su restaurante | su restaurante | su restaurante | todo | — |
-| `seguimiento(ref)`, `buscar_mis_pedidos(...)` | sí | sí | sí | sí | **sí** (únicas puertas públicas) |
+| `seguimiento(ref)`, `buscar_mis_pedidos(...)` | sí | sí | sí | sí | **sí** (únicas puertas públicas; la búsqueda admite 10 consultas por celular y restaurante cada 24 h) |
 | `limpiar_pedidos_huerfanos`, `siguiente_numero_pedido`, `realinear_secuencia_pedidos` | — | — | — | — | — (solo servidor) |
 
 Capas extra que no son RLS: triggers que impiden cambiar dinero/`numero`/`reembolsado_en` desde el navegador,
@@ -247,7 +263,7 @@ cualquier registro cambie de restaurante.
 12. **`realinear_secuencia_pedidos()`**: borrar pedidos de prueba consume ids de la secuencia y el panel actual
     muestra el `id`. Esta función (solo servidor) deja la secuencia en el último id real; la prueba de aislamiento
     la llama al terminar, y solo si no entró ningún pedido real mientras tanto.
-13. **Una sola migración atómica con verificación que revierte.** Si cualquiera de las 30 comprobaciones falla,
+13. **Una sola migración atómica con verificación que revierte.** Si cualquiera de las 34 comprobaciones falla,
     toda la transacción se revierte y el error lista cuáles.
 
 ---
@@ -277,9 +293,20 @@ Settings → API Keys) se pide con `Read-Host` y **no se muestra al pegarla**: p
 
 **0. Una sola vez:** `npm i --no-save @supabase/supabase-js@2.117.2` (para la prueba de Realtime).
 
+**0b. Urgente, hoy mismo (antes de todo lo demás).** La inspección mostró que `anon` puede ejecutar
+`limpiar_pedidos_huerfanos`: cualquiera sin sesión puede llamarla con `horas = 0` y borrar los pedidos que un
+cliente está pagando en ese momento (el webhook de Wompi ya no los encuentra y el pedido pagado nunca llega a la
+cocina). El SQL 10 lo cierra, pero mientras tanto ejecuta en el SQL Editor solo esta línea (el servidor usa la llave
+secreta y sigue funcionando):
+
+```sql
+revoke execute on function public.limpiar_pedidos_huerfanos(integer) from public, anon, authenticated;
+```
+
 **1. Inspección (solo lectura).** Supabase → SQL Editor → New query → pega el contenido de
 `supabase/00-inspeccion-esquema.sql` → Run. Revisa (o pégame) las filas `tablas_sin_restaurante_id`,
-`funciones_que_anon_ejecuta`, `politicas_public`, `politicas_storage` y `sql_pendientes`. Si aparece una tabla que
+`funciones_que_anon_ejecuta`, `funciones_security_definer`, `firmas_repetidas`, `triggers_en_auth_users`,
+`politicas_public`, `politicas_storage` y `sql_pendientes`. Si aparece una tabla que
 no sea `personal` en `tablas_sin_restaurante_id`, **avísame antes de seguir**.
 
 **2. Respaldo (antes del SQL).**
@@ -296,7 +323,7 @@ Imprime las filas exportadas por tabla y deja todo en `respaldos\<fecha>\` (igno
 **fuera** del repositorio: tiene datos de clientes. Si dice “NO coincide” o sale con error, no sigas.
 
 **3. SQL de migración.** En VS Code abre `supabase/10-multirestaurante.sql` → **Ctrl+A, Ctrl+C** (el contenido,
-no el nombre del archivo) → SQL Editor → New query → pega → Run. Resultado esperado: una tabla de **30 filas, todas
+no el nombre del archivo) → SQL Editor → New query → pega → Run. Resultado esperado: una tabla de **34 filas, todas
 `OK`**. Si algo falla verás el error con la lista de comprobaciones que fallaron y **no se cambió nada** (todo va en
 una transacción). Se puede volver a correr sin dañar nada.
 
@@ -367,14 +394,18 @@ los clientes.
 `service_role`, `auth.uid()`, Storage con `foldername`, publicación Realtime), aplicando primero **todos los SQL
 antiguos del repo** (con y sin el 01 y el 02) y luego el 10:
 
-* El SQL 10 corre dos veces seguidas sin error (idempotente) y las 30 comprobaciones dan OK, en los dos escenarios.
-* 200 comprobaciones de aislamiento con roles reales y RLS: lectura/inserción/actualización/borrado entre
+* El SQL 10 corre dos veces seguidas sin error (idempotente) y las 34 comprobaciones dan OK, en los dos escenarios.
+* 234 comprobaciones de aislamiento con roles reales y RLS: lectura/inserción/actualización/borrado entre
   restaurantes en cada tabla, cada rol de la matriz, `restaurante_id` ajeno y por defecto, `anon`, sin
   membresía, escalada de privilegios (membresías, superadmins), secretos, impresión, historial, Storage por
   carpeta, números de pedido por restaurante, y lo que hacen el panel, `menu-admin` y el servidor con las mismas
-  sentencias que usa el código actual. Control negativo: al romper una política a propósito, las pruebas lo detectan.
+  sentencias que usa el código actual; también `UPDATE`/`DELETE` sin `WHERE`, `upsert` contra filas ajenas y un
+  usuario dueño de dos restaurantes.
+* 27 pruebas de los hallazgos de la revisión de seguridad (`hallazgos.mjs`, sección 10): 11 fallan con el SQL
+  del commit 43b6567 y las 27 pasan con el corregido.
+* Revisión por mutación (`mutaciones.mjs`): ver el resultado al final de la sección 10.
 * `probar-aislamiento.mjs` completo, contra un servidor falso con la misma lógica de PostgREST/Auth/Storage sobre
-  esa base: 224 de 231 pasan; las 7 que no pasan son todas de **Realtime**, que el falso no emula.
+  esa base: 227 de 234 pasan; las 7 que no pasan son todas de **Realtime**, que el falso no emula.
 * `probar-compatibilidad.mjs` (ejecuta los manejadores reales `api/menu.js`, `estado.js`, `disponibilidad.js` y
   `_precios.js` sin modificarlos): 17/17.
 * `exportar-respaldo.mjs`: paginación probada con 2.503 filas y tope de 1.000 por página; detección de pegado doble.
@@ -384,9 +415,11 @@ Todo lo anterior se puede **repetir** (por ejemplo cuando el siguiente paso camb
 arnés de `pruebas/multirestaurante/` (necesita `npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2`):
 
 ```powershell
-node pruebas/multirestaurante/sim.mjs                 # SQL antiguos + SQL 10 dos veces (30 comprobaciones)
+node pruebas/multirestaurante/sim.mjs                 # SQL antiguos + SQL 10 dos veces (34 comprobaciones)
 node pruebas/multirestaurante/sim.mjs conPendientes   # igual, con el 01 y el 02 ya corridos
-node pruebas/multirestaurante/rls.mjs                 # 200 comprobaciones de aislamiento a nivel SQL
+node pruebas/multirestaurante/rls.mjs                 # 234 comprobaciones de aislamiento a nivel SQL
+node pruebas/multirestaurante/hallazgos.mjs           # 27 pruebas de los hallazgos de la revision
+node pruebas/multirestaurante/mutaciones.mjs          # rompe cada defensa y exige que algo lo detecte (~25 min)
 node pruebas/multirestaurante/contra-falso.mjs probar-aislamiento.mjs      # (Realtime falla aqui: no se emula)
 node pruebas/multirestaurante/contra-falso.mjs probar-compatibilidad.mjs
 ```
@@ -399,7 +432,9 @@ códigos de error exactos ni los límites reales de Supabase; por eso no sustitu
 hay objetos que el repo no conoce); `probar-aislamiento.mjs` con PostgREST, Auth y Storage reales (códigos HTTP
 reales, límites de tamaño/MIME del bucket, política de `storage.objects` con el dueño real de la tabla);
 **Realtime con sesiones reales** (que el evento de B no llegue a A); los permisos por defecto reales de Supabase
-sobre funciones; el recorrido a mano del panel; y un pedido real con Wompi.
+sobre funciones; si `postgres` puede crear políticas sobre `storage.objects` (si no, el SQL 10 se revierte con
+“must be owner”: la inspección lo dice en `sql_pendientes.puede_crear_politicas_en_storage`); el límite de intentos de
+`buscar_mis_pedidos` a través del PostgREST real; el recorrido a mano del panel; y un pedido real con Wompi.
 
 ---
 
@@ -416,15 +451,80 @@ sobre funciones; el recorrido a mano del panel; y un pedido real con Wompi.
    prueba realinea la secuencia. En el siguiente paso, mostrar `numero`.
 4. **Valor por defecto transitorio:** cualquier código nuevo que olvide `restaurante_id` caería en Taqueiros sin
    avisar. Por eso se retira en el siguiente paso.
-5. **Realtime y `DELETE`.** Supabase no aplica RLS a los eventos de borrado: un suscriptor puede recibir la llave
-   primaria de filas borradas de otros restaurantes (solo ids; hoy solo `limpiar_pedidos_huerfanos` borra
-   pedidos). Si se vuelve un problema, el siguiente paso puede usar canales privados de Broadcast por
-   restaurante. No está cubierto por la prueba.
+5. **Realtime y `DELETE` (aceptado por ahora).** Supabase no aplica RLS a los eventos de borrado: cualquier sesión
+   suscrita a una tabla publicada recibe la **llave primaria** de las filas borradas de cualquier restaurante (nunca
+   nombre, teléfono ni dirección). Hoy eso es: el `id` de los pedidos sin pagar que borra la limpieza diaria y del
+   que borre un dueño, y `(restaurante_id, id)` de los productos borrados (el id es el slug del producto). Se acepta
+   porque no expone datos personales y ningún cliente real convive aún. Mitigación mínima para el siguiente paso:
+   pasar el panel a canales **privados de Broadcast por restaurante** (`realtime.broadcast_changes` + políticas en
+   `realtime.messages`) y sacar `pedidos` y `productos` de la publicación `supabase_realtime`. No está cubierto por
+   la prueba.
 6. **Secretos en texto en la base.** Protegidos por RLS sin políticas y revocados a clientes, pero visibles para
    quien tenga la llave secreta o acceso al panel de Supabase. Más adelante conviene Supabase Vault o cifrado.
-7. **Registro público de Auth abierto.** Ya no da acceso a nada (sin membresía no se ve ni se escribe nada, y se
-   probó), pero si los usuarios los crea Carlos, desactiva “Allow new users to sign up”.
+7. **Registro público de Auth:** ya se desactivó. Aunque se reactivara, una cuenta sin membresía no ve ni escribe
+   nada (probado), salvo que exista un trigger en `auth.users` que la meta en `personal`/`miembros`: el SQL 10 se
+   niega a correr si lo encuentra.
 8. **Superadmin = acceso a todos los clientes.** Agrégalo solo cuando lo necesites y con 2FA.
 9. **No vuelvas a correr los SQL antiguos** después del 10: recrearían políticas y funciones de un solo restaurante.
-10. **Pendientes anteriores que esto no resuelve:** la llave `service_role` legacy que estuvo en el historial del
+10. **Alertas por WhatsApp entre restaurantes (para el siguiente paso, en la API).** `/api/alertas` (llave secreta)
+    busca pedidos `nuevo` sin avisar de **todos** los restaurantes y avisa al WhatsApp de Taqueiros. Cuando exista un
+    segundo restaurante, un dueño o cajero suyo puede crear pedidos (con `alerta_enviada = false`) que terminen como
+    mensajes en el WhatsApp de Taqueiros. Hoy no hay otros restaurantes; la API debe filtrar por restaurante y usar
+    el CallMeBot de cada uno.
+11. **Límite de la búsqueda pública:** es por celular; alguien puede gastar los 10 intentos de un celular ajeno y
+    el cliente real quedaría sin buscar ese día (puede abrir su enlace de seguimiento). No frena a quien prueba
+    muchos celulares distintos, pero sin el celular correcto no hay nada que encontrar.
+12. **Pendientes anteriores que esto no resuelve:** la llave `service_role` legacy que estuvo en el historial del
     repo público (hay que rotarla si no se hizo) y la impresora física nunca probada de punta a punta.
+
+---
+
+## 10. Revisión de seguridad del SQL 10 (antes de correrlo)
+
+Revisión independiente con mentalidad de atacante (dueño o cajero de otro restaurante, cuenta sin membresía,
+`anon` con la llave publishable). Cada hallazgo tiene una prueba en `pruebas/multirestaurante/hallazgos.mjs`
+que **falla con el SQL del commit 43b6567 y pasa con el corregido**.
+
+| # | Gravedad | Hallazgo | Cómo se explotaba | Corrección |
+|---|---|---|---|---|
+| P | Crítico, **hoy en producción** | `anon` puede ejecutar `limpiar_pedidos_huerfanos(horas)` | Sin sesión: `rpc/limpiar_pedidos_huerfanos {horas: 0}` borra los pedidos que se están pagando; el webhook no los encuentra y el pedido pagado no llega a la cocina | El SQL 10 la deja solo para el servidor. Mientras no se corra: el `revoke` del paso 0b |
+| H1 | Alto | Solo se borraba la firma conocida de las funciones de historial/jornada | Una firma vieja `SECURITY DEFINER` (en producción hubo varias) seguía leyendo los pedidos de todos los restaurantes para cualquier usuario con sesión | Se borran **todas** las firmas de las 5 funciones reemplazadas |
+| H1b | Alto | El barrido de `EXECUTE` exceptuaba a `seguimiento` y `buscar_mis_pedidos` **por nombre** | Una firma extra (p. ej. `seguimiento(bigint)` por id) quedaba abierta a `anon`: enumerar direcciones por id secuencial | La excepción es por firma exacta, y la migración se detiene ante cualquier `SECURITY DEFINER` desconocida |
+| H2 | Alto | `buscar_mis_pedidos` sin límite de intentos | Conociendo un celular, se prueban totales (en la prueba: 47 intentos) → referencia → `seguimiento` entrega dirección, barrio e indicaciones | 10 consultas por (restaurante, celular) cada 24 h; después responde vacío |
+| H3 | Medio | El trigger `personal → miembros` vuelve **dueño de Taqueiros** a quien entre en `personal` | Con un trigger `handle_new_user` en `auth.users` que escriba en `personal` (plantilla común), cada cuenta nueva —incluido el dueño de un cliente nuevo— vería los pedidos de Taqueiros | La migración se detiene si encuentra un trigger así (nuevo en la inspección: `triggers_en_auth_users`) |
+| H1c | Medio | La comprobación final ignoraba funciones de otro dueño | En Supabase `postgres` no puede revocar funciones de `supabase_admin`; una de esas abierta a `anon` pasaba sin aviso | La comprobación las cuenta y la migración se detiene |
+| H4 | Bajo (hoy no hay vistas) | Ninguna comprobación miraba vistas | Una vista sin `security_invoker` corre como su dueño y salta RLS | La migración se detiene ante una vista así legible por clientes |
+| H5 | Bajo | No se avisaba a PostgREST | Se borran y recrean funciones con otra firma; sin recargar, el panel llamaría a la firma vieja (404) | `notify pgrst, 'reload schema'` antes del `commit` |
+
+**Hipótesis revisadas que resultaron no ser huecos** (con prueba que lo confirma en `rls.mjs`):
+
+* La regla transitoria de la raíz del bucket **no** deja a otros dueños sobrescribir, mover ni borrar las fotos de
+  Taqueiros: solo un `dueno` **de Taqueiros** puede escribir en la raíz. Tampoco sirven `..`, una barra inicial, la
+  carpeta en mayúsculas ni otro bucket.
+* Todas las políticas `UPDATE` tienen `WITH CHECK`; además el trigger `*_restaurante_inmutable` impide mover filas
+  incluso a quien es dueño de los dos restaurantes.
+* Insertar con `restaurante_id` ajeno, o sin él (el defecto transitorio es Taqueiros), se rechaza; un `upsert`
+  contra la referencia de un pedido ajeno se rechaza; un `INSERT` rechazado no consume el contador del otro
+  restaurante.
+* `UPDATE`/`DELETE` **sin `WHERE`** (donde Postgres no aplica la política de lectura) solo tocan filas propias.
+* Las funciones de historial y jornada aceptan `p_restaurante`, pero no confían en él: corren como quien llama
+  (RLS filtra) y `config_jornada` verifica la membresía; pedir otro restaurante devuelve vacío o `null`.
+* `restaurante_secretos`, `contadores_pedido` e `intentos_buscar_pedido`: sin políticas, sin privilegios para
+  clientes, ninguna función ni vista los devuelve y no están en Realtime. A futuro conviene Supabase Vault para las
+  llaves (Wompi, CallMeBot), leyéndolas solo desde el servidor.
+* La función `es_…` que `anon` podía ejecutar en producción es `es_personal()`: solo responde si quien llama está en
+  `personal` (para `anon`, siempre `false`). No filtraba datos; el SQL 10 la deja como invoker y sin `anon`.
+
+**Revisión por mutación** (`pruebas/multirestaurante/mutaciones.mjs`): rompe a propósito cada política, trigger,
+función y comprobación del SQL 10 y exige que alguna prueba falle o que la migración se detenga. Ver la sección 8
+para el resultado.
+
+**Resultado de la revisión por mutación:** 89 mutaciones; **82 detectadas**, **7 equivalentes** y **0 sin detectar**. Las
+equivalentes son defensas en capas: quitar una sola no cambia lo que un atacante puede hacer porque otra capa cubre lo
+mismo (por ejemplo, el `WITH CHECK` de productos y el trigger de restaurante inmutable). En esos casos, la mutación
+que quita **las dos capas** sí se detecta. Antes de esta revisión **no se detectaban** (y se agregaron pruebas para):
+`UPDATE` de pedidos sin `WITH CHECK` (un pedido podía volver a `pendiente_pago`) y `UPDATE`/`DELETE` sin control en
+pedidos, categorías, tarifas y miembros (Postgres no aplica la política de lectura a un `UPDATE`/`DELETE` sin `WHERE`);
+la inserción de configuración y el borrado del propio restaurante (se distinguen por el código de error, porque la
+llave primaria y las foráneas también los frenan); mover filas siendo dueño de dos restaurantes; y quitar el trigger
+de restaurante inmutable.
