@@ -22,7 +22,12 @@ const { leerCatalogoParaCobrar } = require("./_menu.js");
    agotado, es gratis.
 ============================================================= */
 
-/* Valida los productos de un pedido contra la base.
+/* Valida los productos de un pedido contra el menu de UN restaurante.
+
+   MULTI-RESTAURANTE: el catalogo que se consulta es solo el de 'rid'. Un id de
+   producto de otro restaurante no existe en ese catalogo, asi que cae en
+   'desconocidos' y el pedido se rechaza (aunque el otro restaurante tenga un
+   producto con el mismo id: los ids solo son unicos dentro de cada restaurante).
 
    Devuelve:
      { ok: true, items: [...], subtotal }
@@ -30,14 +35,14 @@ const { leerCatalogoParaCobrar } = require("./_menu.js");
 
    Los precios que se devuelven son SIEMPRE los de la base, nunca los
    que mando el navegador. */
-async function validarItems(items) {
+async function validarItems(rid, items) {
   if (!Array.isArray(items) || items.length === 0) {
     return { ok: false, error: "El pedido no tiene productos" };
   }
 
   let catalogo;
   try {
-    catalogo = await leerCatalogoParaCobrar();
+    catalogo = await leerCatalogoParaCobrar(rid);
   } catch (err) {
     console.error("[Precios] No se pudo leer el catalogo:", err.message);
     /* Si no se puede confirmar el precio, NO se cobra. Es preferible

@@ -3,12 +3,20 @@
 // Cada peticion corre en una transaccion con "set local role" + request.jwt.claims, igual que PostgREST.
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { crearBase, sembrar, sql10 } from './sim.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { crearBase, sembrar, sql10, REPO } from './sim.mjs';
 
 export async function levantar({ puerto = 54329, migrar = true } = {}) {
   const db = await crearBase({ con01y02: true });
   await sembrar(db);
-  if (migrar) await db.exec(sql10());
+  if (migrar) {
+    await db.exec(sql10());
+    // SQL 11 (restaurante_dominios). SQL11_ARCHIVO permite probar otra version; SQL11_NO=1 lo omite
+    // (para probar la transicion en la que la tabla todavia no existe).
+    const f11 = process.env.SQL11_ARCHIVO || path.join(REPO, 'supabase', '11-dominios.sql');
+    if (!process.env.SQL11_NO && fs.existsSync(f11)) await db.exec(fs.readFileSync(f11, 'utf8'));
+  }
 
   const passwords = new Map();   // email -> password
   const tokens = new Map();      // token -> uid
@@ -45,7 +53,7 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
     const where = [];
     for (const [k, v] of url.searchParams) {
       if (['select', 'order', 'limit', 'offset'].includes(k)) continue;
-      const m = v.match(/^(eq|neq|like|in|is)\.(.*)$/);
+      const m = v.match(/^(eq|neq|like|in|is|lt|lte|gt|gte)\.(.*)$/);
       if (!m) throw Object.assign(new Error('filtro no soportado: ' + k + '=' + v), { code: 'PGRST100' });
       const [, op, val] = m;
       if (op === 'eq') { params.push(val); where.push(`${q(k)}::text = $${params.length}`); }
@@ -53,6 +61,11 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
       else if (op === 'like') { params.push(val.replace(/\*/g, '%')); where.push(`${q(k)}::text like $${params.length}`); }
       else if (op === 'in') { params.push(val.replace(/^\(|\)$/g, '').split(',').map((x) => x.replace(/^"|"$/g, ''))); where.push(`${q(k)}::text = any($${params.length})`); }
       else if (op === 'is') { where.push(`${q(k)} is ${val === 'null' ? 'null' : val}`); }
+      else {
+        // lt / lte / gt / gte: se comparan con el tipo de la columna (timestamptz, numeric...), no como texto
+        params.push(val);
+        where.push(`${q(k)} ${{ lt: '<', lte: '<=', gt: '>', gte: '>=' }[op]} $${params.length}`);
+      }
     }
     return where.length ? ' where ' + where.join(' and ') : '';
   }
@@ -94,6 +107,12 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
         if (m && req.method === 'DELETE') {
           await db.query(`delete from auth.users where id = $1`, [m[1]]);
           return enviar(res, 200, {});
+        }
+        if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
+          const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
+          const r = await db.query(`select id, email from auth.users where id = $1`, [tokens.get(t)]);
+          return enviar(res, 200, r.rows[0]);
         }
         if (url.pathname === '/auth/v1/token') {
           const r = await db.query(`select id from auth.users where email = $1`, [cuerpo.email]);

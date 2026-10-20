@@ -1,4 +1,5 @@
 const { leerEstadoMenu } = require("./_menu.js");
+const { exigirRestaurante } = require("./_restaurante.js");
 
 /* =============================================================
    QUE SE PUEDE PEDIR AHORA MISMO
@@ -23,13 +24,20 @@ const { leerEstadoMenu } = require("./_menu.js");
    segundos viejo). Para la disponibilidad no: es justo el dato que
    tiene que llegar rapido. Sin SWR, la peticion que encuentra el
    cache vencido espera el valor fresco y lo devuelve ya.
+
+   MULTI-RESTAURANTE: solo lo del restaurante del host; la cache va por
+   dominio ("Vary: Host").
 ============================================================= */
 module.exports = async (req, res) => {
+  const restaurante = await exigirRestaurante(req, res);
+  if (!restaurante) return;
+
   try {
-    const estado = await leerEstadoMenu();
+    const estado = await leerEstadoMenu(restaurante.id);
 
     // 10 segundos, sin stale-while-revalidate a proposito (ver arriba)
     res.setHeader("Cache-Control", "public, s-maxage=10");
+    res.setHeader("Vary", "Host");
     res.status(200).json({ ok: true, ...estado });
   } catch (err) {
     console.error("[Disponibilidad] No se pudo consultar:", err.message);

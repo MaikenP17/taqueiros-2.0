@@ -23,12 +23,18 @@
             "API Activated for your phone number. Your APIKEY is 123456"
         Si no responde en ~10 minutos, hay que reintentar mas tarde
         (el servicio a veces tarda o ignora el primer intento).
-     4. En Vercel -> Settings -> Environment Variables, actualiza:
-            CALLMEBOT_PHONE  = el numero nuevo en formato 57XXXXXXXXXX
-            CALLMEBOT_APIKEY = la apikey que respondio el bot
-     5. Vercel -> Deployments -> ... -> Redeploy.
+     4. Guarda los dos valores en la fila del restaurante en la tabla
+        restaurante_secretos (columnas callmebot_telefono y callmebot_apikey;
+        con supabase/cargar-secretos.mjs). Formato del telefono: 57XXXXXXXXXX.
+        (Mientras no esten ahi, SOLO Taqueiros usa de respaldo las variables
+        de entorno CALLMEBOT_PHONE y CALLMEBOT_APIKEY de Vercel.)
 
-   NO hay que tocar codigo: ambos valores son variables de entorno.
+   NO hay que tocar codigo ni redesplegar: se leen en cada envio.
+
+   MULTI-RESTAURANTE: cada restaurante avisa SOLO a su propio contacto. El
+   contacto llega como tercer argumento de notificarWhatsApp y debe ser el del
+   mismo restaurante que el pedido; si no coincide, se lanza un error y no se
+   envia nada (un pedido jamas sale por el WhatsApp de otro restaurante).
 
    OJO, son dos numeros distintos y no deben confundirse:
      - CALLMEBOT_PHONE: quien RECIBE las comandas automaticas.
@@ -83,7 +89,7 @@
    para uso personal". Por eso NUNCA debe ser el unico canal: el
    canal principal es el panel de comandas.
 
-   Si no hay variables configuradas, la funcion no hace nada y no
+   Si el restaurante no tiene contacto configurado, la funcion no hace nada y no
    rompe el webhook: simplemente se omite el respaldo.
 ============================================================= */
 
@@ -174,12 +180,22 @@ function construirComanda(pedido, opciones) {
   return lineas.join("\n");
 }
 
-async function notificarWhatsApp(pedido, opciones) {
-  const telefono = process.env.CALLMEBOT_PHONE;      // formato: 57XXXXXXXXXX
-  const apikey = process.env.CALLMEBOT_APIKEY;
+/* 'contacto' = { restauranteId, telefono, apikey } del restaurante DEL PEDIDO
+   (ver contactoAlertas en _restaurante.js). */
+async function notificarWhatsApp(pedido, opciones, contacto) {
+  const c = contacto || {};
+
+  // Defensa en profundidad: el aviso de un restaurante solo puede salir por
+  // el contacto de ese mismo restaurante.
+  if (!pedido || !pedido.restaurante_id || !c.restauranteId || pedido.restaurante_id !== c.restauranteId) {
+    throw new Error("El contacto de avisos no es del restaurante del pedido");
+  }
+
+  const telefono = c.telefono;      // formato: 57XXXXXXXXXX
+  const apikey = c.apikey;
 
   if (!telefono || !apikey) {
-    console.log("[Notificar] CallMeBot no esta configurado, se omite el respaldo por WhatsApp");
+    console.log("[Notificar] CallMeBot no esta configurado para este restaurante, se omite el respaldo por WhatsApp");
     return { enviado: false, motivo: "sin configurar" };
   }
 
@@ -242,7 +258,7 @@ async function notificarWhatsApp(pedido, opciones) {
   // NUNCA debe tumbar el flujo del pedido: el pedido ya esta guardado
   // y visible en el panel, que es el canal principal.
   try {
-    await registrarSaludNotificacion(ok, detalleError);
+    await registrarSaludNotificacion(pedido.restaurante_id, ok, detalleError);
   } catch (err) {
     console.error("[Notificar] No se pudo registrar la salud:", err.message);
   }

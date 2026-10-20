@@ -1,9 +1,13 @@
 const crypto = require("crypto");
 const { validarItems } = require("./_precios.js");
-const { calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
+const { contextoDomicilio, calcularDomicilio, coordenadasValidas } = require("./_domicilio.js");
 const { estadoRestaurante } = require("./_horario.js");
-const { verificarUbicacion } = require("./_ubicacion.js");
-const { insertarPedido } = require("./_supabase.js");
+const { verificarUbicacion, opcionesUbicacion } = require("./_ubicacion.js");
+const { insertarPedido, leerTarifasDomicilio } = require("./_supabase.js");
+const {
+  exigirRestaurante, restauranteFresco, exigirServicio,
+  leerSecretos, modoDePago, secretosWompi
+} = require("./_restaurante.js");
 
 /* =============================================================
    Crea el pedido ANTES de que el cliente pague.
@@ -17,7 +21,15 @@ const { insertarPedido } = require("./_supabase.js");
    con el catalogo de _precios.js y firma ESE total. Asi nadie
    puede pagar menos manipulando el navegador.
 
-   Devuelve: { referencia, total, firma }
+   Devuelve: { referencia, numero, total, firma, ... }
+
+   MULTI-RESTAURANTE: el restaurante sale del host (ver _restaurante.js), nunca
+   del cuerpo de la peticion. Todo lo demas es de ESE restaurante: su menu y
+   precios (un id de producto de otro restaurante se rechaza), su horario, sus
+   tarifas de domicilio, sus llaves de Wompi y su contador de numero de pedido
+   (lo asigna la base al insertar, con el contador atomico del restaurante).
+   Si el servicio esta suspendido o vencido mas alla de la gracia, no se
+   reciben pedidos (403, motivo 'servicio_suspendido'); no se toca ningun dato.
 ============================================================= */
 
 const TIPOS_VALIDOS = ["domicilio", "llevar", "local"];
@@ -32,13 +44,22 @@ module.exports = async (req, res) => {
     return;
   }
 
+  // ---- De que restaurante es esta peticion ---------------------
+  const restauranteCache = await exigirRestaurante(req, res);
+  if (!restauranteCache) return;
+
   try {
     const { cliente, items, modo } = req.body || {};
+
+    // ---- El servicio debe estar al dia ---------------------------
+    // Se lee el restaurante SIN cache: una suspension rige en el acto.
+    const restaurante = await restauranteFresco(restauranteCache);
+    if (!exigirServicio(res, restaurante)) return;
 
     // ---- El restaurante debe estar abierto --------------------
     // Se valida AQUI, no solo en el navegador: cualquiera podria
     // saltarse la validacion del frontend desde la consola.
-    const estado = await estadoRestaurante();
+    const estado = await estadoRestaurante(restaurante);
     if (!estado.abierto) {
       res.status(409).json({
         error: estado.mensaje || "El restaurante está cerrado en este momento",
@@ -93,7 +114,7 @@ module.exports = async (req, res) => {
        El navegador solo manda ids y cantidades. Los precios que se
        usan aqui son los de la base, nunca los que llegaron en la
        peticion. */
-    const revision = await validarItems(items);
+    const revision = await validarItems(restaurante.id, items);
 
     if (!revision.ok) {
       // 409 y no 400: no es que el cliente pidiera mal, es que el
@@ -139,7 +160,14 @@ module.exports = async (req, res) => {
         return;
       }
 
-      const calculo = calcularDomicilio(lat, lng);
+      // Tarifas y origen de ESTE restaurante (tabla tarifas_domicilio + su config)
+      const ctxDomicilio = contextoDomicilio(restaurante, await leerTarifasDomicilio(restaurante.id));
+      if (!ctxDomicilio) {
+        res.status(400).json({ error: "Este restaurante no tiene domicilio configurado. Elige recoger en el local." });
+        return;
+      }
+
+      const calculo = calcularDomicilio(lat, lng, ctxDomicilio);
       costoDomicilio = calculo.precio;
       distanciaKm = calculo.km;
       fueraDeCobertura = calculo.fueraDeCobertura;
@@ -152,7 +180,7 @@ module.exports = async (req, res) => {
       // falla aqui el pedido sigue igual, solo se queda sin la senal
       // de aviso para el panel.
       try {
-        const revision = await verificarUbicacion(lat, lng, barrio);
+        const revision = await verificarUbicacion(lat, lng, barrio, opcionesUbicacion(restaurante, ctxDomicilio));
         barrioDetectado = revision.barrioDetectado;
         ubicacionSospechosa = revision.sospechosa;
       } catch (err) {
@@ -167,9 +195,12 @@ module.exports = async (req, res) => {
     const montoEnCentavos = total * 100;
     const moneda = "COP";
 
-    const secreto = modo === "produccion"
-      ? process.env.WOMPI_INTEGRITY_SECRET_PROD
-      : process.env.WOMPI_INTEGRITY_SECRET_TEST;
+    // Las llaves son del restaurante y se leen aqui, en el servidor, en cada uso.
+    // El modo (prueba/produccion) lo decide el servidor; el del navegador solo
+    // cuenta para Taqueiros mientras no se configure (ver modoDePago).
+    const secretos = await leerSecretos(restaurante);
+    const modoCobro = modoDePago(restaurante, secretos, modo);
+    const secreto = modoCobro ? secretosWompi(restaurante, secretos, modoCobro).integridad : null;
 
     if (!secreto) {
       res.status(500).json({ error: "El secreto de integridad no está configurado en el servidor" });
@@ -182,7 +213,7 @@ module.exports = async (req, res) => {
       .digest("hex");
 
     // ---- Guardar el pedido como pendiente de pago ------------
-    await insertarPedido({
+    const pedidoGuardado = await insertarPedido(restaurante.id, {
       referencia,
       estado: "pendiente_pago",
       cliente_nombre: nombre,
@@ -203,7 +234,7 @@ module.exports = async (req, res) => {
       ubicacion_sospechosa: ubicacionSospechosa,
       total,
       estado_pago: "pendiente",
-      wompi_ambiente: modo === "produccion" ? "prod" : "test"
+      wompi_ambiente: modoCobro === "produccion" ? "prod" : "test"
     });
 
     console.log("[Pedido] Creado pendiente de pago:", referencia,
@@ -211,6 +242,7 @@ module.exports = async (req, res) => {
 
     res.status(200).json({
       referencia,
+      numero: pedidoGuardado ? pedidoGuardado.numero : null,
       subtotal,
       costoDomicilio,
       distanciaKm,

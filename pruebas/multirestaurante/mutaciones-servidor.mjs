@@ -1,0 +1,274 @@
+/* =============================================================
+   REVISION POR MUTACION DEL SERVIDOR MULTI-RESTAURANTE
+
+   Rompe A PROPOSITO, una por una, cada defensa de api/*.js y exige que alguna
+   prueba (escenarios-servidor.mjs) lo detecte:
+
+     1. FILTROS: cada llamada a filtroRestaurante(...) -> se quita (la consulta
+        queda sin filtro de restaurante). Se hace automaticamente sobre todo
+        api/*.js, asi que un filtro nuevo queda cubierto sin tocar este archivo.
+        Cada una se prueba primero SIN el espia de URLs (solo comportamiento) y,
+        si asi no se detecta, con el.
+     2. EL restaurante_id DE LOS INSERTS: se quita del cuerpo.
+     3. DEFENSAS: resolucion del host, cache, ?r=, servicio, secretos, firma del
+        webhook, contactos de alertas, autorizacion de reembolsos, tarifas,
+        horarios, respaldo del menu, datos publicos...
+
+   Una mutacion es DETECTADA si alguna prueba falla o el manejador se rompe.
+   SOBREVIVE si todas pasan: eso es una prueba que falta (o una defensa que
+   sobra). Las EQUIVALENTES (quitar una defensa en capas no cambia lo que puede
+   hacer un atacante porque otra capa lo cubre) se declaran con su razon.
+
+     node pruebas/multirestaurante/mutaciones-servidor.mjs
+     node pruebas/multirestaurante/mutaciones-servidor.mjs --solo=webhook     (las que contengan ese texto)
+
+   Sale con codigo 1 si alguna mutacion NO equivalente sobrevive.
+============================================================= */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { levantar } from './fake-supabase.mjs';
+import { correrContraFalso, RAIZ } from './servidor.mjs';
+
+const TAQ = '00000000-0000-4000-8000-000000000001';
+const API = path.join(RAIZ, 'api');
+const archivos = fs.readdirSync(API).filter((f) => f.endsWith('.js'));
+const original = Object.fromEntries(archivos.map((f) => [f, fs.readFileSync(path.join(API, f), 'utf8').replace(/\r\n/g, '\n')]));
+
+/* ---- mutaciones: [nombre, archivo, buscar, reemplazar, { equivalente: 'razon' }] ---------------------- */
+const M = [];
+const m = (nombre, archivo, buscar, reemplazar, extra) => M.push({ nombre, archivo, buscar, reemplazar, ...(extra || {}) });
+
+// Cliente de Supabase
+m('el restaurante_id de un insert ya no va en el cuerpo (cae en el defecto transitorio = Taqueiros)', '_supabase.js',
+  'cuerpo: Object.assign({}, pedido, { restaurante_id: exigirRestauranteId(rid) })', 'cuerpo: Object.assign({}, pedido)');
+m('exigirRestauranteId acepta cualquier texto (inyeccion de filtros)', '_supabase.js', 'if (typeof rid !== "string" || !UUID.test(rid)) {', 'if (typeof rid !== "string") {');
+m('exigirRestauranteId acepta lo que sea', '_supabase.js', 'if (typeof rid !== "string" || !UUID.test(rid)) {', 'if (false) {');
+m('leerConfiguracion vuelve a leer id=eq.1 (la fila de Taqueiros) en vez de la del restaurante', '_supabase.js',
+  '`configuracion?${filtroRestaurante(rid)}&select=*`', '`configuracion?id=eq.1&select=*`');
+m('la salud del WhatsApp vuelve a usar id=eq.1', '_supabase.js', '`salud_notificaciones?${filtroRestaurante(rid)}`, {', '`salud_notificaciones?id=eq.1`, {');
+m('buscarPedidoPorReferenciaGlobal acepta referencias repetidas', '_supabase.js', 'if (filas.length > 1) {', 'if (false) {',
+  { equivalente: 'la base no permite dos pedidos con la misma referencia (UNIQUE): la defensa es de profundidad' });
+m('el reembolso deja de ser condicional/atomico (sin estado, pago ni reembolsado_en en el PATCH)', '_supabase.js',
+  '&estado=eq.cancelado&estado_pago=eq.aprobado&reembolsado_en=is.null`', '`');
+m('listarRestaurantes: sin orden estable', '_supabase.js', '&order=creado_en.asc`', '`', { equivalente: 'solo cambia el orden en que el cron recorre los restaurantes' });
+
+// Resolucion del restaurante
+m('la cache por host se comparte entre hosts', '_restaurante.js', 'conCache("host:" + host,', 'conCache("host:",');
+m('la cache por slug se comparte entre slugs', '_restaurante.js', 'conCache("slug:" + slug,', 'conCache("slug:",');
+m('?r= tambien funciona en produccion', '_restaurante.js', 'if (entorno.VERCEL_ENV !== "production") {', 'if (true) {');
+m('el restaurante se elige con x-forwarded-host', '_restaurante.js', 'const h = req && req.headers ? req.headers.host : null;',
+  'const h = req && req.headers ? (req.headers["x-forwarded-host"] || req.headers.host) : null;');
+m('el restaurante se elige con un host dentro del cuerpo', '_restaurante.js', 'const host = hostDe(req);',
+  'const host = (req && req.body && req.body.host) ? normalizarHost(req.body.host) : hostDe(req);');
+m('el subdominio acepta DOMINIO_BASE pegado sin punto', '_restaurante.js', 'host.endsWith("." + base)', 'host.endsWith(base)');
+m('el subdominio acepta cualquier etiqueta (sin validar el formato del slug)', '_restaurante.js',
+  'if (etiqueta.length >= 2 && etiqueta.length <= 40 && SLUG.test(etiqueta)) {', 'if (etiqueta.length >= 2) {',
+  { equivalente: 'buscarRestaurantePorSlug valida el formato del slug otra vez antes de consultar (defensa en capas)' });
+m('el subdominio sin validar el formato en NINGUNA de las dos capas', '_restaurante.js',
+  'if (etiqueta.length >= 2 && etiqueta.length <= 40 && SLUG.test(etiqueta)) {', 'if (etiqueta.length >= 2) {', { tambien: ['_supabase.js', 'if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(String(slug))) return null;', ''] , equivalente: 'el unico slug que pasa sin formato valido seria uno con punto, y ningun restaurante puede tenerlo (CHECK de la tabla): no hay forma de explotarlo' });
+m('el host no se normaliza (puerto y punto final)', '_restaurante.js', 'h = h.replace(/:\\d{1,5}$/, "").replace(/\\.$/, "");', 'h = h;');
+m('el host no se valida (llega a la base cualquier cosa)', '_restaurante.js',
+  'if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(h) || h.includes("..")) return null;', 'if (false) return null;', { tambien: ['_supabase.js', 'if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(String(host)) || host.length > 253) return null;', ''] });
+m('la cache negativa no existe', '_restaurante.js', 'expira: ahora + (restaurante ? TTL_MS : TTL_NEGATIVO_MS),', 'expira: ahora + (restaurante ? TTL_MS : 0),');
+m('la cache dura casi para siempre', '_restaurante.js', 'const TTL_MS = 30 * 1000;', 'const TTL_MS = 30 * 1000 * 1000;');
+m('invalidarCache(id) vacia todo', '_restaurante.js', 'if (!restauranteId) { cache.clear(); return; }', 'cache.clear(); return;');
+m('sin copia vieja cuando Supabase falla', '_restaurante.js', 'if (hit && hit.restaurante && hit.vence > ahora) {', 'if (false) {');
+m('la transicion sin SQL 11 vale para cualquier host', '_restaurante.js', 'tablaDominiosAusente(err) && HOSTS_TRANSITORIOS_TAQUEIROS.includes(host)', 'tablaDominiosAusente(err)');
+m('el respaldo de entorno sirve a cualquier restaurante', '_restaurante.js', 'if (restaurante.id === RESTAURANTE_TAQUEIROS_ID) {\n    const v =', 'if (true) {\n    const v =');
+m('el modo de cobro lo decide el navegador', '_restaurante.js', 'if (otros.wompi_modo === "test" || otros.wompi_modo === "produccion") return otros.wompi_modo;', 'if (false) return otros.wompi_modo;');
+m('el modo del navegador vale para cualquier restaurante sin configurar', '_restaurante.js', 'if (restaurante.id === RESTAURANTE_TAQUEIROS_ID) {\n    return modoDelCliente', 'if (true) {\n    return modoDelCliente');
+m('los secretos de prueba se usan en produccion (secretosWompi ignora el modo)', '_restaurante.js', 'const prod = modo === "produccion";', 'const prod = false;');
+m('suspendido sigue sirviendo', '_restaurante.js', 'if (r.estado === "suspendido") {', 'if (false) {');
+m('no hay periodo de gracia', '_restaurante.js', 'if (vencidoHace <= gracia) {', 'if (false) {');
+m('el dia de vigente_hasta ya cuenta como vencido', '_restaurante.js', 'if (vencidoHace <= 0) {', 'if (vencidoHace < 0) {');
+m('la vigencia se mide en UTC y no en la zona del restaurante', '_restaurante.js', 'fechaLocal(momento, r.zona_horaria)', 'fechaLocal(momento, "UTC")');
+m('exigirServicio nunca bloquea', '_restaurante.js', 'if (servicio.sirve) return servicio;', 'return servicio;');
+m('restauranteFresco usa el restaurante en cache', '_restaurante.js', 'const r = await buscarRestaurantePorId(restaurante.id);', 'const r = restaurante;');
+m('los secretos se leen de la fila de OTRO restaurante', '_restaurante.js', 'return (await leerSecretosRestaurante(restaurante.id)) || {};', `return (await leerSecretosRestaurante("${TAQ}")) || {};`);
+
+// Endpoints
+m('menu: siempre el menu de Taqueiros', 'menu.js', 'await leerMenu(restaurante.id)', `await leerMenu("${TAQ}")`);
+m('menu: la copia de respaldo es de otro restaurante', 'menu.js', 'menuDeRespaldo(restaurante.id)', `menuDeRespaldo("${TAQ}")`);
+m('menu: la cache del borde no es por dominio (sin Vary: Host)', 'menu.js', 'res.setHeader("Vary", "Host");\n    res.status(200).json({ ok: true, ...menu });', 'res.status(200).json({ ok: true, ...menu });');
+m('_menu: la copia de respaldo es una sola para todos', '_menu.js', 'return ultimoMenuBuenoPorRestaurante.get(rid) || null;', 'return [...ultimoMenuBuenoPorRestaurante.values()].pop() || null;');
+m('disponibilidad: siempre la de Taqueiros', 'disponibilidad.js', 'await leerEstadoMenu(restaurante.id)', `await leerEstadoMenu("${TAQ}")`);
+m('estado: siempre el horario de Taqueiros', 'estado.js', 'await estadoRestaurante(restaurante)', `await estadoRestaurante({ id: "${TAQ}", zona_horaria: "America/Bogota" })`);
+m('estado: no informa el servicio', 'estado.js', 'servicio: { sirve: servicio.sirve, motivo: servicio.sirve ? null : "servicio_suspendido" }', 'servicio: { sirve: true, motivo: null }');
+m('crear-pedido: valida los productos contra el menu de Taqueiros', 'crear-pedido.js', 'validarItems(restaurante.id, items)', `validarItems("${TAQ}", items)`);
+m('crear-pedido: las tarifas son las de Taqueiros', 'crear-pedido.js', 'leerTarifasDomicilio(restaurante.id)', `leerTarifasDomicilio("${TAQ}")`);
+m('crear-pedido: el pedido se guarda en Taqueiros', 'crear-pedido.js', 'insertarPedido(restaurante.id, {', `insertarPedido("${TAQ}", {`);
+m('crear-pedido: las llaves son las de Taqueiros', 'crear-pedido.js', 'const secretos = await leerSecretos(restaurante);', `const secretos = await leerSecretos({ id: "${TAQ}" });`);
+m('crear-pedido: el horario es el de Taqueiros', 'crear-pedido.js', 'await estadoRestaurante(restaurante);', `await estadoRestaurante({ id: "${TAQ}", zona_horaria: "America/Bogota" });`);
+m('crear-pedido: no revisa el servicio', 'crear-pedido.js', 'if (!exigirServicio(res, restaurante)) return;', '');
+m('crear-pedido: usa el restaurante en cache (una suspension tarda en regir)', 'crear-pedido.js', 'const restaurante = await restauranteFresco(restauranteCache);', 'const restaurante = restauranteCache;');
+m('crear-pedido: el ambiente guardado es el que dice el navegador', 'crear-pedido.js', 'wompi_ambiente: modoCobro === "produccion" ? "prod" : "test"', 'wompi_ambiente: modo === "produccion" ? "prod" : "test"');
+m('crear-pedido: la firma usa el secreto de entorno', 'crear-pedido.js', 'secretosWompi(restaurante, secretos, modoCobro).integridad', 'process.env.WOMPI_INTEGRITY_SECRET_TEST');
+m('crear-pedido: el restaurante sale del cuerpo', 'crear-pedido.js', 'const restauranteCache = await exigirRestaurante(req, res);\n  if (!restauranteCache) return;',
+  'const restauranteCache = (req.body && req.body.restaurante_id) ? await S_porId(req.body.restaurante_id) : await exigirRestaurante(req, res);\n  if (!restauranteCache) return;',
+  { cabecera: 'const { buscarRestaurantePorId: S_porId } = require("./_supabase.js");\n' });
+m('webhook: eventos de produccion se verifican con el secreto de prueba', 'webhook-wompi.js', 'environment === "prod" ? "produccion" : "test"', '"test"');
+m('webhook: la firma se verifica con la variable de entorno', 'webhook-wompi.js', 'const secreto = restaurante\n      ?', 'const secreto = process.env.WOMPI_EVENTS_SECRET_TEST ? process.env.WOMPI_EVENTS_SECRET_TEST : restaurante\n      ?');
+m('webhook: no se verifica la firma', 'webhook-wompi.js', 'if (!firmaValida(evento, secreto)) {', 'if (false) {');
+m('webhook: los secretos son los de Taqueiros', 'webhook-wompi.js', 'await buscarRestaurantePorId(pedido.restaurante_id)', `await buscarRestaurantePorId("${TAQ}")`);
+m('webhook: una referencia desconocida responde 200', 'webhook-wompi.js', 'console.error("[Wompi] Evento de una referencia sin pedido, rechazado:", referencia.slice(0, 40));\n      res.status(401)', 'console.error("[Wompi] Evento de una referencia sin pedido, rechazado:", referencia.slice(0, 40));\n      res.status(200)');
+m('webhook: las actualizaciones van al restaurante equivocado', 'webhook-wompi.js', 'const rid = pedido.restaurante_id;', `const rid = "${TAQ}";`);
+m('webhook: el aviso sale sin contacto del restaurante', 'webhook-wompi.js', 'contactoAlertas(restaurante, secretos)', 'contactoAlertas(restaurante, {})');
+m('webhook: el aviso sale por el contacto de Taqueiros', 'webhook-wompi.js', 'contactoAlertas(restaurante, secretos)', `contactoAlertas({ id: "${TAQ}" }, secretos)`);
+m('webhook: no detecta eventos duplicados', 'webhook-wompi.js', 'if (pedido.estado_pago === "aprobado") {', 'if (false) {');
+m('webhook: no verifica el monto', 'webhook-wompi.js', 'if (pagadoEnPesos !== Number(pedido.total)) {', 'if (false) {');
+m('notificar: no verifica que el contacto sea del restaurante del pedido', '_notificar.js',
+  'if (!pedido || !pedido.restaurante_id || !c.restauranteId || pedido.restaurante_id !== c.restauranteId) {', 'if (false) {');
+m('notificar: la salud se registra en Taqueiros', '_notificar.js', 'registrarSaludNotificacion(pedido.restaurante_id, ok, detalleError)', `registrarSaludNotificacion("${TAQ}", ok, detalleError)`);
+m('alertas: tambien recorre los restaurantes suspendidos', 'alertas.js', '.filter((r) => restauranteActivo(r).sirve)', '');
+m('alertas: el contacto es siempre el mismo (el primero)', 'alertas.js', 'contactoAlertas(restaurante, await leerSecretos(restaurante))',
+  'contactoAlertas({ id: restaurante.id }, { callmebot_telefono: "573000000000", callmebot_apikey: "x" })');
+m('alertas: avisa aunque no haya contacto (y marca como avisado)', 'alertas.js', 'if (!contacto.telefono || !contacto.apikey) {', 'if (false) {');
+m('alertas: consulta los pedidos de Taqueiros', 'alertas.js', 'const rid = restaurante.id;', `const rid = "${TAQ}";`);
+m('alertas: un restaurante que falla detiene a los demas', 'alertas.js', '      } catch (err) {\n        // Un restaurante con problemas no deja sin aviso a los demas\n        console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);\n      }', '      } finally {\n      }');
+m('restaurante: devuelve toda la config (incluye lo interno)', 'restaurante.js', 'config: publico,', 'config: cfg,');
+m('restaurante: expone el plan', 'restaurante.js', 'modulos: restaurante.modulos || {},', 'modulos: restaurante.modulos || {},\n    plan: restaurante.plan,');
+m('restaurante: expone la vigencia', 'restaurante.js', 'zona_horaria: restaurante.zona_horaria,', 'zona_horaria: restaurante.zona_horaria,\n    vigente_hasta: restaurante.vigente_hasta,');
+m('restaurante: siempre dice que el servicio esta activo', 'restaurante.js', 'sirve: servicio.sirve,', 'sirve: true,');
+m('reembolso: cualquiera con sesion puede', 'reembolso.js', 'if (!(await esDuenoOSuperadmin(restaurante.id, usuario))) {', 'if (false) {');
+m('reembolso: el cajero tambien puede (no se exige el rol dueno)', 'reembolso.js', '&activo=is.true&rol=eq.dueno&', '&activo=is.true&');
+m('reembolso: un dueno desactivado todavia puede', 'reembolso.js', '`user_id=eq.${usuario.id}&activo=is.true&rol=eq.dueno&', '`user_id=eq.${usuario.id}&rol=eq.dueno&');
+m('reembolso: todo el mundo es superadmin', 'reembolso.js', 'return esSuperadmin(usuario.id);', 'return true;');
+m('reembolso: un token invalido se acepta', 'reembolso.js', 'const usuario = m ? await usuarioDeToken(m[1]) : null;', 'const usuario = m ? { id: "00000000-0000-4000-8000-0000000000ff" } : null;');
+m('reembolso: no exige que el pedido este cancelado y cobrado (ninguna de las dos capas)', 'reembolso.js',
+  'if (pedido.estado !== "cancelado" || pedido.estado_pago !== "aprobado") {', 'if (false) {',
+  { tambien: ['_supabase.js', '&estado=eq.cancelado&estado_pago=eq.aprobado&reembolsado_en=is.null`', '&reembolsado_en=is.null`'] });
+m('reembolso: solo la capa de reembolso.js (la del PATCH sigue)', 'reembolso.js', 'if (pedido.estado !== "cancelado" || pedido.estado_pago !== "aprobado") {', 'if (false) {',
+  { equivalente: 'el PATCH condicional de marcarReembolsado repite las mismas condiciones (defensa en capas); quitar ambas si se detecta' });
+m('reembolso: busca el pedido en Taqueiros', 'reembolso.js', 'const pedido = await buscarPedidoPorReferencia(rid, ref);', `const pedido = await buscarPedidoPorReferencia("${TAQ}", ref);`);
+m('generar-firma: firma cualquier referencia y monto', 'generar-firma.js', 'if (!pedido || pedido.estado_pago !== "pendiente"\n        || Number(montoEnCentavos) !== Number(pedido.total) * 100) {', 'if (false) {');
+m('generar-firma: busca el pedido en Taqueiros', 'generar-firma.js', 'buscarPedidoPorReferencia(restaurante.id,', `buscarPedidoPorReferencia("${TAQ}",`);
+m('generar-firma: firma con el secreto de entorno', 'generar-firma.js', 'secretosWompi(restaurante, secretos, modoCobro).integridad', 'process.env.WOMPI_INTEGRITY_SECRET_TEST');
+
+// Domicilio y ubicacion
+m('domicilio: el factor de recorrido es siempre el de Taqueiros', '_domicilio.js', 'factor: Number.isFinite(factor) && factor > 0 ? factor : FACTOR_RECORRIDO,', 'factor: FACTOR_RECORRIDO,');
+m('domicilio: se ignora la ubicacion del restaurante', '_domicilio.js', 'if (u && coordenadasValidas(Number(u.lat), Number(u.lng))) {', 'if (false) {');
+m('domicilio: el origen de Taqueiros se presta a cualquier restaurante', '_domicilio.js', '} else if (restaurante && restaurante.id === RESTAURANTE_TAQUEIROS_ID) {', '} else if (true) {');
+m('domicilio: las tarifas no se ordenan', '_domicilio.js', '.sort((a, b) => a.hasta - b.hasta);', ';', { equivalente: 'PostgREST ya las entrega ordenadas por hasta (order=hasta.asc); el sort es de profundidad' });
+m('domicilio: fuera de cobertura se cobra', '_domicilio.js', 'precio: tramo && tramo.precio != null ? tramo.precio : 0,', 'precio: tramo && tramo.precio != null ? tramo.precio : 1000,');
+m('ubicacion: la caja de Cucuta se usa en todos los restaurantes', '_ubicacion.js', '} else if (restaurante && restaurante.id === RESTAURANTE_TAQUEIROS_ID) {\n    area = AREA_CUCUTA;', '} else if (true) {\n    area = AREA_CUCUTA;');
+m('ubicacion: no se avisa de un pin sobre el local', '_ubicacion.js', 'if (metros < metrosMinimos) {', 'if (false) {');
+
+// Horario
+m('horario: la zona horaria es siempre Bogota', '_horario.js', 'timeZone: zonaValida(zona || ZONA),', 'timeZone: ZONA,');
+m('horario: no hay tramo de madrugada de horarios que cruzan la medianoche', '_horario.js', 'if (ayer && ayer.activo !== false && aMinutos(ayer.cierra) <= aMinutos(ayer.abre)) {', 'if (false) {');
+m('horario: la hora de corte no limita el tramo de madrugada', '_horario.js', 'const limite = Math.min(aMinutos(ayer.cierra), corte);', 'const limite = aMinutos(ayer.cierra);');
+m('horario: la jornada no considera la hora de corte', '_horario.js', 'jornada: minutos < corte ? diaAnterior(fecha) : fecha,', 'jornada: fecha,');
+m('horario: un horario que cruza la medianoche cierra al instante', '_horario.js', ': minutos >= abre;', ': false;');
+m('horario: la hora de corte es siempre 05:00', '_horario.js', 'const horaCorte = String(config.hora_corte_jornada || restaurante.hora_corte_jornada || "05:00").slice(0, 5);', 'const horaCorte = "05:00";');
+m('horario: el interruptor de cerrado temporal se ignora', '_horario.js', 'if (config.cerrado_temporal) {', 'if (false) {');
+
+// ---- ejecucion ----------------------------------------------------------------------------------------------
+const arg = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').split('=').slice(1).join('=');
+const solo = arg('solo');
+
+// Filtros: una mutacion por cada llamada a filtroRestaurante(...) en cualquier archivo de api/
+const filtros = [];
+for (const [archivo, texto] of Object.entries(original)) {
+  const re = /filtroRestaurante\(([^()]*)\)/g;
+  let x;
+  const lineas = texto.split('\n');
+  while ((x = re.exec(texto))) {
+    const linea = texto.slice(0, x.index).split('\n').length;
+    if (/function\s+filtroRestaurante/.test(lineas[linea - 1])) continue;
+    filtros.push({ archivo, indice: x.index, largo: x[0].length, linea, texto: lineas[linea - 1].trim() });
+  }
+}
+
+function crearMutante(dir, { archivo, buscar, reemplazar, indice, largo, tambien, cabecera }) {
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of archivos) fs.writeFileSync(path.join(dir, f), original[f]);
+  const aplicar = (arch, b, r) => {
+    let t = fs.readFileSync(path.join(dir, arch), 'utf8');
+    const n = t.split(b).length - 1;
+    if (n !== 1) throw new Error(`mutacion mal definida: "${b.slice(0, 70)}" aparece ${n} veces en ${arch}`);
+    fs.writeFileSync(path.join(dir, arch), t.replace(b, () => r));
+  };
+  if (indice !== undefined) {
+    const t = original[archivo];
+    fs.writeFileSync(path.join(dir, archivo), t.slice(0, indice) + '""' + t.slice(indice + largo));
+  } else {
+    aplicar(archivo, buscar, reemplazar);
+    if (tambien) aplicar(tambien[0], tambien[1], tambien[2]);
+    if (cabecera) fs.writeFileSync(path.join(dir, archivo), cabecera + fs.readFileSync(path.join(dir, archivo), 'utf8'));
+  }
+}
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mr-mut-'));
+// Cada mutante va en SU carpeta: require() guarda los modulos por ruta y reutilizarla serviria el primer mutante siempre
+let contador = 0;
+const carpetaNueva = () => path.join(tmp, 'm' + (++contador));
+const falso = await levantar({ puerto: 54332 });
+const resumen = { detectadas: 0, sobreviven: [], equivalentes: [], soloInvariante: 0, errores: [] };
+const filasFiltro = [];
+
+async function correr(dir, opciones) {
+  try {
+    const { resultados } = await correrContraFalso(falso, dir, opciones);
+    return { fallas: resultados.filter((r) => !r.ok) };
+  } catch (e) {
+    return { fallas: [{ nombre: 'EXCEPCION en la corrida', info: String(e.message).slice(0, 120) }] };
+  }
+}
+
+// Linea base: sin ninguna mutacion, todo debe pasar
+const base = await correr(API, {});
+console.log(`LINEA BASE (api/ original): ${base.fallas.length === 0 ? 'todo pasa' : 'FALLAN ' + base.fallas.length}`);
+if (base.fallas.length) { base.fallas.slice(0, 5).forEach((f) => console.log('  ', f.nombre, '->', f.info)); process.exit(2); }
+
+console.log(`\n== 1. FILTROS DE restaurante_id (${filtros.length} llamadas a filtroRestaurante en api/) ==`);
+for (const f of filtros) {
+  const etiqueta = `${f.archivo}:${f.linea}  ${f.texto.slice(0, 80)}`;
+  if (solo && !etiqueta.includes(solo)) continue;
+  const dir = carpetaNueva();
+  crearMutante(dir, f);
+  let r = await correr(dir, { sinInvariante: true });
+  let modo = 'comportamiento';
+  if (!r.fallas.length) {
+    r = await correr(dir, {});
+    modo = 'solo la invariante de URLs';
+    if (r.fallas.length) resumen.soloInvariante++;
+  }
+  if (r.fallas.length) {
+    resumen.detectadas++;
+    console.log(`  DETECTADA (${modo}, ${r.fallas.length} pruebas)  ${etiqueta}\n      p.ej.: ${r.fallas[0].nombre.slice(0, 110)}`);
+  } else {
+    resumen.sobreviven.push(etiqueta);
+    console.log(`  SOBREVIVE  ${etiqueta}`);
+  }
+}
+
+console.log(`\n== 2. DEFENSAS (${M.length}) ==`);
+for (const mu of M) {
+  if (solo && !mu.nombre.includes(solo)) continue;
+  const dir = carpetaNueva();
+  try { crearMutante(dir, mu); } catch (e) { resumen.errores.push(`${mu.nombre}: ${e.message}`); console.log(`  ERROR   ${mu.nombre}\n      ${e.message}`); continue; }
+  const r = await correr(dir, {});
+  if (r.fallas.length) {
+    resumen.detectadas++;
+    console.log(`  DETECTADA (${r.fallas.length})  ${mu.nombre}\n      p.ej.: ${r.fallas[0].nombre.slice(0, 110)}`);
+  } else if (mu.equivalente) {
+    resumen.equivalentes.push(`${mu.nombre}  [${mu.equivalente}]`);
+    console.log(`  EQUIVALENTE  ${mu.nombre}\n      ${mu.equivalente}`);
+  } else {
+    resumen.sobreviven.push(mu.nombre);
+    console.log(`  SOBREVIVE  ${mu.nombre}`);
+  }
+}
+
+fs.rmSync(tmp, { recursive: true, force: true });
+await falso.cerrar();
+console.log('\n=============================================================');
+console.log(`DETECTADAS: ${resumen.detectadas}   EQUIVALENTES: ${resumen.equivalentes.length}   SOBREVIVEN: ${resumen.sobreviven.length}   ERRORES: ${resumen.errores.length}`);
+console.log(`(de las de filtros, ${resumen.soloInvariante} solo las detecta el espia de URLs; las demas fallan por comportamiento)`);
+if (resumen.sobreviven.length) { console.log('\nSOBREVIVEN (falta una prueba):'); resumen.sobreviven.forEach((s) => console.log('  - ' + s)); }
+if (resumen.equivalentes.length) { console.log('\nEQUIVALENTES:'); resumen.equivalentes.forEach((s) => console.log('  - ' + s)); }
+if (resumen.errores.length) { console.log('\nERRORES DE DEFINICION:'); resumen.errores.forEach((s) => console.log('  - ' + s)); }
+process.exitCode = resumen.sobreviven.length || resumen.errores.length ? 1 : 0;
+setTimeout(() => process.exit(), 1500).unref();

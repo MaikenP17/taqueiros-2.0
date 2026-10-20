@@ -71,6 +71,8 @@ require.cache[rutaSupabase] = {
   id: rutaSupabase, filename: rutaSupabase, loaded: true,
   exports: {
     consultarPedidos: async () => [],
+    listarRestaurantes: async () => [],
+    pingBase: async () => {},
     limpiarHuerfanos: async () => 0,
     actualizarPedidoPorReferencia: async () => {}
   }

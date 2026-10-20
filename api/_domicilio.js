@@ -5,43 +5,37 @@
    NO decide cuanto se cobra: manda solo las coordenadas y aqui se
    recalcula todo. Igual que con los precios de los productos.
 
-   Si estos numeros cambian, hay que cambiarlos TAMBIEN en el mismo
-   bloque de index.html (busca "TARIFAS_DOMICILIO").
+   MULTI-RESTAURANTE: cada restaurante tiene SU origen, SU factor de
+   recorrido y SUS tarifas:
+
+     * Tarifas: tabla tarifas_domicilio (hasta km, precio; precio nulo =
+       fuera de cobertura). Ya NO estan escritas en el codigo.
+     * Origen (donde esta el local): restaurantes.config.ubicacion
+       = { "lat": 7.89, "lng": -72.49 }
+     * Opcional: restaurantes.config.domicilio = {
+         "factor_recorrido": 1.3,
+         "pin_minimo_metros": 100,
+         "area": { "latMin": .., "latMax": .., "lngMin": .., "lngMax": .. } }
+
+   Un restaurante sin tarifas o sin ubicacion NO ofrece domicilio: el pedido
+   a domicilio se rechaza con un mensaje claro (nunca se inventan precios).
+
+   TRANSITORIO (solo Taqueiros): mientras su config no traiga la ubicacion, se
+   usan estas coordenadas de siempre. Si cambian, hay que cambiarlas TAMBIEN
+   en el mismo bloque de index.html (busca "TARIFAS_DOMICILIO").
 ============================================================= */
 
+const { RESTAURANTE_TAQUEIROS_ID } = require("./_restaurante.js");
+
 /* -------------------------------------------------------------
-   COORDENADAS DEL RESTAURANTE
+   COORDENADAS DE TAQUEIROS (respaldo transitorio)
    Cl 1AN #3E-7, Barrio La Ceiba, Cucuta, Norte de Santander.
-
    Coordenadas confirmadas por el dueno desde Google Maps.
-
-   Para cambiarlas: abre Google Maps, ubica el local, haz click
-   derecho encima y copia las coordenadas del primer renglon del
-   menu. Pegalas aqui Y en index.html: deben ser IDENTICAS en los
-   dos archivos, o el cliente vera un precio y se le cobrara otro.
 ------------------------------------------------------------- */
-const RESTAURANTE = {
+const ORIGEN_TAQUEIROS = {
   lat: 7.8997382,
   lng: -72.4968525
 };
-
-/* -------------------------------------------------------------
-   TARIFAS POR DISTANCIA
-   'hasta' = limite superior del rango, en kilometros.
-   'precio' = null significa "fuera de cobertura", se coordina
-   por WhatsApp y no se cobra automaticamente.
-
-   Para cambiar precios, edita solo la columna 'precio'.
-   Para cambiar los rangos, edita 'hasta'. Deben ir de menor a
-   mayor.
-------------------------------------------------------------- */
-const TARIFAS_DOMICILIO = [
-  { hasta: 2,   precio: 5000  },  // 0 – 2 km
-  { hasta: 4,   precio: 7000  },  // 2 – 4 km
-  { hasta: 6,   precio: 9000  },  // 4 – 6 km
-  { hasta: 8,   precio: 12000 },  // 6 – 8 km
-  { hasta: 999, precio: null  }   // +8 km → "Consultar por WhatsApp"
-];
 
 /* -------------------------------------------------------------
    FACTOR DE RECORRIDO REAL
@@ -71,17 +65,54 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-/* Distancia aproximada de recorrido desde el restaurante. */
-function distanciaDesdeRestaurante(lat, lng) {
-  const recta = haversineKm(RESTAURANTE.lat, RESTAURANTE.lng, lat, lng);
-  return recta * FACTOR_RECORRIDO;
+function coordenadasValidas(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng)
+    && lat >= -90 && lat <= 90
+    && lng >= -180 && lng <= 180;
 }
 
-/* Tarifa que corresponde a una distancia dada.
+/* Lo que hace falta para calcular el domicilio de UN restaurante:
+     { origen: {lat, lng}, factor, tarifas: [{hasta, precio}], configurado }
+   'restaurante' es su fila; 'filasTarifas' viene de tarifas_domicilio.
+   Devuelve null si no se puede calcular (sin ubicacion o sin tarifas). */
+function contextoDomicilio(restaurante, filasTarifas) {
+  const cfg = (restaurante && restaurante.config) || {};
+  const dom = (cfg.domicilio && typeof cfg.domicilio === "object") ? cfg.domicilio : {};
+
+  let origen = null;
+  const u = cfg.ubicacion;
+  if (u && coordenadasValidas(Number(u.lat), Number(u.lng))) {
+    origen = { lat: Number(u.lat), lng: Number(u.lng) };
+  } else if (restaurante && restaurante.id === RESTAURANTE_TAQUEIROS_ID) {
+    origen = ORIGEN_TAQUEIROS;   // transitorio
+  }
+
+  const tarifas = (Array.isArray(filasTarifas) ? filasTarifas : [])
+    .map((t) => ({ hasta: Number(t.hasta), precio: t.precio == null ? null : Number(t.precio) }))
+    .filter((t) => Number.isFinite(t.hasta) && (t.precio === null || Number.isFinite(t.precio)))
+    .sort((a, b) => a.hasta - b.hasta);
+
+  if (!origen || !tarifas.length) return null;
+
+  const factor = Number(dom.factor_recorrido);
+  return {
+    origen,
+    factor: Number.isFinite(factor) && factor > 0 ? factor : FACTOR_RECORRIDO,
+    tarifas
+  };
+}
+
+/* Distancia aproximada de recorrido desde el local. */
+function distanciaDesdeRestaurante(lat, lng, ctx) {
+  const recta = haversineKm(ctx.origen.lat, ctx.origen.lng, lat, lng);
+  return recta * ctx.factor;
+}
+
+/* Tarifa que corresponde a unas coordenadas, con el contexto del restaurante.
    Devuelve { km, precio, fueraDeCobertura }. */
-function calcularDomicilio(lat, lng) {
-  const km = distanciaDesdeRestaurante(lat, lng);
-  const tramo = TARIFAS_DOMICILIO.find((t) => km <= t.hasta);
+function calcularDomicilio(lat, lng, ctx) {
+  const km = distanciaDesdeRestaurante(lat, lng, ctx);
+  const tramo = ctx.tarifas.find((t) => km <= t.hasta);
 
   return {
     km: Math.round(km * 10) / 10,
@@ -90,19 +121,12 @@ function calcularDomicilio(lat, lng) {
   };
 }
 
-/* Valida que unas coordenadas sean numeros creibles. */
-function coordenadasValidas(lat, lng) {
-  return Number.isFinite(lat) && Number.isFinite(lng)
-    && lat >= -90 && lat <= 90
-    && lng >= -180 && lng <= 180;
-}
-
 module.exports = {
-  RESTAURANTE,
-  TARIFAS_DOMICILIO,
+  ORIGEN_TAQUEIROS,
   FACTOR_RECORRIDO,
   TOLERANCIA_KM,
   haversineKm,
+  contextoDomicilio,
   distanciaDesdeRestaurante,
   calcularDomicilio,
   coordenadasValidas

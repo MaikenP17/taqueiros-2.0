@@ -1,4 +1,4 @@
-const { consultarPedidos, limpiarHuerfanos } = require("./_supabase.js");
+const { pingBase, limpiarHuerfanos } = require("./_supabase.js");
 const { autorizadoCron } = require("./_cron.js");
 
 /* =============================================================
@@ -13,6 +13,10 @@ const { autorizadoCron } = require("./_cron.js");
    cuente el proyecto como activo.
 
    La dispara un cron una vez al dia (ver vercel.json).
+
+   MULTI-RESTAURANTE: no es de ningun restaurante. El ping toca la tabla
+   'restaurantes' (que no es de negocio) y la limpieza de pedidos sin pagar es
+   global a proposito (ver limpiarHuerfanos en _supabase.js).
 ============================================================= */
 module.exports = async (req, res) => {
   // Protegido igual que el cron de alertas: la URL es publica.
@@ -23,7 +27,7 @@ module.exports = async (req, res) => {
 
   try {
     // La consulta mas liviana que existe: un solo id, una sola fila.
-    await consultarPedidos("select=id&limit=1");
+    await pingBase();
 
     // De paso se barren los pedidos que nunca se pagaron y llevan
     // mas de 24 horas ahi. Si la funcion no existe todavia, no pasa

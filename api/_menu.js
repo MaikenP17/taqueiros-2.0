@@ -26,10 +26,13 @@ const { consultarTabla } = require("./_supabase.js");
    el ultimo menu bueno que recibio).
 ============================================================= */
 
-let ultimoMenuBueno = null;      // { categorias, productos, momento }
+/* MULTI-RESTAURANTE: la copia de respaldo es POR restaurante (id -> menu).
+   Si fuera una sola, la instancia podria servirle a un restaurante el menu
+   del otro cuando Supabase falle. */
+const ultimoMenuBuenoPorRestaurante = new Map();   // id -> { categorias, productos, momento }
 
-/* Menu completo, ordenado tal como debe pintarse. */
-async function leerMenu() {
+/* Menu completo del restaurante, ordenado tal como debe pintarse. */
+async function leerMenu(rid) {
   /* Se traen TODAS las categorias, tambien las desactivadas.
      Antes se filtraban aqui (activa=is.true) y eso causaba un fallo
      feo: al desactivar una categoria, seguia viendose hasta que
@@ -41,8 +44,8 @@ async function leerMenu() {
      decide que se puede pedir AHORA es /api/disponibilidad, que va
      casi sin cache. */
   const [categorias, productos] = await Promise.all([
-    consultarTabla("categorias", "select=id,nombre,emoji,orden,activa&order=orden.asc"),
-    consultarTabla("productos", "select=id,nombre,descripcion,precio,categoria,orden,disponible,imagen&order=orden.asc")
+    consultarTabla(rid, "categorias", "select=id,nombre,emoji,orden,activa&order=orden.asc"),
+    consultarTabla(rid, "productos", "select=id,nombre,descripcion,precio,categoria,orden,disponible,imagen&order=orden.asc")
   ]);
 
   const menu = {
@@ -53,16 +56,16 @@ async function leerMenu() {
 
   // Solo se guarda si trae algo: un menu vacio no sirve de respaldo
   if (categorias.length && productos.length) {
-    ultimoMenuBueno = menu;
+    ultimoMenuBuenoPorRestaurante.set(rid, menu);
   }
 
   return menu;
 }
 
-/* Lo ultimo que se sirvio bien, o null si esta instancia nunca
-   alcanzo a servir nada. */
-function menuDeRespaldo() {
-  return ultimoMenuBueno;
+/* Lo ultimo que se sirvio bien PARA ESE restaurante, o null si esta instancia
+   nunca alcanzo a servir nada de el. */
+function menuDeRespaldo(rid) {
+  return ultimoMenuBuenoPorRestaurante.get(rid) || null;
 }
 
 /* TODO lo que responde a "que se puede pedir ahora mismo":
@@ -76,10 +79,10 @@ function menuDeRespaldo() {
    los protege.
 
    Sigue siendo la consulta mas barata posible: solo ids. */
-async function leerEstadoMenu() {
+async function leerEstadoMenu(rid) {
   const [agotados, inactivas] = await Promise.all([
-    consultarTabla("productos", "select=id&disponible=is.false"),
-    consultarTabla("categorias", "select=id&activa=is.false")
+    consultarTabla(rid, "productos", "select=id&disponible=is.false"),
+    consultarTabla(rid, "categorias", "select=id&activa=is.false")
   ]);
 
   return {
@@ -96,10 +99,10 @@ async function leerEstadoMenu() {
    esconde los productos de una categoria apagada, pero esconder no
    es impedir; quien impide es esta consulta. Si la lectura de
    categorias falla, falla todo (no se cobra a ciegas). */
-async function leerCatalogoParaCobrar() {
+async function leerCatalogoParaCobrar(rid) {
   const [filas, categorias] = await Promise.all([
-    consultarTabla("productos", "select=id,nombre,precio,disponible,categoria"),
-    consultarTabla("categorias", "select=id,nombre,activa")
+    consultarTabla(rid, "productos", "select=id,nombre,precio,disponible,categoria"),
+    consultarTabla(rid, "categorias", "select=id,nombre,activa")
   ]);
 
   const categoriaPorId = new Map();

@@ -1,4 +1,5 @@
 const { leerMenu, menuDeRespaldo } = require("./_menu.js");
+const { exigirRestaurante } = require("./_restaurante.js");
 
 /* =============================================================
    EL MENU PARA LA PAGINA DEL CLIENTE
@@ -21,27 +22,38 @@ const { leerMenu, menuDeRespaldo } = require("./_menu.js");
    endpoint incluye 'disponible' solo como valor inicial, y la
    pagina lo corrige enseguida con el otro. Asi agotar un producto
    se ve en segundos y no en 5 minutos.
+
+   MULTI-RESTAURANTE: el menu es el del restaurante del host (ver
+   _restaurante.js). La cache del borde va por dominio y se marca
+   "Vary: Host"; la copia de respaldo en memoria es por restaurante.
+   Un restaurante suspendido sigue mostrando su menu: lo que se
+   bloquea es pedir (crear-pedido).
 ============================================================= */
 module.exports = async (req, res) => {
+  const restaurante = await exigirRestaurante(req, res);
+  if (!restaurante) return;
+
   try {
-    const menu = await leerMenu();
+    const menu = await leerMenu(restaurante.id);
 
     if (!menu.categorias.length || !menu.productos.length) {
       throw new Error("Supabase respondio con un menu vacio");
     }
 
     res.setHeader("Cache-Control", "public, s-maxage=60");
+    res.setHeader("Vary", "Host");
     res.status(200).json({ ok: true, ...menu });
   } catch (err) {
     console.error("[Menu] No se pudo leer de Supabase:", err.message);
 
     // Red de seguridad: lo ultimo que esta instancia sirvio bien
-    const respaldo = menuDeRespaldo();
+    const respaldo = menuDeRespaldo(restaurante.id);
 
     if (respaldo) {
       console.warn("[Menu] Sirviendo el ultimo menu bueno, de", respaldo.momento);
       // Cache corto: se quiere reintentar Supabase pronto
       res.setHeader("Cache-Control", "public, s-maxage=30");
+      res.setHeader("Vary", "Host");
       res.status(200).json({ ok: true, deRespaldo: true, ...respaldo });
       return;
     }

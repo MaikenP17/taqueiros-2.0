@@ -1,4 +1,5 @@
-const { RESTAURANTE, haversineKm } = require("./_domicilio.js");
+const { haversineKm } = require("./_domicilio.js");
+const { RESTAURANTE_TAQUEIROS_ID } = require("./_restaurante.js");
 
 /* =============================================================
    VERIFICACION DEL PUNTO DE ENTREGA
@@ -8,6 +9,11 @@ const { RESTAURANTE, haversineKm } = require("./_domicilio.js");
    marcas sospechosas para que el panel avise ANTES de despachar.
 
    Nada de esto bloquea el pedido: solo lo senala para revisar.
+
+   MULTI-RESTAURANTE: el origen (donde esta el local) y el area de cobertura son
+   los del restaurante. El area sale de restaurantes.config.domicilio.area; si un
+   restaurante no la define, no se hace esa comprobacion (solo Taqueiros
+   conserva, de forma transitoria, la caja de Cucuta de abajo).
 ============================================================= */
 
 /* Un pin a menos de 100 metros del local casi siempre significa que
@@ -17,11 +23,34 @@ const METROS_MINIMOS = 100;
 /* Caja aproximada del area urbana de Cucuta y su area metropolitana
    (Villa del Rosario, Los Patios, El Zulia). Un pin fuera de aqui
    es un error de marcado casi seguro.
-   Para ampliar la cobertura, agranda estos limites. */
+   Para ampliar la cobertura, agranda estos limites.
+   (Respaldo transitorio de Taqueiros; los demas la traen en su config.) */
 const AREA_CUCUTA = {
   latMin: 7.75, latMax: 8.10,
   lngMin: -72.68, lngMax: -72.35
 };
+
+function areaValida(a) {
+  return !!a && ["latMin", "latMax", "lngMin", "lngMax"].every((k) => Number.isFinite(Number(a[k])));
+}
+
+/* Opciones de verificacion de UN restaurante: { origen, area|null, metrosMinimos }.
+   'ctx' es el resultado de contextoDomicilio (ya trae el origen). */
+function opcionesUbicacion(restaurante, ctx) {
+  const dom = (restaurante && restaurante.config && restaurante.config.domicilio) || {};
+  let area = null;
+  if (areaValida(dom.area)) {
+    area = { latMin: Number(dom.area.latMin), latMax: Number(dom.area.latMax), lngMin: Number(dom.area.lngMin), lngMax: Number(dom.area.lngMax) };
+  } else if (restaurante && restaurante.id === RESTAURANTE_TAQUEIROS_ID) {
+    area = AREA_CUCUTA;
+  }
+  const minimo = Number(dom.pin_minimo_metros);
+  return {
+    origen: ctx.origen,
+    area,
+    metrosMinimos: Number.isFinite(minimo) && minimo >= 0 ? minimo : METROS_MINIMOS
+  };
+}
 
 /* Normaliza un nombre de barrio para poder compararlo: sin tildes,
    sin mayusculas, sin palabras de relleno. */
@@ -97,11 +126,12 @@ async function barrioSegunMapa(lat, lng) {
      { barrioDetectado, sospechosa }
    'sospechosa' es null si todo se ve bien, o un texto corto con el
    motivo, que es lo que el panel muestra en el badge ambar. */
-async function verificarUbicacion(lat, lng, barrioEscrito) {
-  const metros = haversineKm(RESTAURANTE.lat, RESTAURANTE.lng, lat, lng) * 1000;
+async function verificarUbicacion(lat, lng, barrioEscrito, opciones) {
+  const { origen, area, metrosMinimos } = opciones;
+  const metros = haversineKm(origen.lat, origen.lng, lat, lng) * 1000;
 
   // 1) Pin encima del restaurante
-  if (metros < METROS_MINIMOS) {
+  if (metros < metrosMinimos) {
     return {
       barrioDetectado: null,
       sospechosa: "El pin quedó sobre el restaurante (" + Math.round(metros) + " m)"
@@ -109,11 +139,13 @@ async function verificarUbicacion(lat, lng, barrioEscrito) {
   }
 
   // 2) Pin fuera del area de cobertura de la ciudad
-  if (lat < AREA_CUCUTA.latMin || lat > AREA_CUCUTA.latMax
-      || lng < AREA_CUCUTA.lngMin || lng > AREA_CUCUTA.lngMax) {
+  if (area && (lat < area.latMin || lat > area.latMax
+      || lng < area.lngMin || lng > area.lngMax)) {
     return {
       barrioDetectado: null,
-      sospechosa: "El pin quedó fuera del área de Cúcuta"
+      sospechosa: area === AREA_CUCUTA
+        ? "El pin quedó fuera del área de Cúcuta"
+        : "El pin quedó fuera del área de cobertura"
     };
   }
 
@@ -132,6 +164,7 @@ async function verificarUbicacion(lat, lng, barrioEscrito) {
 
 module.exports = {
   verificarUbicacion,
+  opcionesUbicacion,
   barriosSeParecen,
   normalizar,
   METROS_MINIMOS,

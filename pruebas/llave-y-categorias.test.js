@@ -106,7 +106,7 @@ test("_supabase.js envia la llave nueva solo en apikey", async () => {
   const llamadas = simularFetch({ "/rest/v1/configuracion": [{ id: 1 }] });
   try {
     const { leerConfiguracion } = require("../api/_supabase.js");
-    await leerConfiguracion();
+    await leerConfiguracion("00000000-0000-4000-8000-000000000001");
     assert.equal(llamadas.length, 1);
     assert.equal(llamadas[0].headers.apikey, SECRETA_FALSA);
     assert.equal("Authorization" in llamadas[0].headers, false);
@@ -119,7 +119,7 @@ test("_supabase.js con la legacy sigue enviando apikey + Bearer", async () => {
   const llamadas = simularFetch({ "/rest/v1/configuracion": [{ id: 1 }] });
   try {
     const { leerConfiguracion } = require("../api/_supabase.js");
-    await leerConfiguracion();
+    await leerConfiguracion("00000000-0000-4000-8000-000000000001");
     assert.equal(llamadas[0].headers.apikey, LEGACY_FALSA);
     assert.equal(llamadas[0].headers.Authorization, "Bearer " + LEGACY_FALSA);
   } finally { restaurar(); }
@@ -132,13 +132,18 @@ test("el error de Supabase no incluye la llave", async () => {
   try {
     const { consultarTabla } = require("../api/_supabase.js");
     await assert.rejects(
-      () => consultarTabla("productos", "select=id"),
+      () => consultarTabla("00000000-0000-4000-8000-000000000001", "productos", "select=id"),
       (e) => !e.message.includes(SECRETA_FALSA)
     );
   } finally { restaurar(); }
 });
 
 /* ---------- 3. Categorias apagadas ---------- */
+
+/* El servidor es multi-restaurante: toda consulta de negocio lleva el id de un
+   restaurante (aqui uno cualquiera; los casos de aislamiento estan en
+   pruebas/multirestaurante/servidor.mjs). */
+const RID = "00000000-0000-4000-8000-000000000001";
 
 const CATEGORIAS = [
   { id: "tacos",  nombre: "Tacos",  activa: true  },
@@ -157,7 +162,7 @@ async function validarConCatalogo(items, categorias, productos) {
   simularFetch({ "/rest/v1/productos": productos, "/rest/v1/categorias": categorias });
   try {
     const { validarItems } = require("../api/_precios.js");
-    return await validarItems(items);
+    return await validarItems(RID, items);
   } finally { restaurar(); }
 }
 
@@ -204,7 +209,7 @@ test("si no se puede leer categorias, no se cobra", async () => {
   simularFetch({ "/rest/v1/productos": PRODUCTOS });   // categorias -> 404
   try {
     const { validarItems } = require("../api/_precios.js");
-    const r = await validarItems([{ id: "taco-uno", cantidad: 1, precio: 10000 }]);
+    const r = await validarItems(RID, [{ id: "taco-uno", cantidad: 1, precio: 10000 }]);
     assert.equal(r.ok, false);
     assert.match(r.error, /No pudimos confirmar los precios/);
   } finally { restaurar(); }

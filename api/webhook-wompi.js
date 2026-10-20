@@ -1,6 +1,7 @@
 const crypto = require("crypto");
-const { buscarPedidoPorReferencia, actualizarPedidoPorReferencia } = require("./_supabase.js");
+const { buscarPedidoPorReferenciaGlobal, actualizarPedidoPorReferencia, buscarRestaurantePorId } = require("./_supabase.js");
 const { notificarWhatsApp } = require("./_notificar.js");
+const { leerSecretos, secretosWompi, contactoAlertas } = require("./_restaurante.js");
 
 /* =============================================================
    WEBHOOK DE WOMPI — el corazon del sistema de pedidos.
@@ -10,11 +11,26 @@ const { notificarWhatsApp } = require("./_notificar.js");
    tenga que hacer nada (ni presionar WhatsApp, ni dejar la pestana
    abierta).
 
+   MULTI-RESTAURANTE: es UN solo endpoint para todos los restaurantes, asi que
+   no se puede saber de quien es el evento por el host. Se deduce del PEDIDO:
+     a. La referencia del evento identifica el pedido (referencia unica en toda
+        la base) y el pedido trae su restaurante_id.
+     b. La firma se verifica con los secretos de ESE restaurante, nunca con los
+        de otro: una firma valida para el restaurante A no sirve para marcar
+        como pagado un pedido del restaurante B.
+     c. A partir de ahi, todo (buscar, actualizar, avisar) se hace con el
+        restaurante_id del pedido.
+   Una referencia desconocida y una firma mala responden IGUAL (401): asi el
+   endpoint no sirve para averiguar que referencias existen.
+   Un restaurante suspendido SI procesa sus pagos: el cliente ya pago y ese
+   dinero no puede quedar sin pedido; lo que se corta es crear pedidos nuevos.
+
    Flujo:
-     1. Valida la firma del evento (obligatorio: sin esto cualquiera
+     1. Busca el pedido por su referencia (lo creo /api/crear-pedido
+        antes de abrir el widget de pago) y valida la firma del evento con
+        los secretos de su restaurante (obligatorio: sin esto cualquiera
         podria inventar pagos falsos haciendo un POST a esta URL).
-     2. Busca el pedido por su referencia (lo creo /api/crear-pedido
-        antes de abrir el widget de pago).
+     2. Revisa si ya estaba procesado (duplicado).
      3. Verifica que el monto pagado coincida con el monto guardado.
      4. Si esta APPROVED -> el pedido pasa a estado 'nuevo' y aparece
         en el panel de comandas. Si no, se registra el rechazo.
@@ -86,33 +102,38 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // ---- 1. Validar la firma ---------------------------------
-    const secreto = environment === "prod"
-      ? process.env.WOMPI_EVENTS_SECRET_PROD
-      : process.env.WOMPI_EVENTS_SECRET_TEST;
+    // ---- 1. Identificar el pedido (y su restaurante) y validar la firma
+    const referencia = String(transaccion.reference || "");
+    const pedido = referencia ? await buscarPedidoPorReferenciaGlobal(referencia) : null;
+
+    if (!pedido) {
+      // No deberia pasar con un evento legitimo: el pedido se crea antes de
+      // pagar (puede ocurrir si Supabase estaba caido, o si la limpieza ya
+      // borro un pedido sin pagar). Sin pedido no hay restaurante con cuyos
+      // secretos verificar: se responde igual que una firma mala.
+      console.error("[Wompi] Evento de una referencia sin pedido, rechazado:", referencia.slice(0, 40));
+      res.status(401).json({ error: "Firma inválida" });
+      return;
+    }
+
+    // El restaurante es el del pedido; los secretos, los suyos y nada mas
+    const restaurante = await buscarRestaurantePorId(pedido.restaurante_id);
+    const secretos = restaurante ? await leerSecretos(restaurante) : null;
+    const secreto = restaurante
+      ? secretosWompi(restaurante, secretos, environment === "prod" ? "produccion" : "test").eventos
+      : null;
 
     if (!firmaValida(evento, secreto)) {
-      console.error("[Wompi] FIRMA INVALIDA. Evento rechazado. Referencia:", transaccion.reference);
+      console.error("[Wompi] FIRMA INVALIDA. Evento rechazado. Referencia:", referencia);
       // 401: el evento no es legitimo (o falta el secreto). No se
       // toca ningun pedido.
       res.status(401).json({ error: "Firma inválida" });
       return;
     }
 
-    const referencia = transaccion.reference;
+    const rid = pedido.restaurante_id;
     const estadoWompi = transaccion.status;
     console.log("[Wompi] Evento verificado:", referencia, estadoWompi, transaccion.id);
-
-    // ---- 2. Buscar el pedido ---------------------------------
-    const pedido = await buscarPedidoPorReferencia(referencia);
-
-    if (!pedido) {
-      // No deberia pasar: el pedido se crea antes de pagar. Puede
-      // ocurrir si Supabase estaba caido en ese momento.
-      console.error("[Wompi] No existe un pedido con la referencia:", referencia);
-      res.status(200).json({ received: true, warning: "pedido no encontrado" });
-      return;
-    }
 
     // ---- 3. Duplicado: ya estaba procesado -------------------
     if (pedido.estado_pago === "aprobado") {
@@ -123,7 +144,7 @@ module.exports = async (req, res) => {
 
     // ---- 4. Rechazos: se registran, no crean comanda ---------
     if (estadoWompi !== "APPROVED") {
-      await actualizarPedidoPorReferencia(referencia, {
+      await actualizarPedidoPorReferencia(rid, referencia, {
         estado_pago: ESTADO_PAGO[estadoWompi] || "error",
         wompi_transaction_id: transaccion.id,
         wompi_metodo_pago: transaccion.payment_method_type || null
@@ -142,7 +163,7 @@ module.exports = async (req, res) => {
         "Pagado:", pagadoEnPesos,
         "Esperado:", pedido.total
       );
-      await actualizarPedidoPorReferencia(referencia, {
+      await actualizarPedidoPorReferencia(rid, referencia, {
         estado_pago: "error",
         wompi_transaction_id: transaccion.id
       });
@@ -151,7 +172,7 @@ module.exports = async (req, res) => {
     }
 
     // ---- 6. Pago aprobado: el pedido entra a cocina ----------
-    const actualizado = await actualizarPedidoPorReferencia(referencia, {
+    const actualizado = await actualizarPedidoPorReferencia(rid, referencia, {
       estado: "nuevo",
       estado_pago: "aprobado",
       wompi_transaction_id: transaccion.id,
@@ -165,15 +186,16 @@ module.exports = async (req, res) => {
     // No se deja que un fallo aqui rompa el webhook: el pedido ya
     // esta guardado y visible en el panel, que es el canal principal.
     try {
-      const aviso = await notificarWhatsApp(actualizado || pedido);
+      // El aviso sale SOLO por el contacto de este restaurante
+      const aviso = await notificarWhatsApp(actualizado || pedido, undefined, contactoAlertas(restaurante, secretos));
 
       // Queda registrado en el propio pedido si se logro avisar, para
       // poder revisar despues de cuales no se entero el restaurante.
-      await actualizarPedidoPorReferencia(referencia, { notificacion_ok: !!aviso.enviado });
+      await actualizarPedidoPorReferencia(rid, referencia, { notificacion_ok: !!aviso.enviado });
     } catch (errNotif) {
       console.error("[Wompi] El pedido se guardo pero fallo la notificacion:", errNotif.message);
       try {
-        await actualizarPedidoPorReferencia(referencia, { notificacion_ok: false });
+        await actualizarPedidoPorReferencia(rid, referencia, { notificacion_ok: false });
       } catch (e) { /* si tampoco se puede marcar, el pedido ya esta a salvo */ }
     }
 
