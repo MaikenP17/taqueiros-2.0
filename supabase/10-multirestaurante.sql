@@ -652,8 +652,8 @@ create trigger restaurantes_aprovisionar
 
 -- 5.1 Dinero y numero del pedido: de solo lectura para el navegador.
 -- Es la misma funcion de seguridad.sql (SIN SECURITY DEFINER, ver la
--- advertencia alli) con tres columnas mas: numero, restaurante_id y
--- reembolsado_en.
+-- advertencia alli) con dos columnas mas: numero y reembolsado_en
+-- (que restaurante_id no cambie lo cuida bloquear_cambio_restaurante).
 create or replace function public.proteger_campos_de_pago()
 returns trigger
 language plpgsql
@@ -1006,10 +1006,21 @@ grant execute on function public.registrar_reimpresion(bigint) to authenticated,
 --     manda nada y sigue funcionando igual).
 -- La hora de corte se sigue leyendo de configuracion (como hoy) por una
 -- funcion que verifica la membresia.
-drop function if exists public.limites_jornada(date);
-drop function if exists public.resumen_jornada(date);
-drop function if exists public.buscar_historial(date, date, text, text);
-drop function if exists public.jornadas_con_pedidos(integer);
+-- Se borran TODAS las firmas de estas funciones, no solo la conocida: una
+-- firma vieja SECURITY DEFINER que sobreviviera seguiria leyendo los
+-- pedidos de todos los restaurantes (en produccion hubo mas de una firma).
+do $do$
+declare r record;
+begin
+  for r in select p.oid::regprocedure::text as firma
+           from pg_proc p
+           where p.pronamespace = 'public'::regnamespace
+             and p.proname in ('limites_jornada', 'resumen_jornada', 'buscar_historial',
+                               'jornadas_con_pedidos', 'buscar_mis_pedidos') loop
+    execute format('drop function %s', r.firma);
+  end loop;
+end
+$do$;
 
 create or replace function public.config_jornada(p_restaurante uuid)
 returns table (corte time, minutos_ocultar integer)
@@ -1231,7 +1242,21 @@ $do$;
 -- buscaba el telefono en todos los pedidos; con varios restaurantes un
 -- cliente podria ver los de otro. Mientras el sitio no mande el
 -- restaurante, el valor por defecto es Taqueiros (transitorio).
-drop function if exists public.buscar_mis_pedidos(text, integer);
+--
+-- LIMITE DE INTENTOS: el "segundo factor" (el total exacto) tiene pocas
+-- centenas de valores posibles. Sin limite, quien conoce un celular prueba
+-- totales hasta dar con la referencia, y seguimiento(ref) le entrega la
+-- direccion. Ahora cada (restaurante, telefono) admite 10 consultas en 24 h
+-- (el cliente real necesita una o dos); despues responde vacio, que el
+-- sitio ya muestra como "No encontramos pedidos con esos datos".
+create table if not exists public.intentos_buscar_pedido (
+  id             bigint generated always as identity primary key,
+  restaurante_id uuid not null references public.restaurantes(id) on delete cascade,
+  telefono       text not null,
+  momento        timestamptz not null default now()
+);
+create index if not exists intentos_buscar_pedido_idx
+  on public.intentos_buscar_pedido (restaurante_id, telefono, momento);
 
 create or replace function public.buscar_mis_pedidos(
   telefono      text,
@@ -1246,11 +1271,32 @@ returns table (
   total       integer,
   creado_en   timestamptz
 )
-language sql
+language plpgsql
+volatile
 security definer
-stable
 set search_path = ''
 as $$
+declare
+  v_rid      uuid := coalesce(buscar_mis_pedidos.p_restaurante, public.restaurante_taqueiros_id());
+  v_intentos integer;
+begin
+  if buscar_mis_pedidos.telefono is null or buscar_mis_pedidos.total_pagado is null
+     or not exists (select 1 from public.restaurantes r where r.id = v_rid) then
+    return;
+  end if;
+
+  delete from public.intentos_buscar_pedido i
+   where i.restaurante_id = v_rid and i.telefono = buscar_mis_pedidos.telefono
+     and i.momento < now() - interval '24 hours';
+  insert into public.intentos_buscar_pedido (restaurante_id, telefono)
+  values (v_rid, buscar_mis_pedidos.telefono);
+  select count(*) into v_intentos from public.intentos_buscar_pedido i
+   where i.restaurante_id = v_rid and i.telefono = buscar_mis_pedidos.telefono;
+  if v_intentos > 10 then
+    return;
+  end if;
+
+  return query
   select
     p.id,
     p.referencia,
@@ -1259,13 +1305,14 @@ as $$
     p.total,
     p.creado_en
   from public.pedidos p
-  where p.restaurante_id = coalesce(buscar_mis_pedidos.p_restaurante, public.restaurante_taqueiros_id())
+  where p.restaurante_id = v_rid
     and p.cliente_telefono = buscar_mis_pedidos.telefono
     and p.total = buscar_mis_pedidos.total_pagado
     and p.estado <> 'pendiente_pago'
     and p.creado_en > now() - interval '24 hours'
   order by p.creado_en desc
   limit 5;
+end;
 $$;
 
 revoke all on function public.buscar_mis_pedidos(text, integer, uuid) from public;
@@ -1318,6 +1365,7 @@ alter table public.productos             enable row level security;
 alter table public.configuracion         enable row level security;
 alter table public.salud_notificaciones  enable row level security;
 alter table public.personal              enable row level security;
+alter table public.intentos_buscar_pedido enable row level security;
 
 -- 9.1 Fuera TODAS las politicas de estas tablas (las de es_personal(),
 -- las de lectura publica del menu, cualquiera creada a mano en el
@@ -1329,7 +1377,7 @@ begin
            where schemaname = 'public'
              and tablename in ('restaurantes','restaurante_secretos','miembros','superadmins','contadores_pedido',
                                'tarifas_domicilio','pedidos','categorias','productos','configuracion',
-                               'salud_notificaciones','personal') loop
+                               'salud_notificaciones','personal','intentos_buscar_pedido') loop
     execute format('drop policy %I on %I.%I', r.policyname, r.schemaname, r.tablename);
   end loop;
 end
@@ -1340,10 +1388,12 @@ $do$;
 revoke all on table
   public.restaurantes, public.restaurante_secretos, public.miembros, public.superadmins,
   public.contadores_pedido, public.tarifas_domicilio, public.pedidos, public.categorias,
-  public.productos, public.configuracion, public.salud_notificaciones, public.personal
+  public.productos, public.configuracion, public.salud_notificaciones, public.personal,
+  public.intentos_buscar_pedido
 from anon;
 
-revoke all on table public.restaurante_secretos, public.contadores_pedido, public.personal from authenticated;
+revoke all on table public.restaurante_secretos, public.contadores_pedido, public.personal,
+  public.intentos_buscar_pedido from authenticated;
 revoke insert, update, delete, truncate, references, trigger on table public.superadmins from authenticated;
 revoke truncate, references, trigger on table
   public.restaurantes, public.miembros, public.tarifas_domicilio, public.pedidos, public.categorias,
@@ -1540,7 +1590,11 @@ $do$;
 -- =============================================================
 -- En Supabase, "revoke ... from public" NO le quita el permiso a anon
 -- (las funciones nuevas se le otorgan por defecto). Aqui se revoca a
--- todas, salvo las dos puertas publicas del sitio.
+-- todas, salvo las dos puertas publicas del sitio, identificadas por su
+-- FIRMA exacta (por nombre, cualquier otra firma de seguimiento(...) o
+-- buscar_mis_pedidos(...) que existiera quedaba abierta a anon).
+-- Solo se pueden revocar las funciones propias; las de otro dueno las
+-- detecta la comprobacion final.
 do $do$
 declare r record;
 begin
@@ -1548,7 +1602,8 @@ begin
            from pg_proc p
            where p.pronamespace = 'public'::regnamespace
              and p.prokind in ('f', 'p')
-             and p.proname not in ('seguimiento', 'buscar_mis_pedidos')
+             and p.oid not in ('public.seguimiento(text)'::regprocedure,
+                               'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
              and pg_has_role(current_user, p.proowner, 'usage')
              and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e') loop
     execute format('revoke execute on function %s from public, anon', r.firma);
@@ -1730,14 +1785,14 @@ from (values
   ('anon solo puede ejecutar seguimiento y buscar_mis_pedidos',
     not exists (select 1 from pg_proc p
                 where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p')
-                  and p.proname not in ('seguimiento', 'buscar_mis_pedidos')
-                  and pg_has_role(current_user, p.proowner, 'usage')
+                  and p.oid not in ('public.seguimiento(text)'::regprocedure,
+                                    'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
                   and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
                   and has_function_privilege('anon', p.oid, 'execute')),
     (select string_agg(p.proname, ', ') from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p')
-       and p.proname not in ('seguimiento', 'buscar_mis_pedidos')
-       and pg_has_role(current_user, p.proowner, 'usage')
+       and p.oid not in ('public.seguimiento(text)'::regprocedure,
+                         'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
        and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
        and has_function_privilege('anon', p.oid, 'execute'))),
 
@@ -1792,6 +1847,61 @@ from (values
        and tablename in ('pedidos', 'productos', 'configuracion', 'salud_notificaciones')),
     null),
 
+  -- Una funcion SECURITY DEFINER ignora RLS: si no es una de las que este
+  -- archivo revisa, se detiene todo hasta que alguien la mire.
+  ('ninguna funcion SECURITY DEFINER desconocida la pueden llamar anon o authenticated',
+    not exists (select 1 from pg_proc p
+                where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and p.prosecdef
+                  and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype)
+                  and p.oid not in ('public.config_jornada(uuid)'::regprocedure,
+                                    'public.seguimiento(text)'::regprocedure,
+                                    'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
+                  and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+                  and (has_function_privilege('anon', p.oid, 'execute')
+                       or has_function_privilege('authenticated', p.oid, 'execute'))),
+    (select string_agg(p.oid::regprocedure::text, ', ') from pg_proc p
+     where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and p.prosecdef
+       and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype)
+       and p.oid not in ('public.config_jornada(uuid)'::regprocedure,
+                         'public.seguimiento(text)'::regprocedure,
+                         'public.buscar_mis_pedidos(text,integer,uuid)'::regprocedure)
+       and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+       and (has_function_privilege('anon', p.oid, 'execute')
+            or has_function_privilege('authenticated', p.oid, 'execute')))),
+
+  -- Una vista corre con los permisos de su dueno y salta RLS, salvo que
+  -- tenga security_invoker. Una vista materializada nunca aplica RLS.
+  ('ninguna vista de public que lean anon o authenticated salta RLS',
+    not exists (select 1 from pg_class c
+                where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
+                  and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')
+                  and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('authenticated', c.oid, 'select'))
+                  and not (c.relkind = 'v' and exists (select 1 from unnest(coalesce(c.reloptions, '{}')) o
+                                                      where lower(o) in ('security_invoker=true', 'security_invoker=on', 'security_invoker=1')))),
+    (select string_agg(c.relname, ', ') from pg_class c
+     where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
+       and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')
+       and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('authenticated', c.oid, 'select'))
+       and not (c.relkind = 'v' and exists (select 1 from unnest(coalesce(c.reloptions, '{}')) o
+                                           where lower(o) in ('security_invoker=true', 'security_invoker=on', 'security_invoker=1'))))),
+
+  -- personal -> miembros convierte en DUENO de Taqueiros a quien entre en
+  -- personal. Un trigger de auth.users que escriba ahi (la plantilla
+  -- "handle_new_user") haria dueno a cada cuenta nueva.
+  ('ningun trigger de auth.users da membresia automatica (personal, miembros, superadmins)',
+    not exists (select 1 from pg_trigger t join pg_proc f on f.oid = t.tgfoid
+                where t.tgrelid = 'auth.users'::regclass and not t.tgisinternal
+                  and f.prosrc ~* '(personal|miembros|superadmins)'),
+    (select string_agg(t.tgname || ' -> ' || f.proname, ', ') from pg_trigger t join pg_proc f on f.oid = t.tgfoid
+     where t.tgrelid = 'auth.users'::regclass and not t.tgisinternal
+       and f.prosrc ~* '(personal|miembros|superadmins)')),
+
+  ('intentos_buscar_pedido: sin acceso para clientes',
+    not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'intentos_buscar_pedido')
+      and not has_table_privilege('anon', 'public.intentos_buscar_pedido', 'select,insert,update,delete')
+      and not has_table_privilege('authenticated', 'public.intentos_buscar_pedido', 'select,insert,update,delete'),
+    null),
+
   ('ningun superadmin agregado por este script',
     true,
     (select count(*) || ' superadmin(s) en la tabla' from public.superadmins))
@@ -1810,6 +1920,11 @@ begin
   end if;
 end
 $do$;
+
+-- Se borraron y recrearon funciones con otra firma: PostgREST tiene que
+-- recargar su cache o el panel llamaria a la firma vieja (404). El aviso
+-- solo sale si la transaccion se confirma.
+notify pgrst, 'reload schema';
 
 commit;
 

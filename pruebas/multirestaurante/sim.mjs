@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..').split(path.sep).join('/');
 export const sql = (f) => fs.readFileSync(`${REPO}/supabase/${f}`, 'utf8');
+// El SQL 10 a probar. SQL10_ARCHIVO permite probar otra version (la de un commit anterior o una mutacion).
+export const sql10 = () => process.env.SQL10_ARCHIVO ? fs.readFileSync(process.env.SQL10_ARCHIVO, 'utf8') : sql('10-multirestaurante.sql');
 
 export const U = {
   dueno_taq: '24fe556c-f26b-4f7e-84a7-c9e7168ac18c',
@@ -107,7 +109,7 @@ if (process.argv[1] && process.argv[1].endsWith('sim.mjs') && !process.argv[1].e
   await sembrar(db);
   const antes = (await db.query(`select id from public.pedidos order by id`)).rows;
   console.log('pedidos antes:', antes.map((r) => r.id).join(','));
-  const archivo = sql('10-multirestaurante.sql');
+  const archivo = sql10();
   for (let i = 1; i <= 2; i++) {
     try {
       const res = await db.exec(archivo);

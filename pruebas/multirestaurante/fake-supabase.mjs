@@ -3,12 +3,12 @@
 // Cada peticion corre en una transaccion con "set local role" + request.jwt.claims, igual que PostgREST.
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { crearBase, sembrar, sql } from './sim.mjs';
+import { crearBase, sembrar, sql10 } from './sim.mjs';
 
 export async function levantar({ puerto = 54329, migrar = true } = {}) {
   const db = await crearBase({ con01y02: true });
   await sembrar(db);
-  if (migrar) await db.exec(sql('10-multirestaurante.sql'));
+  if (migrar) await db.exec(sql10());
 
   const passwords = new Map();   // email -> password
   const tokens = new Map();      // token -> uid
