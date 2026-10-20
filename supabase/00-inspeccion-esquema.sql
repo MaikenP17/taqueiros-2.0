@@ -24,6 +24,9 @@
 --   * politicas_public / politicas_storage -> cualquier politica rara
 --                                   que alguien creo desde el dashboard.
 --   * sql_pendientes             -> si el SQL 01 y el 02 ya corrieron.
+--   * funciones_security_definer / firmas_repetidas / triggers_en_auth_users
+--                                -> lo que el SQL 10 se niega a dejar
+--                                   pasar sin revision (ver docs, seccion 10).
 -- =============================================================
 
 with
@@ -114,6 +117,23 @@ union all
 select 'funciones_que_anon_ejecuta',
        (select coalesce(jsonb_agg(f.firma order by f.firma), '[]'::jsonb) from funciones f where f.anon_ejecuta)
 union all
+select 'funciones_security_definer',
+       (select coalesce(jsonb_agg(jsonb_build_object('firma', f.firma, 'anon', f.anon_ejecuta,
+                                                     'authenticated', f.authenticated_ejecuta) order by f.firma), '[]'::jsonb)
+        from funciones f where f.security_definer)
+union all
+select 'firmas_repetidas',
+       (select coalesce(jsonb_agg(jsonb_build_object('funcion', proname, 'firmas', firmas) order by proname), '[]'::jsonb)
+        from (select p.proname, jsonb_agg(p.oid::regprocedure::text) as firmas
+              from pg_proc p where p.pronamespace = 'public'::regnamespace
+              group by p.proname having count(*) > 1) x)
+union all
+select 'triggers_en_auth_users',
+       (select coalesce(jsonb_agg(jsonb_build_object('trigger', t.tgname, 'funcion', f.oid::regprocedure::text,
+                                                     'def', pg_get_triggerdef(t.oid))), '[]'::jsonb)
+        from pg_trigger t join pg_proc f on f.oid = t.tgfoid
+        where t.tgrelid = 'auth.users'::regclass and not t.tgisinternal)
+union all
 select 'vistas',
        (select coalesce(jsonb_agg(jsonb_build_object('vista', viewname, 'def', definition)), '[]'::jsonb)
         from pg_views where schemaname = 'public')
@@ -154,7 +174,11 @@ select 'sql_pendientes',
          'sql_02_impresion_columna_impreso_en', exists (select 1 from information_schema.columns
                                                          where table_schema = 'public' and table_name = 'pedidos' and column_name = 'impreso_en'),
          'sql_02_funcion_reclamar_impresion', to_regprocedure('public.reclamar_impresion(bigint)') is not null,
-         'ya_es_multirestaurante', to_regclass('public.restaurantes') is not null)
+         'ya_es_multirestaurante', to_regclass('public.restaurantes') is not null,
+         -- CREATE POLICY en storage.objects exige ser (miembro del) dueno de la tabla
+         'puede_crear_politicas_en_storage', (select pg_has_role(current_user, c.relowner, 'member')
+                                              from pg_class c where c.oid = 'storage.objects'::regclass),
+         'pedidos_replica_identity', (select c.relreplident from pg_class c where c.oid = 'public.pedidos'::regclass))
 union all
 select 'secuencia_pedidos',
        (select jsonb_build_object('ultimo_valor', s.last_value, 'max_id', (select max(id) from public.pedidos))

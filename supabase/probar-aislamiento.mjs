@@ -159,7 +159,7 @@ async function limpiar(ids = null) {
     });
     // Orden por llaves foraneas: hijos primero
     for (const t of ["pedidos", "productos", "categorias", "tarifas_domicilio", "configuracion", "salud_notificaciones",
-                     "contadores_pedido", "restaurante_secretos", "miembros"]) {
+                     "contadores_pedido", "restaurante_secretos", "miembros", "intentos_buscar_pedido"]) {
       await paso(t, async () => {
         const r = await svc("DELETE", `${t}?restaurante_id=${lista}`, undefined, "return=minimal");
         if (r.status >= 300) throw new Error(detalle(r));
@@ -170,6 +170,12 @@ async function limpiar(ids = null) {
       if (r.status >= 300) throw new Error(detalle(r));
     });
   }
+
+  // 1b. Los intentos de busqueda que la prueba dejo contra Taqueiros (celular de prueba)
+  await paso("intentos de busqueda", async () => {
+    const r = await svc("DELETE", "intentos_buscar_pedido?telefono=eq.3000000000", undefined, "return=minimal");
+    if (r.status >= 300 && r.status !== 404) throw new Error(detalle(r));
+  });
 
   // 2. Usuarios de prueba (los propios, o cualquiera con el dominio de pruebas)
   await paso("usuarios", async () => {
@@ -669,6 +675,14 @@ async function main() {
     const refsA = filas(r).map((x) => x.referencia);
     const deA = refsA.length ? filas(await svc("GET", `pedidos?select=referencia&restaurante_id=eq.${A}&referencia=in.(${refsA.join(",")})`)) : [];
     prueba("buscar_mis_pedidos acotada a A trae solo pedidos de A (y si trae)", r.status === 200 && refsA.length > 0 && deA.length === refsA.length, detalle(r));
+    // Limite de intentos: quien conoce el celular no puede probar totales sin fin
+    for (let t = 2000; t < 12000; t += 1000) await api("POST", "rpc/buscar_mis_pedidos", { cuerpo: { telefono: "3000000000", total_pagado: t, p_restaurante: A } });
+    r = await api("POST", "rpc/buscar_mis_pedidos", { cuerpo: { telefono: "3000000000", total_pagado: 1000, p_restaurante: A } });
+    prueba("buscar_mis_pedidos: despues de 10 intentos con el mismo celular ya no responde (ni con el total correcto)", r.status === 200 && filas(r).length === 0, detalle(r));
+    r = await api("GET", "intentos_buscar_pedido?select=*", {});
+    prueba("anon no lee el registro de intentos", sinEfecto(r) && filas(r).length === 0, detalle(r));
+    r = await api("GET", "intentos_buscar_pedido?select=*", { token: dA.token });
+    prueba("dueno A no lee el registro de intentos", sinEfecto(r) && filas(r).length === 0, detalle(r));
   }
 
   // =================================================================

@@ -6,12 +6,13 @@
 
    USO:  node pruebas/multirestaurante/rls.mjs [conPendientes]
 ============================================================= */
-import { crearBase, sembrar, sql, como, intentar, U } from './sim.mjs';
+import { crearBase, sembrar, sql10, como, intentar, U } from './sim.mjs';
 
 const conPend = process.argv[2] === 'conPendientes';
 const db = await crearBase({ con01y02: conPend });
 await sembrar(db);
-await db.exec(sql('10-multirestaurante.sql'));
+await db.exec(sql10());
+console.log('[SQL 10 aplicado]');
 
 const TAQ = '00000000-0000-4000-8000-000000000001';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -199,7 +200,7 @@ T('dueno A no edita configuracion de B', denegado(r));
 r = await intentar(db, u.dA, `update public.configuracion set restaurante_id = '${B}' where restaurante_id = '${A}'`);
 T('dueno A no mueve su configuracion a B', rechazado(r), JSON.stringify(r));
 r = await intentar(db, u.dA, `insert into public.configuracion (restaurante_id, horarios) values ('${A}', '[]')`);
-T('dueno no crea otra fila de configuracion', rechazado(r));
+T('dueno no crea otra fila de configuracion (lo frena RLS, no la llave primaria)', rechazado(r) && r.code === '42501', JSON.stringify(r));
 r = await intentar(db, u.dA, `delete from public.configuracion where restaurante_id = '${A}'`);
 T('dueno no borra su configuracion', denegado(r));
 r = await intentar(db, u.dA, `insert into public.tarifas_domicilio (restaurante_id, hasta, precio) values ('${A}', 3, 1000)`);
@@ -253,7 +254,7 @@ for (const [col, val] of [['plan', "'basico'"], ['estado', "'suspendido'"], ['sl
 r = await intentar(db, u.dA, `update public.restaurantes set nombre = 'Hack' where id = '${B}'`);
 T('dA no edita B', denegado(r));
 r = await intentar(db, u.dA, `delete from public.restaurantes where id = '${A}'`);
-T('dA no borra su restaurante', denegado(r));
+T('dA no borra su restaurante (0 filas, sin llegar a las llaves foraneas)', r.ok && r.n === 0, JSON.stringify(r));
 r = await intentar(db, u.dA, `select * from public.restaurante_secretos`);
 T('dA no lee restaurante_secretos', denegado(r), JSON.stringify(r));
 r = await intentar(db, u.dA, `update public.restaurante_secretos set callmebot_apikey = 'x'`);
@@ -429,6 +430,113 @@ r = (await db.query(`select activo from public.miembros where user_id = '${U.ext
 T('delete en personal -> miembro inactivo', r.length === 1 && r[0].activo === false, JSON.stringify(r));
 r = await intentar(db, U.extra, `select count(*) from public.pedidos`);
 T('un miembro inactivo ya no ve pedidos', r.ok && r.rows[0].count == 0, JSON.stringify(r));
+
+console.log('--- ataques agregados en la revision por mutacion');
+{
+  // Un UPDATE/DELETE SIN WHERE no lee columnas, asi que Postgres no le aplica la politica
+  // de SELECT: lo unico que lo limita es el USING de la propia politica de UPDATE/DELETE.
+  const estadoB = async () => (await db.query(`select estado from public.pedidos where id = ${pB2.id}`)).rows[0].estado;
+  const antesB = await estadoB();
+  r = await intentar(db, u.kA, `update public.pedidos set estado = 'cancelado'`);
+  T('cocina A: UPDATE sin WHERE no toca pedidos de B', (await estadoB()) === antesB, JSON.stringify(r).slice(0, 120));
+  const precioB = async () => (await db.query(`select precio from public.productos where restaurante_id = '${B}' and id = 'prod-b'`)).rows[0].precio;
+  r = await intentar(db, u.dA, `update public.productos set precio = 1`);
+  T('dueno A: UPDATE sin WHERE no toca productos de B', (await precioB()) === 1000, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `update public.categorias set nombre = nombre || ' x'`);
+  T('dueno A: UPDATE sin WHERE no toca categorias de B', (await db.query(`select nombre from public.categorias where restaurante_id = '${B}' and id = 'cat-b'`)).rows[0].nombre === 'Cat B');
+  r = await intentar(db, u.dA, `update public.configuracion set mensaje_cerrado = 'HACK'`);
+  T('dueno A: UPDATE sin WHERE no toca configuraciones ajenas', (await db.query(`select count(*)::int n from public.configuracion where mensaje_cerrado = 'HACK' and restaurante_id <> '${A}'`)).rows[0].n === 0);
+  r = await intentar(db, u.dA, `update public.tarifas_domicilio set precio = 1`);
+  T('dueno A: UPDATE sin WHERE no toca tarifas ajenas', (await db.query(`select count(*)::int n from public.tarifas_domicilio where precio = 1 and restaurante_id <> '${A}'`)).rows[0].n === 0);
+  r = await intentar(db, u.dA, `update public.restaurantes set nombre = 'HACK'`);
+  T('dueno A: UPDATE sin WHERE no renombra otros restaurantes', (await db.query(`select count(*)::int n from public.restaurantes where nombre = 'HACK' and id <> '${A}'`)).rows[0].n === 0);
+  r = await intentar(db, u.dA, `update public.miembros set rol = 'dueno'`);
+  T('dueno A: UPDATE sin WHERE no cambia membresias', (await db.query(`select rol from public.miembros where user_id = '${u.cA}'`)).rows[0].rol === 'cajero');
+  r = await intentar(db, u.dA, `update public.salud_notificaciones set fallos_seguidos = 77`);
+  T('dueno A: UPDATE sin WHERE no toca salud_notificaciones', (await db.query(`select count(*)::int n from public.salud_notificaciones where fallos_seguidos = 77`)).rows[0].n === 0);
+  // Se cuenta TODO lo que no es de A (B y Taqueiros)
+  const cuenta = async (t) => (await db.query(`select count(*)::int n from public.${t} where restaurante_id <> '${A}'`)).rows[0].n;
+  await db.exec(`insert into public.tarifas_domicilio (restaurante_id, hasta, precio) values ('${B}', 3, 3000)`);
+  for (const t of ['pedidos', 'productos', 'tarifas_domicilio', 'configuracion', 'salud_notificaciones']) {
+    const n0 = await cuenta(t);
+    r = await intentar(db, u.dA, `delete from public.${t}`);
+    T(`dueno A: DELETE sin WHERE no borra ${t} de otros restaurantes`, (await cuenta(t)) === n0, JSON.stringify(r).slice(0, 100));
+  }
+  await db.exec(`insert into public.categorias (restaurante_id, id, nombre) values ('${B}', 'cat-sola', 'Sola B')`);
+  r = await intentar(db, u.dA, `delete from public.categorias`);
+  // Sus productos ya se borraron: si la politica solo alcanza las categorias de A, el DELETE funciona;
+  // si alcanzara las ajenas, chocaria con los productos de B y de Taqueiros (llave foranea).
+  T('dueno A: DELETE sin WHERE en categorias solo alcanza las de A', r.ok && (await db.query(`select count(*)::int n from public.categorias where restaurante_id = '${B}' and id = 'cat-sola'`)).rows[0].n === 1, JSON.stringify(r).slice(0, 140));
+  const miembrosAjenos = async () => (await db.query(`select count(*)::int n from public.miembros where user_id <> '${u.dA}'`)).rows[0].n;
+  const m0 = await miembrosAjenos();
+  r = await intentar(db, u.dA, `delete from public.miembros`);
+  T('dueno A: DELETE sin WHERE en miembros no borra ninguna membresia', (await miembrosAjenos()) === m0 && (await db.query(`select count(*)::int n from public.miembros where user_id = '${u.dA}'`)).rows[0].n === 1, JSON.stringify(r).slice(0, 100));
+  r = await intentar(db, u.dA, `delete from public.restaurantes`);
+  T('dueno A: DELETE sin WHERE en restaurantes no alcanza ninguno (0 filas, sin errores de llaves)', r.ok && r.n === 0, JSON.stringify(r).slice(0, 140));
+  const n0 = await cuenta('categorias');
+  r = await intentar(db, u.dB, `delete from public.productos where id = 'p2'`);
+  r = await intentar(db, u.dA, `delete from public.categorias where id = 'nueva'`);
+  T('dueno A: borrar SU categoria no toca la de B con el mismo id', (await cuenta('categorias')) === n0, JSON.stringify(r).slice(0, 100));
+
+  // WITH CHECK de pedidos: un pedido no vuelve a 'pendiente_pago' desde el navegador
+  r = await intentar(db, u.dA, `update public.pedidos set estado = 'pendiente_pago' where id = ${pA1.id}`);
+  T('dueno A NO devuelve un pedido a pendiente_pago (WITH CHECK)', !r.ok || r.n === 0, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.kA, `update public.pedidos set estado = 'pendiente_pago' where id = ${pA1.id}`);
+  T('cocina A NO devuelve un pedido a pendiente_pago', !r.ok || r.n === 0, JSON.stringify(r).slice(0, 120));
+
+  // Un usuario que es miembro de A y de B: el WITH CHECK lo deja escribir en los dos,
+  // solo el trigger impide MOVER filas de uno a otro.
+  const dAB = 'f0000000-0000-4000-8000-0000000000ab';
+  await db.query(`insert into auth.users (id, email) values ($1, 'dab@t.test')`, [dAB]);
+  await db.exec(`insert into public.miembros (user_id, restaurante_id, rol) values ('${dAB}', '${A}', 'dueno'), ('${dAB}', '${B}', 'dueno');
+    insert into public.categorias (restaurante_id, id, nombre) values ('${A}', 'cat-mover', 'Mover') on conflict do nothing;
+    insert into public.productos (restaurante_id, id, nombre, precio, categoria) values ('${A}', 'prod-mover', 'Mover', 1000, 'cat-mover');
+    insert into public.categorias (restaurante_id, id, nombre) values ('${B}', 'cat-mover', 'Mover') on conflict do nothing;
+    insert into public.tarifas_domicilio (restaurante_id, hasta, precio) values ('${A}', 77, 7000);`);
+  r = await intentar(db, dAB, `update public.pedidos set restaurante_id = '${B}' where id = ${pA2.id}`);
+  T('dueno de A y de B NO mueve un pedido de A a B', !r.ok && (await db.query(`select restaurante_id from public.pedidos where id = ${pA2.id}`)).rows[0].restaurante_id === A, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, dAB, `update public.productos set restaurante_id = '${B}' where restaurante_id = '${A}' and id = 'prod-mover'`);
+  T('dueno de A y de B NO mueve un producto de A a B', !r.ok, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, dAB, `update public.tarifas_domicilio set restaurante_id = '${B}' where restaurante_id = '${A}' and hasta = 77`);
+  T('dueno de A y de B NO mueve tarifas de A a B', !r.ok, JSON.stringify(r).slice(0, 120));
+
+  // UPSERT contra una fila ajena: el ON CONFLICT DO UPDATE no puede pisar la fila de B
+  const refB = (await db.query(`select referencia, cliente_nombre from public.pedidos where id = ${pB1.id}`)).rows[0];
+  r = await intentar(db, u.dA, `insert into public.pedidos (restaurante_id, referencia, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total)
+     values ('${A}', '${refB.referencia}', 'HACK', '1', 'llevar', '[]', 1000, 1000)
+     on conflict (referencia) do update set cliente_nombre = excluded.cliente_nombre`);
+  T('dueno A NO pisa un pedido de B con un upsert por referencia', !r.ok && (await db.query(`select cliente_nombre from public.pedidos where id = ${pB1.id}`)).rows[0].cliente_nombre === refB.cliente_nombre, JSON.stringify(r).slice(0, 120));
+  const contB = async () => (await db.query(`select ultimo from public.contadores_pedido where restaurante_id = '${B}'`)).rows[0].ultimo;
+  const c0 = await contB();
+  r = await intentar(db, u.dA, `insert into public.pedidos (restaurante_id, referencia, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total) values ('${B}', 'T-CONTADOR', 'x', '1', 'llevar', '[]', 1000, 1000)`);
+  T('un INSERT rechazado en B no consume el contador de B', !r.ok && (await contB()) === c0, `antes ${c0}, despues ${await contB()}`);
+
+  // Storage: la raiz (fotos actuales de Taqueiros) no la reemplaza ni borra otro dueno
+  await db.query(`insert into storage.objects (bucket_id, name) values ('productos', 'p-taqueiros.webp')`);
+  r = await intentar(db, u.dA, `update storage.objects set owner = '${u.dA}' where name = 'p-taqueiros.webp'`);
+  T('dueno A NO reemplaza (UPDATE) una foto de Taqueiros en la raiz', !r.ok || r.n === 0, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `update storage.objects set name = '${A}/robada.webp' where name = 'p-taqueiros.webp'`);
+  T('dueno A NO mueve a su carpeta una foto de Taqueiros', (await db.query(`select count(*)::int n from storage.objects where name = 'p-taqueiros.webp'`)).rows[0].n === 1, JSON.stringify(r).slice(0, 120));
+  await db.query(`insert into storage.objects (bucket_id, name) values ('productos', '${A}/propia.webp')`);
+  r = await intentar(db, u.dA, `update storage.objects set name = '${B}/plantada.webp' where name = '${A}/propia.webp'`);
+  T('dueno A NO mueve su foto a la carpeta de B', !r.ok || r.n === 0, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `delete from storage.objects`);
+  T('dueno A: DELETE sin WHERE en Storage solo borra lo suyo', (await db.query(`select count(*)::int n from storage.objects where name = 'p-taqueiros.webp' or name like '${B}/%'`)).rows[0].n >= 1, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `insert into storage.objects (bucket_id, name) values ('productos', 'p-${'x'}.webp')`);
+  T('dueno A NO crea fotos nuevas en la raiz', !r.ok, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `insert into storage.objects (bucket_id, name) values ('productos', '/${B}/x.png')`);
+  T('dueno A NO escribe en B con una barra inicial', !r.ok, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `insert into storage.objects (bucket_id, name) values ('productos', '${A.toUpperCase()}/x.png')`);
+  T('una carpeta en MAYUSCULAS no se toma por la propia (comparacion exacta)', !r.ok, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.dA, `insert into storage.objects (bucket_id, name) values ('otro-bucket', '${A}/x.png')`);
+  T('dueno A no escribe en otros buckets', !r.ok, JSON.stringify(r).slice(0, 120));
+
+  // es_personal: la funcion "es_" que anon podia llamar en produccion
+  r = await intentar(db, null, `select public.es_personal()`, [], { rol: 'anon' });
+  T('anon ya no ejecuta es_personal()', !r.ok, JSON.stringify(r).slice(0, 120));
+  r = await intentar(db, u.sin, `select public.es_personal() as v`);
+  T('es_personal() es false para alguien sin membresia', r.ok && r.rows[0].v === false, JSON.stringify(r));
+}
 
 console.log(`\n${total - fallas}/${total} pruebas pasan, ${fallas} fallan`);
 process.exit(fallas ? 1 : 0);
