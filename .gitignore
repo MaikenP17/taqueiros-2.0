@@ -30,3 +30,6 @@ desktop.ini
 # Copias de seguridad temporales
 *.bak
 *.tmp
+
+# Respaldos de la base (traen datos de clientes: NUNCA al repositorio)
+respaldos/
