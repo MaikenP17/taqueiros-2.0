@@ -15,6 +15,7 @@
    Es un simulador: no reemplaza probar en la base real (ver docs/multirestaurante.md, seccion 8).
 ============================================================= */
 import { PGlite } from '@electric-sql/pglite';
+import { citext } from '@electric-sql/pglite/contrib/citext';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,8 +30,80 @@ export const U = {
   extra: '11111111-1111-4111-8111-111111111111',
 };
 
-export async function crearBase({ con01y02 = false } = {}) {
-  const db = new PGlite();
+/* PLANES ADVERSOS. Postgres NO garantiza en que orden evalua los filtros de un WHERE: una funcion
+   puesta junto a "schemaname = 'public'" puede ejecutarse sobre filas de OTROS esquemas antes de que
+   el filtro las descarte. Con el catalogo pequeno del simulador el plan casi siempre filtra primero y
+   el fallo no aparece; en Supabase (muchos esquemas, extensiones) el plan es otro. Estos ajustes
+   fuerzan planes distintos para destaparlo. Se activan con la variable SQL10_PLAN=<nombre> o "todos"
+   en planes.mjs. */
+export const PLANES = {
+  defecto: '',
+  'sin-nestloop': 'set enable_nestloop = off',
+  'solo-nestloop': 'set enable_hashjoin = off; set enable_mergejoin = off',
+  'sin-indices': 'set enable_indexscan = off; set enable_bitmapscan = off; set enable_indexonlyscan = off',
+  'sin-indices-ni-nestloop': 'set enable_indexscan = off; set enable_bitmapscan = off; set enable_indexonlyscan = off; set enable_nestloop = off',
+  'solo-seqscan-y-hash': 'set enable_nestloop = off; set enable_mergejoin = off; set enable_indexscan = off; set enable_bitmapscan = off; set enable_indexonlyscan = off',
+  'solo-merge': 'set enable_nestloop = off; set enable_hashjoin = off; set enable_indexscan = off; set enable_bitmapscan = off',
+  'orden-literal': 'set join_collapse_limit = 1; set from_collapse_limit = 1; set enable_nestloop = off'
+};
+export async function aplicarPlan(db, nombre) {
+  if (!nombre || nombre === 'defecto') return;
+  if (!(nombre in PLANES)) throw new Error('plan desconocido: ' + nombre);
+  await db.exec(PLANES[nombre]);
+}
+
+/* ENTORNO REALISTA: lo que tiene un proyecto Supabase real y el simulador basico no tenia.
+   - roles internos (supabase_admin, supabase_auth_admin, supabase_storage_admin, authenticator)
+   - esquemas extensions, graphql, graphql_public, vault, realtime con tablas y funciones, algunas de
+     supabase_admin, con permisos para anon / authenticated
+   - permisos de lectura de anon y authenticated sobre tablas de pg_catalog (pg_statistic...)
+   - objetos de una extension (citext) instalados en public
+   - muchos esquemas y tablas extra, y ANALYZE del catalogo: cambia los planes del optimizador */
+async function entornoRealista(db) {
+  await db.exec(`
+    create role supabase_admin nologin bypassrls;
+    create role supabase_auth_admin nologin;
+    create role supabase_storage_admin nologin;
+    create role authenticator nologin noinherit;
+    grant anon, authenticated, service_role to authenticator;
+
+    create extension citext schema public;
+
+    create schema extensions;
+    create function extensions.uuid_generate_v4() returns uuid language sql as 'select gen_random_uuid()';
+    create schema graphql;
+    create schema graphql_public;
+    create function graphql_public.graphql(query text default null) returns jsonb language sql stable as 'select ''{}''::jsonb';
+    create schema vault;
+    create table vault.secrets (id uuid primary key default gen_random_uuid(), name text, secret text);
+    create schema realtime;
+    create table realtime.subscription (id bigint generated always as identity primary key, claims jsonb);
+    create table realtime.messages (id bigint generated always as identity primary key, topic text, payload jsonb);
+    create function realtime.topic() returns text language sql stable as 'select ''t''::text';
+    create function realtime.apply_rls(wal jsonb) returns text language sql as 'select ''x''::text';
+    alter function realtime.apply_rls(jsonb) owner to supabase_admin;
+    alter table realtime.subscription owner to supabase_admin;
+    alter function graphql_public.graphql(text) owner to supabase_admin;
+    grant usage on schema extensions, graphql_public, realtime to anon, authenticated, service_role;
+    grant execute on all functions in schema extensions, graphql_public, realtime to anon, authenticated, service_role;
+    grant select, insert on realtime.messages to authenticated;
+    grant select on realtime.subscription to authenticated;
+
+    -- lectura de catalogos internos para anon/authenticated (Supabase real los expone en parte)
+    grant select on pg_catalog.pg_statistic to anon, authenticated;
+    grant select on pg_catalog.pg_largeobject to authenticated;
+
+    -- catalogo grande: 25 esquemas con 4 tablas c/u (cambia estadisticas y planes)
+  `);
+  for (let i = 0; i < 25; i++) {
+    await db.exec(`create schema relleno_${i}; ` + [0, 1, 2, 3].map((j) => `create table relleno_${i}.t${j} (id int primary key, dato text);`).join(' ')
+      + ` grant select on all tables in schema relleno_${i} to authenticated;`);
+  }
+  await db.exec('analyze');
+}
+
+export async function crearBase({ con01y02 = false, realista = true } = {}) {
+  const db = new PGlite({ extensions: { citext } });
   await db.exec(`
     create role anon nologin;
     create role authenticated nologin;
@@ -59,6 +132,7 @@ export async function crearBase({ con01y02 = false } = {}) {
     alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
     insert into auth.users (id, email) values ('${U.dueno_taq}', 'panel@taqueiros.test');
   `);
+  if (realista) await entornoRealista(db);
   const orden = ['schema.sql', 'migracion-domicilio.sql', 'seguridad.sql', 'menu.sql', 'configuracion.sql', 'jornada.sql', 'resumen-jornada.sql',
     'migracion-alertas.sql', 'migracion-ubicacion.sql', 'salud-notificaciones.sql',
     'seguimiento.sql', 'buscar-pedidos.sql', 'limpieza-huerfanos.sql'];
@@ -71,6 +145,8 @@ export async function crearBase({ con01y02 = false } = {}) {
       try { await db.exec(sql(f)); } catch (e) { throw new Error(`[${f}] ${e.message}`); }
     }
   }
+  if (realista) await db.exec('analyze');   // estadisticas del catalogo con todo ya creado
+  await aplicarPlan(db, process.env.SQL10_PLAN);
   return db;
 }
 

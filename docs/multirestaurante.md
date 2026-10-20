@@ -306,7 +306,8 @@ revoke execute on function public.limpiar_pedidos_huerfanos(integer) from public
 **1. Inspección (solo lectura).** Supabase → SQL Editor → New query → pega el contenido de
 `supabase/00-inspeccion-esquema.sql` → Run. Revisa (o pégame) las filas `tablas_sin_restaurante_id`,
 `funciones_que_anon_ejecuta`, `funciones_security_definer`, `firmas_repetidas`, `triggers_en_auth_users`,
-`politicas_public`, `politicas_storage` y `sql_pendientes`. Si aparece una tabla que
+`politicas_public`, `politicas_storage` y `sql_pendientes`, y las filas nuevas `objetos_fuera_de_public_con_permisos`,
+`catalogo_pg_catalog_con_permisos`, `objetos_de_extensiones_en_public` y `permiso_storage_objects` (sección 11). Si aparece una tabla que
 no sea `personal` en `tablas_sin_restaurante_id`, **avísame antes de seguir**.
 
 **2. Respaldo (antes del SQL).**
@@ -401,8 +402,12 @@ antiguos del repo** (con y sin el 01 y el 02) y luego el 10:
   carpeta, números de pedido por restaurante, y lo que hacen el panel, `menu-admin` y el servidor con las mismas
   sentencias que usa el código actual; también `UPDATE`/`DELETE` sin `WHERE`, `upsert` contra filas ajenas y un
   usuario dueño de dos restaurantes.
-* 27 pruebas de los hallazgos de la revisión de seguridad (`hallazgos.mjs`, sección 10): 11 fallan con el SQL
-  del commit 43b6567 y las 27 pasan con el corregido.
+* 32 pruebas de los hallazgos de la revisión de seguridad y de la visibilidad de errores (`hallazgos.mjs`,
+  secciones 10 y 11): 11 fallan con el SQL del commit 43b6567 y las 32 pasan con el corregido.
+* `planes.mjs`: el SQL 10 bajo 8 planes distintos del optimizador sobre un simulador que ya se parece a Supabase
+  (esquemas `extensions`, `graphql`, `vault`, `realtime`, objetos de `supabase_admin` y de una extensión, permisos
+  sobre `pg_catalog`, catálogo grande): con el SQL del commit ac2bab2 fallan 6 de 8 (el error de la sección 11);
+  con el corregido pasan los 8, y un lint estático prohíbe volver a armar nombres de relación a mano.
 * Revisión por mutación (`mutaciones.mjs`): ver el resultado al final de la sección 10.
 * `probar-aislamiento.mjs` completo, contra un servidor falso con la misma lógica de PostgREST/Auth/Storage sobre
   esa base: 227 de 234 pasan; las 7 que no pasan son todas de **Realtime**, que el falso no emula.
@@ -418,7 +423,9 @@ arnés de `pruebas/multirestaurante/` (necesita `npm i --no-save @electric-sql/p
 node pruebas/multirestaurante/sim.mjs                 # SQL antiguos + SQL 10 dos veces (34 comprobaciones)
 node pruebas/multirestaurante/sim.mjs conPendientes   # igual, con el 01 y el 02 ya corridos
 node pruebas/multirestaurante/rls.mjs                 # 234 comprobaciones de aislamiento a nivel SQL
-node pruebas/multirestaurante/hallazgos.mjs           # 27 pruebas de los hallazgos de la revision
+node pruebas/multirestaurante/hallazgos.mjs           # 32 pruebas de los hallazgos de la revision
+node pruebas/multirestaurante/planes.mjs              # el SQL bajo 8 planes del optimizador + lint (11 pruebas)
+# cualquier suite acepta SQL10_PLAN=sin-nestloop (u otro plan de sim.mjs) para correr bajo ese plan
 node pruebas/multirestaurante/mutaciones.mjs          # rompe cada defensa y exige que algo lo detecte (~25 min)
 node pruebas/multirestaurante/contra-falso.mjs probar-aislamiento.mjs      # (Realtime falla aqui: no se emula)
 node pruebas/multirestaurante/contra-falso.mjs probar-compatibilidad.mjs
@@ -433,7 +440,7 @@ hay objetos que el repo no conoce); `probar-aislamiento.mjs` con PostgREST, Auth
 reales, límites de tamaño/MIME del bucket, política de `storage.objects` con el dueño real de la tabla);
 **Realtime con sesiones reales** (que el evento de B no llegue a A); los permisos por defecto reales de Supabase
 sobre funciones; si `postgres` puede crear políticas sobre `storage.objects` (si no, el SQL 10 se revierte con
-“must be owner”: la inspección lo dice en `sql_pendientes.puede_crear_politicas_en_storage`); el límite de intentos de
+“must be owner”: el SQL 10 lo prueba de verdad y lo dice con el mensaje `MR paso 10 (Storage)`; la inspección muestra la evidencia en `permiso_storage_objects`); el límite de intentos de
 `buscar_mis_pedidos` a través del PostgREST real; el recorrido a mano del panel; y un pedido real con Wompi.
 
 ---
@@ -519,7 +526,7 @@ que **falla con el SQL del commit 43b6567 y pasa con el corregido**.
 función y comprobación del SQL 10 y exige que alguna prueba falle o que la migración se detenga. Ver la sección 8
 para el resultado.
 
-**Resultado de la revisión por mutación:** 89 mutaciones; **82 detectadas**, **7 equivalentes** y **0 sin detectar**. Las
+**Resultado de la revisión por mutación:** 91 mutaciones; **84 detectadas**, **7 equivalentes** y **0 sin detectar** (incluye dos que reintroducen la causa del error de la sección 11). Las
 equivalentes son defensas en capas: quitar una sola no cambia lo que un atacante puede hacer porque otra capa cubre lo
 mismo (por ejemplo, el `WITH CHECK` de productos y el trigger de restaurante inmutable). En esos casos, la mutación
 que quita **las dos capas** sí se detecta. Antes de esta revisión **no se detectaban** (y se agregaron pruebas para):
@@ -528,3 +535,87 @@ pedidos, categorías, tarifas y miembros (Postgres no aplica la política de lec
 la inserción de configuración y el borrado del propio restaurante (se distinguen por el código de error, porque la
 llave primaria y las foráneas también los frenan); mover filas siendo dueño de dos restaurantes; y quitar el trigger
 de restaurante inmutable.
+
+---
+
+## 11. Fallo en Supabase real: `relation "public.pg_statistic" does not exist`
+
+**Síntoma.** Al correr el SQL 10 en el SQL Editor (con y sin “enable RLS”) falló con
+`ERROR: 42P01: relation "public.pg_statistic" does not exist`; se revirtió todo y la base quedó como antes.
+
+**Causa exacta.** La comprobación final “anon: sin privilegios sobre ninguna tabla de negocio” hacía:
+
+```sql
+from pg_tables t
+where t.schemaname = 'public'
+  and has_table_privilege('anon', format('public.%I', t.tablename), 'select,insert,update,delete')
+```
+
+Postgres **no garantiza en qué orden evalúa los filtros de un `WHERE`**. `pg_tables` es una vista sobre `pg_class`; el
+filtro `schemaname = 'public'` vive en la unión con `pg_namespace`, y la función solo depende de `relname`, así que el
+planificador puede evaluarla sobre **todas** las tablas de **todos** los esquemas antes de aplicar el filtro. Para
+`pg_statistic` arma `'public.pg_statistic'`, que no existe, y `has_table_privilege` lanza error (a diferencia de
+`to_regclass`, que devuelve nulo). En el simulador chico el plan empezaba por `pg_namespace` y nunca llegaba a
+`pg_statistic`; en Supabase (muchos esquemas, extensiones, otra estadística) el plan es otro. **No tenía que ver con
+permisos sobre `pg_catalog`** (la hipótesis de los permisos no era necesaria: el error ocurre aunque nadie tenga
+permiso sobre esas tablas).
+
+**Cómo se reprodujo.** Con `set enable_nestloop = off` el SQL anterior falla en el simulador con el mismo error
+(`relation "public.<tabla de otro esquema>" does not exist`; en el simulador sale `public.buckets`). Con el
+simulador realista falla en 6 de los 8 planes de `planes.mjs` (y pasa en los otros dos, que es justo lo engañoso).
+
+**Corrección.**
+
+* Todos los barridos de catálogo usan **OID**, no nombres armados: `pg_class c where c.relnamespace = 'public'::regnamespace
+  and c.relkind in ('r','p')` + `has_table_privilege('anon', c.oid, …)` (con OID la función no puede fallar), con
+  `pg_attribute` en vez de `information_schema` para `restaurante_id`, y `pg_depend` con `classid` para excluir objetos de
+  extensiones.
+* La comprobación “RLS activo en todas” y “tablas desconocidas” también pasaron a `pg_class` y excluyen objetos de
+  extensiones (antes una tabla de extensión sin RLS habría detenido la migración).
+* Se agregó `planes.mjs` (planes adversos + lint), que habría atrapado el error antes de entregarlo.
+* `00-inspeccion-esquema.sql`: la CTE de tablas filtra primero (`materialized`) y solo después arma nombres y cuenta filas.
+
+**Qué sigue deteniendo la migración (sin debilitar nada).** Funciones `SECURITY DEFINER` desconocidas, vistas sin
+`security_invoker`, triggers de `auth.users` con membresía automática y todas las comprobaciones de políticas y
+permisos siguen igual; solo cambió *cómo* se recorren los catálogos. Siguen limitadas a objetos de `public` que no son
+de una extensión; los barridos de permisos solo tocan funciones que `postgres` puede modificar y la comprobación
+final avisa de las que no puede (`H1c`).
+
+**Visibilidad de errores.** El SQL Editor solo muestra el mensaje. Cada bloque `DO` (menos las precondiciones y la
+verificación final, que ya tienen su propio mensaje) repite el error como
+`MR paso <paso>: <mensaje original> [elemento: <objeto>]` y la transacción se sigue revirtiendo entera. El SQL plano trae
+marcadores `-- >>> PASO …` numerados (en VS Code: Ctrl+G con el número de línea y buscar hacia arriba el marcador más
+cercano; la lista completa sale con `>>> PASO`). Antes de crear las políticas de Storage, un bloque prueba **de verdad**
+si el usuario puede crearlas (crea y borra una política de prueba) y, si no, se detiene con
+`MR paso 10 (Storage): este usuario no puede crear políticas en storage.objects (…)`.
+
+**El indicador `puede_crear_politicas_en_storage` era un falso negativo.** Se calculaba con
+`pg_has_role(current_user, dueño_de_storage.objects, 'member')`; el SQL 01 ya creó políticas de ese bucket desde el mismo editor,
+así que el indicador daba un falso negativo (sin acceso a la base real no pude determinar por qué mecanismo de roles
+`postgres` puede hacerlo; por eso ahora se prueba creando una política de prueba en lugar de adivinar). Se eliminó de `sql_pendientes`; el SQL 10 nunca
+dependió de él. Ahora la inspección muestra la evidencia (`permiso_storage_objects`): usuario, si es superusuario, dueño
+de la tabla, membresías, privilegios y las políticas que ya existen en `storage.objects`.
+
+**Mejoras al simulador (`sim.mjs`).** Roles de Supabase (`supabase_admin`, `supabase_auth_admin`,
+`supabase_storage_admin`, `authenticator`); esquemas `extensions`, `graphql`, `graphql_public`, `vault`, `realtime` con tablas
+y funciones (algunas de `supabase_admin`) y permisos para `anon`/`authenticated`; permisos de lectura sobre
+`pg_catalog.pg_statistic` y `pg_largeobject`; una extensión real (`citext`) instalada en `public`; 25 esquemas de relleno
+y `ANALYZE` del catálogo; y los **planes adversos** (`PLANES`, activables con `SQL10_PLAN`).
+
+**Otras diferencias simulador ↔ Supabase revisadas** (y qué se hizo):
+* `postgres` es superusuario en el simulador y **no** en Supabase: no se puede reproducir un “must be owner”; se cubre
+  con un event trigger que lo simula (`hallazgos.mjs`, [V]) y con la prueba real de permiso del paso 10.
+* Dueño de `storage.objects`: en Supabase lo normal es `supabase_storage_admin`; el simulador lo deja de `postgres`.
+* Privilegios por defecto (`ALTER DEFAULT PRIVILEGES`): el simulador los imita para `public`; en Supabase también
+  aplican a `supabase_admin`. Las funciones de otro dueño en `public` no se pueden revocar: la verificación final las
+  detecta.
+* Funciones y tablas de extensiones en `public`: excluidas con `pg_depend` (`classid` + `deptype 'e'`); probado con `citext`.
+* Event triggers de Supabase (`pgrst_ddl_watch`, `issue_graphql_placeholder`…) corren en cada DDL como `supabase_admin`:
+  no se pueden simular aquí; el `notify pgrst, 'reload schema'` final es redundante pero inofensivo.
+* Pooler y editor: el script depende de una sola sesión (tablas temporales `_mr_*` y el `select` final tras el
+  `commit`). El SQL Editor lo ejecuta como una sola consulta; si en algún entorno el editor partiera el script, la
+  tabla final no aparecería (la migración sí quedaría confirmada).
+* Opción “Run and enable RLS” del editor: reescribe el script; se recomienda **“Run without RLS”**, porque el propio
+  SQL 10 activa RLS en todo y sin que nadie toque el texto.
+* `auth.uid()`, claims y roles de PostgREST: se imitan con `request.jwt.claims`; el comportamiento real de las llaves
+  nuevas (`sb_publishable_`, `sb_secret_`) solo se confirma con `probar-aislamiento.mjs` contra la base real.

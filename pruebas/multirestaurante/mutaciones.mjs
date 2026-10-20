@@ -150,8 +150,8 @@ const MUTACIONES = [
   ['jornadas_con_pedidos DEFINER y sin filtro de restaurante', varios(
     cambiar(`returns table (jornada date, pedidos bigint, ventas bigint, cancelados bigint)\nlanguage sql\nstable\nset search_path = ''`, `returns table (jornada date, pedidos bigint, ventas bigint, cancelados bigint)\nlanguage sql\nstable\nsecurity definer\nset search_path = ''`),
     cambiar(`  join c on c.rid = p.restaurante_id\n  where p.estado <> 'pendiente_pago'\n  group by 1`, `  cross join (select hora_corte_jornada as corte from public.configuracion where id = 1) c\n  where p.estado <> 'pendiente_pago'\n  group by 1`))],
-  ['historial y jornada otra vez para anon', cambiar(`    'public.buscar_historial(date,date,text,text,uuid)', 'public.jornadas_con_pedidos(integer,uuid)'\n  ] loop\n    execute format('revoke all on function %s from public, anon', f);`,
-    `    'public.buscar_historial(date,date,text,text,uuid)', 'public.jornadas_con_pedidos(integer,uuid)'\n  ] loop\n    execute format('grant execute on function %s to anon', f);`)],
+  ['historial y jornada otra vez para anon', cambiar(`    'public.buscar_historial(date,date,text,text,uuid)', 'public.jornadas_con_pedidos(integer,uuid)'\n  ] loop\n    v_item := f;\n    execute format('revoke all on function %s from public, anon', f);`,
+    `    'public.buscar_historial(date,date,text,text,uuid)', 'public.jornadas_con_pedidos(integer,uuid)'\n  ] loop\n    v_item := f;\n    execute format('grant execute on function %s to anon', f);`)],
   // ---- puertas publicas
   ['buscar_mis_pedidos no se acota al restaurante', cambiar(`  where p.restaurante_id = v_rid\n    and p.cliente_telefono = buscar_mis_pedidos.telefono`, `  where p.cliente_telefono = buscar_mis_pedidos.telefono`)],
   ['buscar_mis_pedidos sin limite de intentos', cambiar(`  if v_intentos > 10 then`, `  if v_intentos > 100000 then`)],
@@ -183,6 +183,14 @@ const MUTACIONES = [
   ['fotos: SELECT de storage sin control', cambiar(`create policy mr_productos_fotos_select on storage.objects for select to authenticated\n  using (bucket_id = 'productos' and (select public.puede_gestionar_fotos(name)));`,
     `create policy mr_productos_fotos_select on storage.objects for select to authenticated\n  using (bucket_id = 'productos');`)],
   // ---- barridos y comprobaciones
+  // La CAUSA del error 'relation "public.pg_statistic" does not exist': solo se ve con ciertos planes
+  // del optimizador, asi que la detecta planes.mjs (tercer elemento: suites extra a ejecutar).
+  ['la comprobacion de anon usa un nombre armado (causa de pg_statistic)', cambiar(`                  and has_table_privilege('anon', c.oid, 'select,insert,update,delete')),`, `                  and has_table_privilege('anon', format('public.%I', c.relname), 'select,insert,update,delete')),`), ['planes.mjs']],
+  ['la comprobacion de tablas desconocidas usa ::regclass sobre un nombre armado', cambiar(`                  and c.relname not in ('restaurantes', 'superadmins', 'personal')
+                  and not exists (select 1 from pg_attribute a`, `                  and c.relname not in ('restaurantes', 'superadmins', 'personal')
+                  and to_regclass('public.' || c.relname)::oid is not null
+                  and has_table_privilege('anon', ('public.' || c.relname)::regclass, 'select')
+                  and not exists (select 1 from pg_attribute a`), ['planes.mjs']],
   ['sin barrido de EXECUTE para anon', cambiar(`    execute format('revoke execute on function %s from public, anon', r.firma);\n  end loop;`, `    null;\n  end loop;`)],
   ['sin REVOKE de tablas a anon', cambiar(`  public.intentos_buscar_pedido\nfrom anon;`, `  public.intentos_buscar_pedido\nfrom service_role;`)],
   ['no se borran las politicas antiguas', cambiar(`    execute format('drop policy %I on %I.%I', r.policyname, r.schemaname, r.tablename);`, `    if r.policyname like 'mr\\_%' then execute format('drop policy %I on %I.%I', r.policyname, r.schemaname, r.tablename); end if;`)],
@@ -219,7 +227,7 @@ function correr(script, archivo) {
 const filtro = process.argv[2] || '';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutsql10-'));
 const filas = [];
-for (const [nombre, f] of MUTACIONES) {
+for (const [nombre, f, extras = []] of MUTACIONES) {
   if (filtro && !nombre.includes(filtro)) continue;
   let texto;
   try { texto = f(ORIGINAL); } catch (e) { filas.push({ nombre, estado: 'ERROR DE MUTACION', por: e.message }); console.log('ERROR      ' + nombre + ' -> ' + e.message); continue; }
@@ -229,6 +237,8 @@ for (const [nombre, f] of MUTACIONES) {
   if (process.env.MUT_GUARDAR) fs.writeFileSync(process.env.MUT_GUARDAR, texto);   // para depurar una mutacion
   const r1 = await correr('rls.mjs', archivo);
   const r2 = await correr('hallazgos.mjs', archivo);
+  const rx = [];
+  for (const extra of extras) rx.push(await correr(extra, archivo));
   const fallasDe = (r) => (r.salida.match(/^FALLA.*$/gm) || []).map((x) => x.replace(/\s+->.*/, '').replace(/^FALLA\s+/, ''));
   const abortada = /LA MIGRACION SE REVIRTIO/.test(r1.salida);
   // Si el SQL mutado no llego a aplicarse y no fue su propia verificacion la que lo detuvo, es
@@ -238,14 +248,14 @@ for (const [nombre, f] of MUTACIONES) {
     console.log('ERROR      ' + nombre + ' -> SQL mutado invalido: ' + filas[filas.length - 1].por.slice(0, 160));
     continue;
   }
-  const detectada = r1.code !== 0 || r2.code !== 0;
-  const por = abortada ? 'la migracion se detuvo (comprobaciones finales)' : [...fallasDe(r1), ...fallasDe(r2)].slice(0, 2).join(' | ') || (r1.code ? r1.salida.slice(-200) : '');
+  const detectada = r1.code !== 0 || r2.code !== 0 || rx.some((x) => x.code !== 0);
+  const por = abortada ? 'la migracion se detuvo (comprobaciones finales)' : [...fallasDe(r1), ...fallasDe(r2), ...rx.flatMap(fallasDe)].slice(0, 2).join(' | ') || (r1.code ? r1.salida.slice(-200) : '');
   const estado = detectada ? 'DETECTADA' : (EQUIVALENTES[nombre] ? 'EQUIVALENTE' : 'NO DETECTADA');
   filas.push({ nombre, estado, por: detectada ? por : (EQUIVALENTES[nombre] || '') });
   console.log(estado.padEnd(12) + ' ' + nombre +
     (detectada ? '   <- ' + por.slice(0, 140) : (EQUIVALENTES[nombre] ? '   (' + EQUIVALENTES[nombre] + ')' : '')));
   // Con filtro se muestra el detalle completo de lo que fallo
-  if (filtro) [...fallasDe(r1), ...fallasDe(r2)].forEach((x) => console.log('     falla: ' + x));
+  if (filtro) [...fallasDe(r1), ...fallasDe(r2), ...rx.flatMap(fallasDe)].forEach((x) => console.log('     falla: ' + x));
 }
 fs.rmSync(dir, { recursive: true, force: true });
 const malas = filas.filter((x) => x.estado !== 'DETECTADA' && x.estado !== 'EQUIVALENTE');

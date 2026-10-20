@@ -34,6 +34,8 @@ async function escenario({ antes = '' } = {}) {
   if (antes) await db.exec(antes);
   let error = null;
   try { await db.exec(sql10()); } catch (e) { error = e; }
+  // Tras un fallo la sesion queda en una transaccion abortada; el SQL Editor la revierte solo.
+  if (error) { try { await db.exec('rollback'); } catch { /* ya revertida */ } }
   return { db, error };
 }
 
@@ -236,6 +238,38 @@ console.log('\n[P] Hueco que existe HOY en produccion (antes del SQL 10): anon b
   r = await intentar(db, null, `select public.limpiar_pedidos_huerfanos(0) as n`, [], { rol: 'anon' });
   const sigue = (await db.query(`select count(*)::int n from public.pedidos where referencia = 'TAQ-PAGANDO-2'`)).rows[0].n;
   T('DESPUES del SQL 10: anon ya no puede, y el pedido sigue ahi', !r.ok && sigue === 1, JSON.stringify(r));
+}
+
+console.log('\n[V] Visibilidad de errores: el SQL Editor solo muestra el mensaje, asi que debe decir en que paso fallo');
+{
+  // Una tabla ajena con llave foranea hacia categorias impide reemplazar su llave primaria (paso 4.1).
+  const { db, error } = await escenario({ antes: `create table public.ref_categorias (c text references public.categorias(id));` });
+  T('un paso que falla se identifica: "MR paso 4.1 ..."', !!error && /^MR paso 4\.1/.test(error.message), error ? error.message.slice(0, 200) : 'la migracion no fallo');
+  T('... y cuenta que objeto fallo', !!error && /elemento|constraint|depend/i.test(error.message), error && error.message.slice(0, 200));
+  const huella = await db.query(`select to_regclass('public.restaurantes') is not null as hay_restaurantes,
+                                        exists (select 1 from information_schema.columns where table_name = 'pedidos' and column_name = 'restaurante_id') as hay_columna`);
+  T('... y todo se revirtio (no quedo restaurantes ni restaurante_id)', !huella.rows[0].hay_restaurantes && !huella.rows[0].hay_columna, JSON.stringify(huella.rows[0]));
+}
+{
+  // Sin permiso para crear politicas en storage.objects (simulado con un event trigger que lo impide)
+  const { db, error } = await escenario({ antes: `
+    create function public.prohibir_politicas_storage() returns event_trigger language plpgsql as $$
+      declare r record;
+      begin
+        for r in select * from pg_event_trigger_ddl_commands() loop
+          if r.command_tag = 'CREATE POLICY' and r.object_identity like '% on storage.objects' then
+            raise exception 'must be owner of table objects';
+          end if;
+        end loop;
+      end $$;
+    create event trigger sim_sin_permiso_storage on ddl_command_end execute function public.prohibir_politicas_storage();
+  ` });
+  T('sin permiso sobre storage.objects la migracion se detiene con un mensaje claro',
+    !!error && /MR paso 10 \(Storage\)/.test(error.message) && /must be owner/.test(error.message), error ? error.message.slice(0, 220) : 'la migracion no fallo');
+  if (error) {
+    const huella = await db.query(`select to_regclass('public.restaurantes') is not null as hay`);
+    T('... y todo se revirtio', !huella.rows[0].hay, JSON.stringify(huella.rows[0]));
+  }
 }
 
 console.log('\n[C] Compatibilidad con el parche manual ya aplicado en produccion');
