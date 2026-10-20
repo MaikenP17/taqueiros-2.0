@@ -1,16 +1,19 @@
-# Base de datos multi-restaurante (SQL 10)
+# Multi-restaurante: base de datos (SQL 10) y servidor (SQL 11 + api/)
 
 Taqueiros 2.0 se va a vender como servicio: **una sola base de datos y un solo despliegue para muchos
 restaurantes**, con aislamiento estricto de datos. Este documento describe la base ya preparada para eso
 (`supabase/10-multirestaurante.sql`), qué había antes, qué decisiones se tomaron y cómo se verifica.
 
-> **Alcance.** Este paso solo amplía la base de datos y la seguridad. El código actual (panel, pedidos,
-> webhook de Wompi, alertas, menú, impresión, historial, crons) **no se tocó** y sigue funcionando igual.
-> El siguiente paso adapta la API y el front, y retira los valores por defecto transitorios (sección 7).
+> **Alcance.** Las secciones 1 a 11 describen la base de datos y la seguridad (SQL 10, ya ejecutado y verificado
+> en Supabase real). La **sección 12** describe el paso siguiente, ya hecho: el **servidor** (`api/*.js`) sabe de
+> qué restaurante es cada petición, filtra siempre por él, usa sus propios secretos y respeta su estado de
+> servicio (más `supabase/11-dominios.sql`). Las páginas HTML no se tocaron. Los valores por defecto transitorios
+> de la base (sección 7) siguen puestos hasta que el front se adapte.
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
-8. Qué se probó y qué no · 9. Riesgos
+8. Qué se probó y qué no · 9. Riesgos · 10. Revisión de seguridad del SQL 10 · 11. Fallo `pg_statistic` ·
+**12. Servidor multi-restaurante (SQL 11 + api/)**
 
 ---
 
@@ -291,6 +294,8 @@ Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. La llave secreta (`sb_s
 Settings → API Keys) se pide con `Read-Host` y **no se muestra al pegarla**: pégala **UNA sola vez** (clic derecho
 **o** Ctrl+V, nunca ambos). Si se pega dos veces, los scripts lo detectan y no hacen nada.
 
+> Los pasos del **servidor** (SQL 11, cargar secretos, pruebas de la API) están en la sección 12.9.
+
 **0. Una sola vez:** `npm i --no-save @supabase/supabase-js@2.117.2` (para la prueba de Realtime).
 
 **0b. Urgente, hoy mismo (antes de todo lo demás).** La inspección mostró que `anon` puede ejecutar
@@ -383,9 +388,9 @@ los clientes.
 * Retirar la regla transitoria de Storage (raíz del bucket) y subir las fotos nuevas a `{restaurante_id}/`.
 * Aplicar estado/vigencia/plan/módulos (hoy son solo estructura) y `restaurantes.zona_horaria`.
 * Alta de miembros y de restaurantes desde un endpoint del servidor (hoy se hace con la llave secreta o SQL).
-* `crear-pedido`, webhook y alertas aún no son multi-restaurante: **no des de alta restaurantes reales con
-  productos hasta hacer este paso**, porque `/api/menu` y los cobros leen `productos`/`categorias` sin filtrar y
-  mezclarían los menús.
+* ~~`crear-pedido`, webhook y alertas aún no son multi-restaurante~~ **Hecho** (sección 12): el servidor ya filtra
+  por restaurante en todos sus endpoints. Lo que sigue pendiente es el **front** (páginas y panel, sección 12.10) y
+  retirar los valores por defecto transitorios; **no des de alta restaurantes reales hasta que el front los use**.
 
 ---
 
@@ -450,9 +455,9 @@ sobre funciones; si `postgres` puede crear políticas sobre `storage.objects` (s
 1. **El esquema real puede tener objetos que el repo no conoce.** El SQL 10 se detiene (y revierte) si encuentra
    una tabla de `public` sin `restaurante_id` o una función/política que no esperaba; la inspección previa lo
    anticipa.
-2. **El servidor aún no es multi-restaurante.** Hasta el siguiente paso, un segundo restaurante real mezclaría
-   menús en `/api/menu` y en la validación de precios. Las pruebas crean datos de prueba por segundos; `/api/menu`
-   tiene caché de 60 s en Vercel.
+2. ~~**El servidor aún no es multi-restaurante.**~~ **Resuelto en la sección 12**: `/api/menu`, la validación de
+   precios, los cobros y las alertas filtran por restaurante (probado con la batería local y la revisión por mutación).
+   Lo que no está resuelto es el front (sección 12.10).
 3. **Huecos en los ids.** Cada inserción fallida (también las rechazadas por RLS en las pruebas) consume un id de la
    secuencia. Mientras el código muestre `id`, el panel puede saltar números; `numero` (contador) no salta. La
    prueba realinea la secuencia. En el siguiente paso, mostrar `numero`.
@@ -473,7 +478,7 @@ sobre funciones; si `postgres` puede crear políticas sobre `storage.objects` (s
    niega a correr si lo encuentra.
 8. **Superadmin = acceso a todos los clientes.** Agrégalo solo cuando lo necesites y con 2FA.
 9. **No vuelvas a correr los SQL antiguos** después del 10: recrearían políticas y funciones de un solo restaurante.
-10. **Alertas por WhatsApp entre restaurantes (para el siguiente paso, en la API).** `/api/alertas` (llave secreta)
+10. **Alertas por WhatsApp entre restaurantes (resuelto en la sección 12).** *Descripción del riesgo original:* `/api/alertas` (llave secreta)
     busca pedidos `nuevo` sin avisar de **todos** los restaurantes y avisa al WhatsApp de Taqueiros. Cuando exista un
     segundo restaurante, un dueño o cajero suyo puede crear pedidos (con `alerta_enviada = false`) que terminen como
     mensajes en el WhatsApp de Taqueiros. Hoy no hay otros restaurantes; la API debe filtrar por restaurante y usar
@@ -619,3 +624,318 @@ y `ANALYZE` del catálogo; y los **planes adversos** (`PLANES`, activables con `
   SQL 10 activa RLS en todo y sin que nadie toque el texto.
 * `auth.uid()`, claims y roles de PostgREST: se imitan con `request.jwt.claims`; el comportamiento real de las llaves
   nuevas (`sb_publishable_`, `sb_secret_`) solo se confirma con `probar-aislamiento.mjs` contra la base real.
+
+---
+
+## 12. Servidor multi-restaurante (SQL 11 + `api/`)
+
+Hasta la sección 11 la base ya era multi-restaurante pero el servidor no: funcionaba porque todo caía en Taqueiros
+(valor por defecto transitorio de `restaurante_id`). Como las API usan la llave secreta (que **se salta RLS**), la base
+no las protege de sí mismas: cada consulta del servidor tiene que filtrar por restaurante de forma explícita. Esta
+sección es ese trabajo. **Las páginas HTML y `ticket-comanda.js` no se tocaron** y Taqueiros se ve igual en
+`taqueiros-2-0.vercel.app`.
+
+### 12.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `supabase/11-dominios.sql` (nuevo) | Tabla `restaurante_dominios (host único en minúsculas, restaurante_id, creado_en)`, RLS activo, **sin políticas y sin privilegios para `anon` ni `authenticated`** (solo el servidor la lee). Siembra `taqueiros-2-0.vercel.app` → Taqueiros. Atómico, idempotente, con marcadores `-- >>> PASO n`, bloques `DO` que relanzan el error como `MR paso n: ...`, barridos por OID y 12 comprobaciones OK/FALLA. No toca el valor por defecto transitorio. |
+| `api/_restaurante.js` (nuevo) | Resolución del restaurante por petición, caché, estado del servicio, lectura de secretos y modo de cobro. |
+| `api/_supabase.js` | **Toda** función de negocio recibe el `restaurante_id` como primer argumento y lo pone en el filtro o en el cuerpo del insert; sin un UUID válido lanza error y no consulta. |
+| `api/menu`, `disponibilidad`, `estado`, `crear-pedido`, `generar-firma`, `webhook-wompi`, `alertas`, `keep-alive` | Adaptados (tabla de 12.3). |
+| `api/restaurante.js` (nuevo) | Datos públicos del restaurante del host (para el front). |
+| `api/reembolso.js` (nuevo) | Registro de `reembolsado_en` (solo dueño o servidor). |
+| `supabase/cargar-secretos.mjs` (nuevo) | Pasa las llaves de las variables de entorno a `restaurante_secretos`. |
+| `supabase/probar-servidor-multirestaurante.mjs` (nuevo) | Los mismos escenarios que la batería local, contra la base real. |
+| `supabase/probar-compatibilidad.mjs` | Actualizado: simula una visita al host de Taqueiros y revisa lo que el servidor nuevo necesita. |
+| `pruebas/llave-y-categorias.test.js`, `pruebas/cron.test.js` | Solo se actualizaron las firmas (ahora reciben el restaurante). |
+
+Fuera de `api/` y `supabase/` solo cambiaron `pruebas/` (arnés y pruebas), `docs/` y `.env.example`.
+
+### 12.2 Cómo se resuelve el restaurante (y por qué es seguro)
+
+Orden, y **nada más**:
+
+1. El encabezado **`Host` exacto**, buscado en `restaurante_dominios`.
+2. Un **subdominio** bajo `DOMINIO_BASE` (variable de entorno de Vercel) cuyo **único** segmento anterior sea el slug de un
+   restaurante. Con `DOMINIO_BASE=midominio.com`: `lostaqueiros.midominio.com` → slug `lostaqueiros`. Dos niveles
+   (`x.lostaqueiros.midominio.com`), el dominio pegado sin punto o un sufijo (`...midominio.com.evil.com`) **no** resuelven.
+3. **Solo si `VERCEL_ENV` no es `production`** (previews y desarrollo local): el parámetro `?r=<slug>`, para probar sin dominios.
+   En producción está apagado: ni `?r=`, ni cabeceras, ni el cuerpo eligen restaurante.
+
+Por qué es seguro:
+
+* `Host` lo fija la infraestructura (Vercel enruta por el dominio al que entró el cliente). No se lee `x-forwarded-host` ni
+  ningún otro encabezado, y **nunca** el cuerpo ni el query en producción. La batería lo prueba con `x-forwarded-host`,
+  `x-restaurante`, `origin`, `referer`, `restaurante_id`/`slug`/`host` dentro del body y `?r=` en producción.
+* Un host desconocido (o ausente, o con formato raro) responde **404 con el mismo cuerpo** para cualquier endpoint, sin
+  decir qué restaurantes existen; los hosts raros ni siquiera llegan a la base (se validan antes de consultar).
+* El slug del subdominio se valida contra el formato antes de buscarlo; todo valor que entra a una URL de PostgREST se
+  valida (UUID / formato de host / formato de slug), así que no se pueden colar filtros.
+* La tabla `restaurante_dominios` no la ve ningún cliente: con la llave publishable nadie averigua qué hosts existen.
+
+**Caché** (memoria de la instancia): 30 s por host/slug, con caché negativa de 10 s (un host inventado no castiga a la
+base) y máximo 500 entradas. Guarda solo el restaurante (nunca secretos). `invalidarCache()` / `invalidarCache(id)` la
+vacía (hay que llamarla en cualquier código futuro que cambie estado, plan o vigencia). Si Supabase falla, se usa la
+**última resolución conocida** (hasta 6 h): el mapa host → restaurante no es secreto y así se conserva la red de seguridad
+del menú. Para decidir si se aceptan pedidos, `crear-pedido` relee el restaurante **sin caché**: una suspensión rige en
+el acto.
+
+**Transición:** si la tabla `restaurante_dominios` aún no existe (SQL 11 sin correr) y el host es exactamente
+`taqueiros-2-0.vercel.app`, se resuelve a Taqueiros con un aviso en el log. Es lo que permite desplegar el código antes del
+SQL 11 sin tumbar a Taqueiros. Cualquier otro host sigue dando error.
+
+### 12.3 Inventario de endpoints y cómo filtra cada uno
+
+| Endpoint | Quién llama | Restaurante sale de | Cómo filtra / qué usa |
+|---|---|---|---|
+| `GET /api/menu` | público | Host | `categorias` y `productos` con `restaurante_id`; copia de respaldo en memoria **por restaurante**; `Cache-Control` del borde + `Vary: Host`. Suspendido sigue mostrando menú. |
+| `GET /api/disponibilidad` | público | Host | `productos`/`categorias` agotados/apagados de ese restaurante. |
+| `GET /api/estado` | público | Host | `configuracion` por `restaurante_id`, con su zona horaria y su hora de corte; agrega `servicio.sirve`. |
+| `POST /api/crear-pedido` | público | Host | Servicio al día (relee sin caché) → horario → `validarItems(rid)` (un producto de otro restaurante cae en `desconocidos`) → domicilio con **sus** `tarifas_domicilio` y **su** ubicación → secretos del restaurante → `insert` con `restaurante_id` explícito; el número lo asigna el trigger con el contador atómico de ese restaurante. |
+| `POST /api/generar-firma` | (ninguna página lo usa) | Host | Solo firma un pedido que **existe en ese restaurante**, está pendiente y por el monto guardado (antes firmaba cualquier referencia/monto). |
+| `POST /api/webhook-wompi` | Wompi | **El pedido** (por la referencia) | Ver abajo. |
+| `GET /api/alertas` | cron | recorre restaurantes | Cada restaurante en servicio: sus pedidos, su contacto, su salud, su `alerta_enviada`. |
+| `GET /api/keep-alive` | cron | ninguno | Ping a `restaurantes` (no es tabla de negocio); `limpiar_pedidos_huerfanos` es global a propósito. |
+| `GET /api/restaurante` | público (front) | Host | Solo datos públicos (12.7). |
+| `POST /api/reembolso` | panel (dueño) | Host | 12.6. |
+
+**Webhook de Wompi.** Es un único endpoint para todos, así que el host no sirve. (1) La referencia del evento identifica el
+pedido (única en toda la base) y el pedido trae su `restaurante_id`; (2) la firma se verifica con los secretos **de ese
+restaurante**, según el `environment` del evento; (3) todo lo demás (actualizar, avisar) usa ese `restaurante_id`. Un
+evento firmado con los secretos del restaurante A sobre un pedido de B responde **401** y no cambia nada. Una referencia
+desconocida y una firma mala responden **igual** (401, mismo cuerpo): el endpoint no sirve para averiguar qué referencias
+existen. Idempotencia, comparación de monto y manejo de estados quedaron iguales. Un restaurante **suspendido sigue
+procesando los pagos ya en curso** (el cliente ya pagó): lo que se corta es crear pedidos nuevos.
+
+**Alertas.** Itera sobre los restaurantes que están sirviendo (activo, prueba o gracia; no suspendidos). Un restaurante sin
+contacto se salta y sus pedidos **no** se marcan como avisados; el fallo de uno no detiene a los demás; `notificarWhatsApp`
+lanza error si el contacto no es del restaurante del pedido (defensa en profundidad: nunca sale un pedido por el WhatsApp de
+otro). El estado de salud (`salud_notificaciones`) se lee y se escribe por `restaurante_id` (ya no `id = 1`).
+
+**`limpiar_pedidos_huerfanos`**, `seguimiento` y `buscar_mis_pedidos`: el servidor solo llama a la primera, y es un barrido
+global que solo toca pedidos que ya nunca se van a cobrar (sin pagar, de más de 24 h) y solo el servidor puede ejecutarla;
+`seguimiento` y `buscar_mis_pedidos` las llama el navegador (con su parámetro `p_restaurante`, tarea del front).
+**Impresión:** `reclamar_impresion` y `registrar_reimpresion` las llama el panel (ya verifican membresía, SQL 10); el
+servidor no las usa y no se tocó nada.
+
+### 12.4 Secretos: de dónde se leen y su forma exacta
+
+Los lee **solo el servidor**, de `restaurante_secretos` (sin políticas: nadie más), **en cada uso** (no se guardan en
+caché), y **jamás** se devuelven ni se escriben en logs (la batería busca cada secreto en todas las respuestas y en todo el
+log de la corrida).
+
+| Dato | Dónde |
+|---|---|
+| Secreto de **integridad** de Wompi (firma del checkout) | columnas `wompi_integridad_test` / `wompi_integridad_prod` |
+| Secreto de **eventos** de Wompi (firma del webhook) | columnas `wompi_eventos_test` / `wompi_eventos_prod` |
+| Llave **pública** de Wompi | columnas `wompi_llave_publica_test` / `wompi_llave_publica_prod` (no la usa el servidor hoy) |
+| Llave **privada** de Wompi | `otros.wompi_llave_privada_test` / `otros.wompi_llave_privada_prod` (no la usa el servidor hoy) |
+| CallMeBot: teléfono (`57XXXXXXXXXX`) y apikey | columnas `callmebot_telefono`, `callmebot_apikey` |
+| **Modo de cobro** | `otros.wompi_modo`: `"test"` o `"produccion"` |
+
+**Modo de cobro.** Antes lo decidía el navegador (`modo` en el body). Un cliente podía pedir `"test"` y pagar con tarjetas de
+prueba de Wompi: el webhook de prueba aprobaba el pago y el pedido entraba a cocina gratis. Ahora lo decide el servidor con
+`otros.wompi_modo` (el dueño no lo puede editar: `restaurante_secretos` es solo del servidor). Si no está definido, **solo
+Taqueiros** conserva lo de siempre (el modo que manda su página); **cualquier otro restaurante no cobra** hasta que se
+configure. *Antes de salir a producción con Taqueiros conviene fijarlo* (`cargar-secretos.mjs` con `WOMPI_MODO=produccion`).
+
+**Respaldo con variables de entorno, solo Taqueiros.** Si un secreto de Taqueiros no está en `restaurante_secretos`, se usa
+la variable de entorno actual (`WOMPI_INTEGRITY_SECRET_*`, `WOMPI_EVENTS_SECRET_*`, `CALLMEBOT_PHONE`, `CALLMEBOT_APIKEY`),
+campo por campo y con un aviso en el log (nombre de la variable, nunca el valor). **Nunca** para otro restaurante (probado).
+Lo que está en la base manda sobre el entorno. Las variables siguen en Vercel hasta que decidas retirarlas.
+
+### 12.5 Estado del servicio (mensualidad)
+
+`restauranteActivo(restaurante, ahora)` devuelve `activo`, `gracia` o `suspendido`:
+
+* `estado = 'suspendido'` → suspendido (`motivo: suspendido`).
+* `vigente_hasta` nulo → activo (sin vencimiento). `prueba` y `activo` sirven.
+* Hasta el día de `vigente_hasta` (inclusive) → activo; hasta `vigente_hasta + dias_gracia` → `gracia` (sigue sirviendo);
+  después → suspendido (`motivo: vencido`). "Hoy" es la fecha en la **zona horaria del restaurante**.
+
+Suspendido o vencido: `crear-pedido` y `generar-firma` responden **403** con `{"motivo": "servicio_suspendido"}` sin borrar ni
+modificar nada; el menú sigue mostrándose; el webhook, las alertas (no se alertan) y los endpoints internos del panel (como
+`reembolso`) no se bloquean salvo lo indicado. `/api/estado` y `/api/restaurante` informan `servicio`.
+
+### 12.6 Reembolsos (`pedidos.reembolsado_en`)
+
+`POST /api/reembolso` con `{"referencia": "TAQ-..."}` y la sesión del panel (`Authorization: Bearer <JWT>`). Solo el **dueño
+activo** del restaurante del host (o un superadmin) puede; el cajero, la cocina y quien no tenga membresía reciben 403; el
+dueño de **otro** restaurante, también. El pedido debe ser de ese restaurante, estar **cancelado** con el pago **aprobado**
+y sin fecha de reembolso; repetirlo no cambia la fecha (`yaRegistrado`). El `PATCH` es condicional y atómico: dos llamadas
+simultáneas registran una sola fecha. El servidor también puede llamar a `registrarReembolso(rid, referencia)` directamente.
+Un cliente con su propia sesión no puede escribir esa columna (lo bloquea el trigger del SQL 10). No hizo falta una función SQL
+nueva: así el SQL 10 no cambia (su comprobación rechaza funciones `SECURITY DEFINER` nuevas que clientes puedan llamar).
+El panel todavía no lo usa (no se cambió el front).
+
+### 12.7 `/api/restaurante` (datos públicos) y configuración de cada restaurante
+
+Devuelve **solo**: `id`, `slug`, `nombre`, `zona_horaria`, `modulos`, `config` (**únicamente `config.publico`**) y
+`servicio {estado, sirve, motivo}`. No devuelve plan, modalidad de pago, vigencia, días de gracia, el resto de `config`,
+ni nada de `restaurante_secretos` ni de `miembros`. Sin caché del borde (es por host).
+
+Claves de `restaurantes.config` (jsonb; el dueño edita `nombre` y `config`):
+
+| Clave | Uso |
+|---|---|
+| `publico` | Lo que el front puede leer: colores, logo, WhatsApp de contacto, etc. (lo único que sale por `/api/restaurante`) |
+| `ubicacion` = `{lat, lng}` | Dónde está el local (origen del domicilio). |
+| `domicilio` = `{factor_recorrido, pin_minimo_metros, area:{latMin,latMax,lngMin,lngMax}}` | Opcionales. Sin `area` no se hace la comprobación de "pin fuera del área". |
+
+Un restaurante sin tarifas en `tarifas_domicilio` **o** sin `ubicacion` no ofrece domicilio (400 claro); nunca se inventan
+precios. **Transitorio solo para Taqueiros:** mientras su `config` no traiga `ubicacion`, se usan las coordenadas y la caja de
+Cúcuta que estaban en el código (hay que cargarlas en `config` en el siguiente paso).
+
+**Tarifas.** Ya no están en el código: salen de `tarifas_domicilio`. Se retiraron `TARIFAS_DOMICILIO` y `RESTAURANTE` de
+`api/_domicilio.js` **después** de que una prueba demostrara que la tabla da los mismos precios, distancias y cobertura que
+el código antiguo (copia literal de la lógica antigua, 441 puntos de la cuadrícula de Cúcuta + 4 lejanos, los 5 tramos). La
+copia de `index.html` (`TARIFAS_DOMICILIO`) **sigue ahí** hasta que el front lea las tarifas del servidor.
+
+**Horario, zona horaria y hora de corte.** `estadoRestaurante(restaurante)` usa la zona de `restaurantes.zona_horaria` y la
+hora de corte de `configuracion.hora_corte_jornada` (la que usa el panel; la de `restaurantes` es el respaldo). Un horario que
+cruza la medianoche (cierra ≤ abre, p. ej. 18:00–02:00) queda abierto de madrugada hasta el cierre, **sin pasar de la hora de
+corte**; con un horario normal (11:00–22:00) el resultado es idéntico al de siempre (probado cada 30 min durante dos días y en
+los bordes). La respuesta incluye `jornada` y `horaCorteJornada`.
+
+### 12.8 Dar de alta un restaurante nuevo (receta, con la llave secreta o el SQL Editor)
+
+1. `insert into public.restaurantes (slug, nombre, estado) values ('lostaqueiros', 'Los Taqueiros ...', 'prueba');`
+   (el trigger crea su fila de secretos, contador, configuración y salud).
+2. Dominio: `insert into public.restaurante_dominios (host, restaurante_id) values ('pedidos.lostaqueiros.com', '<id>');`
+   y agregar ese dominio en Vercel (Project → Settings → Domains). O usar el subdominio `lostaqueiros.<DOMINIO_BASE>`.
+3. Secretos: `supabase/cargar-secretos.mjs --slug=lostaqueiros` (incluye `WOMPI_MODO`).
+4. Menú (`categorias`, `productos` con su `restaurante_id`), `tarifas_domicilio`, `config.ubicacion`, `configuracion.horarios`.
+5. En el panel de Wompi de **ese** restaurante, el webhook apunta a `https://<cualquier dominio del despliegue>/api/webhook-wompi`
+   (el endpoint es el mismo para todos; el restaurante sale del pedido).
+
+### 12.9 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. Las llaves se piden con `Read-Host` (no se ven al pegarlas): pega
+**UNA sola vez** (clic derecho **o** Ctrl+V, nunca ambos). Todos los scripts detectan el pegado doble y no hacen nada.
+
+**1. Despliegue.** Al subir el código a `main`, Vercel despliega solo. Taqueiros sigue funcionando aunque el SQL 11 aún no
+esté: el host de producción se resuelve por el respaldo transitorio y los secretos salen de las variables de entorno.
+Comprueba `taqueiros-2-0.vercel.app` (menú, un pedido de prueba con Wompi sandbox).
+
+**2. SQL 11.** VS Code → abre `supabase/11-dominios.sql` → **Ctrl+A, Ctrl+C** → Supabase → SQL Editor → New query → pega →
+**"Run without RLS"**. Resultado esperado: **12 filas, todas `OK`**. Si algo falla, el error dice `MR paso n: ...` o
+`LA MIGRACION 11 SE REVIRTIO` y no se cambió nada. Se puede repetir.
+
+**3. Compatibilidad del servidor con la base real (solo lectura).**
+
+```powershell
+$k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/probar-compatibilidad.mjs
+```
+
+Esperado: **25 PASAN** (ya sin el aviso de "SQL 11 sin correr").
+
+**4. Cargar los secretos de Taqueiros en la base.** Los valores actuales están en Vercel → Project → Settings → Environment
+Variables (botón del ojo). Pega cada uno **una sola vez**; los que no tengas, déjalos vacíos (Enter).
+
+```powershell
+function Pedir($nombre, $texto) { $s = Read-Host $texto -AsSecureString; $v = [System.Net.NetworkCredential]::new('', $s).Password; if ($v) { Set-Item "Env:$nombre" $v } }
+Pedir WOMPI_INTEGRITY_SECRET_TEST "Secreto de INTEGRIDAD (test)"
+Pedir WOMPI_INTEGRITY_SECRET_PROD "Secreto de INTEGRIDAD (prod)"
+Pedir WOMPI_EVENTS_SECRET_TEST    "Secreto de EVENTOS (test)"
+Pedir WOMPI_EVENTS_SECRET_PROD    "Secreto de EVENTOS (prod)"
+Pedir CALLMEBOT_PHONE             "Telefono CallMeBot (57XXXXXXXXXX)"
+Pedir CALLMEBOT_APIKEY            "Apikey CallMeBot"
+node supabase/cargar-secretos.mjs --slug=taqueiros --solo-verificar     # que diga "falta en la base"
+node supabase/cargar-secretos.mjs --slug=taqueiros
+node supabase/cargar-secretos.mjs --slug=taqueiros --solo-verificar     # ahora todo "ya coincide"
+```
+
+(Opcional, cuando decidas el modo de cobro de Taqueiros: `Pedir WOMPI_MODO "test o produccion"` y vuelve a correrlo.)
+Después de esto el servidor usa la base y ya no el entorno para Taqueiros. **No borres las variables de Vercel todavía.**
+Limpia la sesión: `Remove-Item Env:WOMPI_* , Env:CALLMEBOT_*`.
+
+**5. Prueba del servidor contra la base real.** Crea y borra restaurantes de prueba (`test-srv-...`); no toca Taqueiros (solo lee).
+
+```powershell
+node supabase/probar-servidor-multirestaurante.mjs
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+Esperado: todos `PASA` (≈127), `Limpieza: todo lo creado se borro.` y código de salida 0. Si dice que no pudo limpiar,
+vuelve a correrlo: al empezar barre los restos. Con Ctrl+C también limpia.
+
+**6. (Recomendado) Aislamiento de la base, igual que antes.** `node supabase/probar-aislamiento.mjs` (con la llave secreta
+en la sesión). El SQL 11 no cambia nada de lo que prueba.
+
+**7. Tests del repo (no tocan la base real).**
+
+```powershell
+node --test pruebas/*.test.js                          # unitarios (64)
+node pruebas/impresion/e2e.js                          # panel con Supabase simulado (~3 min)
+node pruebas/multirestaurante/servidor.mjs             # servidor, Supabase falso (~5 s)
+node pruebas/multirestaurante/dominios.mjs             # SQL 11 + revision por mutacion del SQL 11
+node pruebas/multirestaurante/cargar-secretos-test.mjs # cargar-secretos.mjs
+node pruebas/multirestaurante/mutaciones-servidor.mjs  # revision por mutacion del servidor (~12 min)
+```
+
+Necesitan una vez: `npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2`.
+
+**8. Recorrido a mano en producción** (lo único que ninguna prueba automática reemplaza): menú, pedido de prueba con Wompi
+sandbox (aparece en el panel, suena, imprime, llega el WhatsApp), Reimprimir, historial, menú-admin.
+
+### 12.10 Qué se probó y qué no
+
+**Probado por mí (batería local con el Supabase falso, Postgres 16 real en PGlite con el SQL 10 y el SQL 11):**
+
+* `servidor.mjs`: **131 escenarios** sobre los manejadores reales con dos restaurantes (más otros dos) de menús, tarifas,
+  secretos, horarios y zonas distintos: cada host ve solo lo suyo; un producto de A no se pide en B (mismo id, otro precio);
+  números de pedido independientes y sin repetirse bajo concurrencia; domicilio distinto por restaurante; un webhook
+  firmado con los secretos de A no toca pedidos de B (y al revés); alertas sin cruzar contactos ni salud; host
+  desconocido 404; `?r=` solo fuera de producción; cabeceras y body falsos no eligen restaurante; suspendido/vencido/gracia;
+  reembolsos por rol; Taqueiros con respaldo de entorno; ningún secreto aparece en respuestas ni en el log; y un **espía de
+  URLs** que exige que toda consulta a tablas de negocio lleve el filtro de su restaurante.
+* `dominios.mjs`: **35** (SQL 11 dos veces, el SQL 10 después del 11, roles, restricciones, 8 mutaciones del SQL 11).
+* `cargar-secretos-test.mjs`: **20** (no imprime valores ni huellas, pegado doble, no pisa sin `--sobrescribir`, `--solo-verificar`).
+* `probar-servidor-multirestaurante.mjs` contra el falso: 127 (los 4 de escribir en Taqueiros se omiten en modo real).
+* `probar-compatibilidad.mjs` contra el falso: 25/25.
+* Baterías anteriores, con el SQL 11 aplicado y el servidor nuevo (todas siguen verdes): `rls.mjs` 234/234, `hallazgos.mjs` 32/32,
+  `planes.mjs` 11/11, `sim.mjs` (34 comprobaciones OK, con y sin `conPendientes`), `probar-aislamiento` contra el falso 227/234 (las 7 que
+  fallan son las de Realtime, que el falso no emula: igual que antes), tests unitarios 64/64 y e2e del panel 173/173.
+
+**Revisión por mutación del servidor** (`mutaciones-servidor.mjs`): rompe a propósito cada defensa y exige que alguna prueba
+lo detecte. **10** filtros de `restaurante_id` (todas las llamadas a `filtroRestaurante`, que cubren cada endpoint; cada una
+se prueba **sin** el espía de URLs, y las 10 se detectan ya por comportamiento), el `restaurante_id` de los inserts, y **96**
+defensas más (resolución del host, caché, `?r=`, servicio, secretos, firma del webhook, contactos de alertas, autorización
+de reembolsos, tarifas, horarios, respaldo del menú, datos públicos…): **101 detectadas, 6 equivalentes, 0 sobrevivientes**.
+Las equivalentes están declaradas con su razón (defensas en capas: p. ej. el `PATCH` del reembolso repite las condiciones de
+`reembolso.js`, y quitar las dos juntas **sí** se detecta). Antes de agregar las pruebas del cliente de Supabase, la revisión
+mostró que quitar el filtro de `actualizarPedidoPorReferencia`, `marcarReembolsado`, `consultarPedidos` y del contador de
+salud solo lo detectaba la prueba de "restaurante inválido" y no un cruce real; y que la prueba de suspensión inmediata no
+dejaba al restaurante en caché como activo. Se agregaron esas pruebas.
+
+**Solo se puede probar contra la base real (pendiente de Carlos):** el SQL 11 sobre el esquema verdadero; los códigos de error
+reales de PostgREST (la transición sin tabla reconoce `PGRST205` y `42P01`); que `/auth/v1/user` acepte la llave secreta en
+`apikey` con el JWT del usuario como Bearer (lo ejercita el escenario de reembolsos de `probar-servidor-multirestaurante.mjs`;
+si falla, definir `SUPABASE_PUBLISHABLE_KEY` en Vercel: `usuarioDeToken` la usa si existe); que la caché del borde de Vercel
+separe los dominios (se marcó `Vary: Host`; verifícalo con dos dominios antes de vender); un pago real con Wompi y el
+WhatsApp real.
+
+### 12.11 Riesgos para los siguientes prompts (páginas públicas y panel)
+
+1. **El front sigue siendo de Taqueiros.** `index.html` tiene escritos a mano `TARIFAS_DOMICILIO`, las coordenadas, la llave
+   pública de Wompi y `WOMPI_MODE`; `pedido.html`/`panel.html` también. Para el segundo restaurante hay que leer de
+   `/api/restaurante` y exponer (con cuidado) tarifas y ubicación; la llave pública de Wompi es pública por diseño pero este
+   endpoint **no** la devuelve (se pidió no exponer nada de `restaurante_secretos`): decidir si va en `config.publico`.
+2. **`numero` vs `id`.** El servidor ya devuelve `numero` en `crear-pedido`, pero el WhatsApp, el panel, el ticket y el
+   seguimiento siguen mostrando `id` (se pidió no tocar los números). Con un solo restaurante coinciden (salvo huecos);
+   en cuanto el segundo restaurante inserte, `id` (secuencia global) y `numero` (contador por restaurante) divergen. **Hay que
+   pasar todo a `numero` antes de dar de alta restaurantes reales.**
+3. **Valores por defecto transitorios siguen puestos** (`restaurante_id` y la regla del bucket). `menu-admin.html` inserta
+   sin `restaurante_id`: cae en Taqueiros. El front debe mandarlo; después se retira el defecto (y entonces cualquier
+   inserción que lo olvide falla en vez de caer en Taqueiros).
+4. **El panel usa `restaurante_actual()`** (la primera membresía): un usuario con dos restaurantes necesita un selector.
+5. **Realtime y `DELETE`** (riesgo 5 de la sección 9) sigue igual.
+6. **Dominios:** cada dominio nuevo hay que agregarlo en Vercel **y** en `restaurante_dominios`; un preview de Vercel
+   (`...vercel.app` distinto) no está registrado y solo sirve con `?r=`.
+7. **`modo` de cobro de Taqueiros** sigue lo que mande su página hasta que se fije `otros.wompi_modo`.
+8. **`?clave=` del cron** y el defecto transitorio no se retiraron (se pidió dejarlos).
+9. **Anomalía de `restaurante_dominios` si se borra a mano:** el servidor usa la última resolución conocida hasta 6 h si
+   Supabase falla; borrar un dominio no lo "desconecta" al instante en instancias con la caché (30 s) o en caída de la base.

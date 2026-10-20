@@ -62,7 +62,9 @@ const CONOCIDAS = {
   superadmins: "user_id",
   restaurante_secretos: "restaurante_id",
   contadores_pedido: "restaurante_id",
-  tarifas_domicilio: "id"
+  tarifas_domicilio: "id",
+  // Tabla del SQL 11
+  restaurante_dominios: "host"
 };
 
 async function json(resp) {
@@ -122,7 +124,7 @@ for (const [tabla, orden] of lista) {
   try {
     const r = await exportarTabla(tabla, orden);
     if (!r.existe) {
-      if (tabla in CONOCIDAS && ["restaurantes", "miembros", "superadmins", "restaurante_secretos", "contadores_pedido", "tarifas_domicilio"].includes(tabla)) continue; // aun no existe: normal
+      if (tabla in CONOCIDAS && ["restaurantes", "miembros", "superadmins", "restaurante_secretos", "contadores_pedido", "tarifas_domicilio", "restaurante_dominios"].includes(tabla)) continue; // aun no existe: normal
       console.log(`  ${tabla.padEnd(24)} (no existe, se omite)`);
       continue;
     }
