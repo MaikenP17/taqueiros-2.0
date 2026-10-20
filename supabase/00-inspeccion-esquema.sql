@@ -27,21 +27,34 @@
 --   * funciones_security_definer / firmas_repetidas / triggers_en_auth_users
 --                                -> lo que el SQL 10 se niega a dejar
 --                                   pasar sin revision (ver docs, seccion 10).
+--   * objetos_fuera_de_public_con_permisos / catalogo_pg_catalog_con_permisos
+--                                -> lo que anon y authenticated alcanzan
+--                                   fuera de public (informativo).
+--   * objetos_de_extensiones_en_public -> objetos de public que son de una
+--                                   extension (el SQL 10 los ignora).
+--   * permiso_storage_objects    -> evidencia sobre si este usuario puede
+--                                   crear politicas en storage.objects.
 -- =============================================================
 
 with
-tablas as (
-  select c.relname as tabla,
-         c.relrowsecurity as rls,
-         c.relforcerowsecurity as rls_forzado,
-         (xpath('/row/c/text()',
-                query_to_xml(format('select count(*) as c from public.%I', c.relname), false, true, '')))[1]::text::bigint as filas,
-         has_table_privilege('anon', c.oid, 'select') as anon_select,
-         has_table_privilege('anon', c.oid, 'insert,update,delete') as anon_escribe,
-         has_table_privilege('authenticated', c.oid, 'select') as authenticated_select
+-- Se filtra PRIMERO (CTE materializada) y solo despues se arman nombres y se cuentan filas:
+-- Postgres no garantiza el orden de los filtros de un WHERE, y una funcion que recibe un
+-- nombre armado sobre filas de otros esquemas falla (relation "public.pg_statistic" does not exist).
+tablas_base as materialized (
+  select c.oid as oid, c.relname, c.relrowsecurity, c.relforcerowsecurity
   from pg_class c
-  join pg_namespace n on n.oid = c.relnamespace
-  where n.nspname = 'public' and c.relkind in ('r', 'p')
+  where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p')
+),
+tablas as (
+  select b.relname as tabla,
+         b.relrowsecurity as rls,
+         b.relforcerowsecurity as rls_forzado,
+         (xpath('/row/c/text()',
+                query_to_xml(format('select count(*) as c from public.%I', b.relname), false, true, '')))[1]::text::bigint as filas,
+         has_table_privilege('anon', b.oid, 'select') as anon_select,
+         has_table_privilege('anon', b.oid, 'insert,update,delete') as anon_escribe,
+         has_table_privilege('authenticated', b.oid, 'select') as authenticated_select
+  from tablas_base b
 ),
 columnas as (
   select table_name as tabla,
@@ -134,6 +147,90 @@ select 'triggers_en_auth_users',
         from pg_trigger t join pg_proc f on f.oid = t.tgfoid
         where t.tgrelid = 'auth.users'::regclass and not t.tgisinternal)
 union all
+-- Tablas, vistas y funciones FUERA de public que anon o authenticated pueden usar (esquemas de
+-- Supabase: auth, storage, realtime, graphql, vault, extensions...). Solo informativo: el SQL 10 no
+-- las toca. pg_catalog e information_schema van aparte (son cientos).
+select 'objetos_fuera_de_public_con_permisos',
+       (select coalesce(jsonb_agg(jsonb_build_object('esquema', x.esquema, 'objeto', x.objeto, 'tipo', x.tipo,
+                                                     'dueno', x.dueno, 'anon', x.anon, 'authenticated', x.authenticated)
+                               order by x.esquema, x.objeto), '[]'::jsonb)
+        from (
+          select n.nspname as esquema, c.relname as objeto,
+                 case c.relkind when 'r' then 'tabla' when 'p' then 'tabla' when 'v' then 'vista'
+                                when 'm' then 'vista materializada' else c.relkind::text end as tipo,
+                 pg_get_userbyid(c.relowner)::text as dueno,
+                 has_table_privilege('anon', c.oid, 'select,insert,update,delete') as anon,
+                 has_table_privilege('authenticated', c.oid, 'select,insert,update,delete') as authenticated
+          from pg_class c join pg_namespace n on n.oid = c.relnamespace
+          where c.relkind in ('r', 'p', 'v', 'm')
+            and n.nspname not in ('public', 'pg_catalog', 'information_schema')
+            and n.nspname !~ '^pg_toast'
+            and (has_table_privilege('anon', c.oid, 'select,insert,update,delete')
+                 or has_table_privilege('authenticated', c.oid, 'select,insert,update,delete'))
+          union all
+          select n.nspname, p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+                 case when p.prosecdef then 'funcion SECURITY DEFINER' else 'funcion' end,
+                 pg_get_userbyid(p.proowner)::text,
+                 has_function_privilege('anon', p.oid, 'execute'),
+                 has_function_privilege('authenticated', p.oid, 'execute')
+          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+          where n.nspname not in ('public', 'pg_catalog', 'information_schema') and n.nspname !~ '^pg_toast'
+            and p.prokind in ('f', 'p')
+            and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
+        ) x)
+union all
+select 'catalogo_pg_catalog_con_permisos',
+       (select jsonb_build_object(
+                 'tablas_que_anon_puede_leer', count(*) filter (where has_table_privilege('anon', c.oid, 'select')),
+                 'tablas_que_authenticated_puede_leer', count(*) filter (where has_table_privilege('authenticated', c.oid, 'select')),
+                 'ejemplos_anon', coalesce((array_agg(c.relname order by c.relname)
+                                            filter (where has_table_privilege('anon', c.oid, 'select')))[1:10], '{}'::name[]))
+        from pg_class c
+        where c.relnamespace = 'pg_catalog'::regnamespace and c.relkind in ('r', 'p', 'v'))
+union all
+select 'objetos_de_extensiones_en_public',
+       (select coalesce(jsonb_agg(jsonb_build_object('objeto', o.objeto, 'tipo', o.tipo, 'extension', o.extension)
+                                  order by o.extension, o.objeto), '[]'::jsonb)
+        from (
+          select c.relname::text as objeto, 'relacion' as tipo, e.extname::text as extension
+          from pg_class c join pg_depend d on d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e'
+               join pg_extension e on e.oid = d.refobjid
+          where c.relnamespace = 'public'::regnamespace
+          union all
+          select p.oid::regprocedure::text, 'funcion', e.extname::text
+          from pg_proc p join pg_depend d on d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e'
+               join pg_extension e on e.oid = d.refobjid
+          where p.pronamespace = 'public'::regnamespace
+          union all
+          select t.typname::text, 'tipo', e.extname::text
+          from pg_type t join pg_depend d on d.classid = 'pg_type'::regclass and d.objid = t.oid and d.deptype = 'e'
+               join pg_extension e on e.oid = d.refobjid
+          where t.typnamespace = 'public'::regnamespace and t.typtype <> 'c' and t.typname !~ '^_'
+        ) o)
+union all
+-- Permiso para crear politicas en storage.objects. La membresia de roles NO es una prueba confiable
+-- (en Supabase el dueno de la tabla es supabase_storage_admin y postgres puede crear politicas por
+-- otra via), asi que aqui se muestra la EVIDENCIA y la verdad la da el propio SQL 10, que intenta
+-- crear una politica de prueba y se detiene con un mensaje claro si no puede.
+select 'permiso_storage_objects',
+       (select jsonb_build_object(
+          'usuario_actual', current_user::text,
+          'es_superusuario', (select r.rolsuper from pg_roles r where r.rolname = current_user),
+          'dueno_de_storage_objects', pg_get_userbyid(c.relowner)::text,
+          'es_miembro_del_dueno', pg_has_role(current_user, c.relowner, 'member'),
+          'usa_privilegios_del_dueno', pg_has_role(current_user, c.relowner, 'usage'),
+          'roles_de_los_que_es_miembro', (select coalesce(jsonb_agg(to_jsonb(m)), '[]'::jsonb)
+                                           from pg_auth_members m where m.member = (select oid from pg_roles where rolname = current_user)),
+          'politicas_existentes_en_storage_objects',
+             (select coalesce(jsonb_agg(policyname order by policyname), '[]'::jsonb) from pg_policies
+              where schemaname = 'storage' and tablename = 'objects'),
+          'privilegio_en_la_tabla', jsonb_build_object(
+             'select', has_table_privilege(current_user, c.oid, 'select'),
+             'insert', has_table_privilege(current_user, c.oid, 'insert'),
+             'trigger', has_table_privilege(current_user, c.oid, 'trigger')),
+          'lectura', 'si politicas_existentes incluye politicas "productos personal ..." (creadas por el SQL 01 desde este mismo editor), este usuario SI puede crearlas aunque es_miembro_del_dueno salga false')
+        from pg_class c where c.oid = 'storage.objects'::regclass)
+union all
 select 'vistas',
        (select coalesce(jsonb_agg(jsonb_build_object('vista', viewname, 'def', definition)), '[]'::jsonb)
         from pg_views where schemaname = 'public')
@@ -175,9 +272,7 @@ select 'sql_pendientes',
                                                          where table_schema = 'public' and table_name = 'pedidos' and column_name = 'impreso_en'),
          'sql_02_funcion_reclamar_impresion', to_regprocedure('public.reclamar_impresion(bigint)') is not null,
          'ya_es_multirestaurante', to_regclass('public.restaurantes') is not null,
-         -- CREATE POLICY en storage.objects exige ser (miembro del) dueno de la tabla
-         'puede_crear_politicas_en_storage', (select pg_has_role(current_user, c.relowner, 'member')
-                                              from pg_class c where c.oid = 'storage.objects'::regclass),
+         -- (el permiso sobre storage.objects ya no se adivina aqui: ver la seccion permiso_storage_objects)
          'pedidos_replica_identity', (select c.relreplident from pg_class c where c.oid = 'public.pedidos'::regclass))
 union all
 select 'secuencia_pedidos',
