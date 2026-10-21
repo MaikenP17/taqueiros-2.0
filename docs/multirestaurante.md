@@ -7,13 +7,16 @@ restaurantes**, con aislamiento estricto de datos. Este documento describe la ba
 > **Alcance.** Las secciones 1 a 11 describen la base de datos y la seguridad (SQL 10, ya ejecutado y verificado
 > en Supabase real). La **sección 12** describe el paso siguiente, ya hecho: el **servidor** (`api/*.js`) sabe de
 > qué restaurante es cada petición, filtra siempre por él, usa sus propios secretos y respeta su estado de
-> servicio (más `supabase/11-dominios.sql`). Las páginas HTML no se tocaron. Los valores por defecto transitorios
-> de la base (sección 7) siguen puestos hasta que el front se adapte.
+> servicio (más `supabase/11-dominios.sql`). La **sección 14** es el paso después: el **frontend público**
+> (`index.html`, `pedido.html`, manifest, número de pedido) lee los datos de cada restaurante en vez de llevar los de
+> Taqueiros escritos (más `supabase/12-config-publica.sql`). El panel y la administración siguen pendientes. Los valores por
+> defecto transitorios de la base (sección 7) siguen puestos hasta que también se adapte el panel.
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
 8. Qué se probó y qué no · 9. Riesgos · 10. Revisión de seguridad del SQL 10 · 11. Fallo `pg_statistic` ·
-**12. Servidor multi-restaurante (SQL 11 + api/)**
+12. Servidor multi-restaurante (SQL 11 + api/) · 13. Revisión adversaria del servidor ·
+**14. Frontend público multi-restaurante (SQL 12)**
 
 ---
 
@@ -389,8 +392,9 @@ los clientes.
 * Aplicar estado/vigencia/plan/módulos (hoy son solo estructura) y `restaurantes.zona_horaria`.
 * Alta de miembros y de restaurantes desde un endpoint del servidor (hoy se hace con la llave secreta o SQL).
 * ~~`crear-pedido`, webhook y alertas aún no son multi-restaurante~~ **Hecho** (sección 12): el servidor ya filtra
-  por restaurante en todos sus endpoints. Lo que sigue pendiente es el **front** (páginas y panel, sección 12.10) y
-  retirar los valores por defecto transitorios; **no des de alta restaurantes reales hasta que el front los use**.
+  por restaurante en todos sus endpoints. ~~Las páginas públicas~~ **Hecho** (sección 14: marca, textos, tarifas, llave de
+  pago, manifest y número de pedido). Lo que sigue pendiente es el **panel y la administración** (14.11) y retirar los
+  valores por defecto transitorios; **no des de alta restaurantes reales hasta que el panel los use**.
 
 ---
 
@@ -802,7 +806,8 @@ Cúcuta que estaban en el código (hay que cargarlas en `config` en el siguiente
 **Tarifas.** Ya no están en el código: salen de `tarifas_domicilio`. Se retiraron `TARIFAS_DOMICILIO` y `RESTAURANTE` de
 `api/_domicilio.js` **después** de que una prueba demostrara que la tabla da los mismos precios, distancias y cobertura que
 el código antiguo (copia literal de la lógica antigua, 441 puntos de la cuadrícula de Cúcuta + 4 lejanos, los 5 tramos). La
-copia de `index.html` (`TARIFAS_DOMICILIO`) **sigue ahí** hasta que el front lea las tarifas del servidor.
+copia de `index.html` (`TARIFAS_DOMICILIO`) **se retiró en la sección 14**: la página lee las tarifas, el origen y el factor
+de recorrido de `/api/restaurante`.
 
 **Horario, zona horaria y hora de corte.** `estadoRestaurante(restaurante)` usa la zona de `restaurantes.zona_horaria` y la
 hora de corte de `configuracion.hora_corte_jornada` (la que usa el panel; la de `restaurantes` es el respaldo). Un horario que
@@ -934,14 +939,11 @@ WhatsApp real.
 
 ### 12.11 Riesgos para los siguientes prompts (páginas públicas y panel)
 
-1. **El front sigue siendo de Taqueiros.** `index.html` tiene escritos a mano `TARIFAS_DOMICILIO`, las coordenadas, la llave
-   pública de Wompi y `WOMPI_MODE`; `pedido.html`/`panel.html` también. Para el segundo restaurante hay que leer de
-   `/api/restaurante` y exponer (con cuidado) tarifas y ubicación; la llave pública de Wompi es pública por diseño pero este
-   endpoint **no** la devuelve (se pidió no exponer nada de `restaurante_secretos`): decidir si va en `config.publico`.
-2. **`numero` vs `id`.** El servidor ya devuelve `numero` en `crear-pedido`, pero el WhatsApp, el panel, el ticket y el
-   seguimiento siguen mostrando `id` (se pidió no tocar los números). Con un solo restaurante coinciden (salvo huecos);
-   en cuanto el segundo restaurante inserte, `id` (secuencia global) y `numero` (contador por restaurante) divergen. **Hay que
-   pasar todo a `numero` antes de dar de alta restaurantes reales.**
+1. ~~**El front sigue siendo de Taqueiros.**~~ **Resuelto en la sección 14** para `index.html` y `pedido.html`: leen
+   `/api/restaurante` (que ahora devuelve tarifas, ubicación y la llave **pública** del modo vigente, guardada en
+   `config.publico.wompi`). `panel.html`, `menu-admin.html`, `historial.html` y `marca.js` siguen con la marca escrita (14.11).
+2. ~~**`numero` vs `id`.**~~ **Resuelto en la sección 14.7**: WhatsApp, alertas, ticket, tablero, historial y seguimiento
+   muestran `numero`.
 3. **Valores por defecto transitorios siguen puestos** (`restaurante_id` y la regla del bucket). `menu-admin.html` inserta
    sin `restaurante_id`: cae en Taqueiros. El front debe mandarlo; después se retira el defecto (y entonces cualquier
    inserción que lo olvide falla en vez de caer en Taqueiros).
@@ -1080,9 +1082,9 @@ Corrida final de `mutaciones-servidor.mjs`: **149 detectadas, 9 equivalentes, 0 
 
 | # | Severidad | Pendiente | Qué hacer |
 |---|---|---|---|
-| P1 | **Crítico** el día que Taqueiros cobre de verdad | Taqueiros sin `otros.wompi_modo` sigue aceptando el modo del navegador: un cliente crea el pedido en "pruebas" y lo paga con tarjeta de prueba (el pedido nace en prueba, así que H1 no lo frena). Hoy `index.html` está en `"pruebas"`, así que no hay dinero real en juego. | **Antes** de cambiar `WOMPI_MODE` a `"produccion"` en `index.html`: `cargar-secretos.mjs --slug=taqueiros` con `WOMPI_MODO=produccion` (13.5, paso 2). Luego retirar el modo del navegador del código. |
+| P1 | ~~**Crítico** el día que Taqueiros cobre de verdad~~ **Resuelto en la práctica (sección 14)**; queda un residuo bajo | Taqueiros sin `otros.wompi_modo` sigue aceptando el modo del navegador: un cliente crea el pedido en "pruebas" y lo paga con tarjeta de prueba (el pedido nace en prueba, así que H1 no lo frena). **Ya no hay `WOMPI_MODE` en `index.html`**: la página usa la llave de producción solo si el servidor dice `produccion`, y eso solo ocurre si `otros.wompi_modo` está fijado (y entonces el servidor ignora el modo del navegador). | Para cobrar de verdad: `cargar-secretos.mjs --slug=taqueiros` con `WOMPI_MODO=produccion` (13.5, paso 2, ya **sin** editar `index.html`). Luego retirar del código el respaldo "modo del navegador" de Taqueiros. |
 | P2 | **Alto** (configuración) | Los despliegues de Preview reciben la llave secreta y la base real: corren código de cualquier rama contra datos reales, aunque `?r=` ya no esté. | En Vercel → Settings → Environment Variables, dejar `SUPABASE_SERVICE_ROLE_KEY`, `WOMPI_*`, `CALLMEBOT_*` y `CRON_SECRET` **solo en Production**; activar Deployment Protection (Vercel Authentication) para Preview. Si hace falta probar en preview, usar otro proyecto de Supabase. |
-| P3 | **Alto** (antes del 2.º restaurante) | `numero` vs `id` (12.11 punto 2): WhatsApp, panel, ticket y seguimiento muestran `id`. | Pasar todo a `numero` antes de dar de alta restaurantes reales. |
+| P3 | ~~**Alto** (antes del 2.º restaurante)~~ **Resuelto (sección 14.7)** | `numero` vs `id`: WhatsApp, panel, ticket y seguimiento mostraban `id`. | Hecho: todo lo visible usa `numero` (se prueba con `numero ≠ id`). |
 | P4 | Medio | Sin límite de peticiones por IP ni por restaurante en `crear-pedido`/`generar-firma` (ni en `buscar_mis_pedidos`, que inserta un intento por llamada). Un atacante crea miles de pedidos pendientes: consume números de pedido, llena la base compartida (plan gratuito: 500 MB, cae para todos) y multiplica las consultas a Nominatim (riesgo de bloqueo de la IP de Vercel). | Regla de rate limit en el Firewall de Vercel para `/api/crear-pedido` y `/api/generar-firma` (p. ej. 10 por minuto por IP). Decidir el tope por restaurante es de negocio (horas pico). |
 | P5 | Medio | Que la caché del borde de Vercel separe dominios (se marcó `Vary: Host`; ya estaba pendiente). | Probar con dos dominios reales antes de vender (`x-vercel-cache` y el menú de cada uno). |
 | P6 | Bajo | `wompi_transaction_id` no es único y la firma de Wompi no incluye la referencia: un evento aprobado **real** reenviado con otra referencia del mismo restaurante y el mismo monto la aprobaría. Solo puede hacerlo quien ve los cuerpos de los eventos (Wompi o el propio restaurante, que ya tiene su secreto). | Índice único parcial sobre `wompi_transaction_id`, o consultar la transacción a la API de Wompi antes de aprobar (función nueva). |
@@ -1124,3 +1126,338 @@ Nada de esto toca la base real salvo el paso 3 (solo lectura) y el 2 (solo cuand
    Debe aparecer `UNIQUE (referencia)`.
 4. **Prueba del servidor contra la base real** (como en 12.9 paso 5): `node supabase/probar-servidor-multirestaurante.mjs`.
    Ahora son más escenarios (≈154 contra el falso en modo real); todos deben decir `PASA`.
+
+---
+
+## 14. Frontend público multi-restaurante (SQL 12)
+
+Hasta la sección 13 el **servidor** ya era multi-restaurante, pero las páginas públicas seguían siendo de Taqueiros:
+tenían escritos a mano su nombre, colores, logo, textos, WhatsApp, coordenadas, tarifas, llave pública de Wompi y
+`WOMPI_MODE`, y mostraban `pedidos.id` en vez de `pedidos.numero`. Esta sección es ese trabajo: `index.html`,
+`pedido.html`, el manifest de la PWA y todo lo que muestra el número de pedido leen sus datos del restaurante que resuelve
+el servidor por el dominio. **Taqueiros se ve igual** (se comprueba, ver 14.10). El panel de administración
+(`panel.html`, `menu-admin.html`, `historial.html`, `marca.js`) se adapta en el paso siguiente; aquí solo cambió lo que
+muestra el número de pedido.
+
+### 14.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `supabase/12-config-publica.sql` (nuevo) | Mezcla en `restaurantes.config` de Taqueiros los valores que estaban escritos a mano (no pisa nada); agrega `pedidos.token_seguimiento` y `pedidos.enlace_por_referencia` (sin `UPDATE`); `seguimiento(ref)` y `buscar_mis_pedidos(...)` devuelven `numero` y el token; trigger que impide cambiar el token desde el navegador. Atómico, idempotente, 24 comprobaciones OK/FALLA, apto para "Run without RLS". |
+| `api/_publico.js` (nuevo) | Arma la respuesta pública **campo por campo y validando** (colores `#RRGGBB`, URLs, teléfonos, textos). Es la única puerta de datos hacia el navegador. |
+| `api/restaurante.js` | Devuelve marca, textos, contacto, ubicación, tarifas de domicilio, módulos, servicio y el modo/llave **pública** de pago (14.4). |
+| `api/_respaldo-taqueiros.js` (nuevo) | La **única** copia que queda en el código de los valores de Taqueiros: solo para Taqueiros y solo para lo que su `config` aún no trae (campo por campo), con aviso en el log. Se puede borrar cuando el SQL 12 esté corrido. |
+| `api/manifest.js` (nuevo) + `vercel.json` | El manifest de la PWA es por restaurante: `/manifest.json` se reescribe a `/api/manifest`. El archivo estático `manifest.json` se eliminó (en Vercel un archivo estático gana a una reescritura). |
+| `restaurante-publico.js` (nuevo) | Librería compartida por `index.html` y `pedido.html`: carga `/api/restaurante`, **re-valida**, aplica colores y logos, textos neutros, pantalla de "sin restaurante", almacenamiento por restaurante. |
+| `index.html`, `pedido.html` | Sin ningún valor de un restaurante escrito. Se pintan con los datos que llegan (14.5). |
+| `sw.js` v9 | No precachea nada; el manifest va siempre por la red; sube la versión (14.6). |
+| `api/crear-pedido.js` | Además devuelve `tokenSeguimiento` (14.8). Nada más cambió. |
+| `api/_notificar.js`, `api/alertas.js` | La comanda y la alerta de WhatsApp llevan `pedidos.numero` (14.7). |
+| `ticket-comanda.js`, `panel.html`, `historial.html` | Muestran `numero` (14.7). El diseño del ticket y de la impresión **no** cambió. |
+
+### 14.2 Inventario de los valores de Taqueiros que estaban escritos a mano
+
+| Valor | Antes | Ahora |
+|---|---|---|
+| Nombre (título, cabecera, pie, alt, mensajes, tooltip del mapa, texto del WhatsApp) | `index.html`, `pedido.html`, `manifest.json` | `restaurantes.nombre` |
+| Título y descripción de la página | `index.html` | `config.publico.textos.titulo_pagina` / `descripcion_pagina` (el seguimiento los arma con el nombre) |
+| Logo y favicon | `Recursos/logo/logo.png` en 5 sitios | `config.publico.marca.logo` (favicon = logo) |
+| Íconos de la PWA | `manifest.json` | `marca.icono_192` / `icono_512` (si faltan, el logo) |
+| 10 colores de marca + `texto_tenue` y `positivo_brillo` (pedido) | `:root` de `index.html` y `pedido.html` | `marca.colores.*` → variables CSS. Las transparencias (`rgba(…)`) pasaron a `rgba(var(--x-rgb), …)` con el mismo resultado |
+| Colores de las zonas del mapa | `COLORES_ZONA` | `marca.colores_zonas` |
+| Emoji (🌮 en confirmación, mapa, carrito vacío, WhatsApp, menú caído, botón "Ver el menú") | repartido en el código | `marca.emoji` (neutro: 🍽️) |
+| Eslogan, texto de portada, texto del pie, línea de servicios, cierre del pie, ejemplo de nota | `index.html` | `textos.eslogan`, `tagline`, `descripcion_pie`, `servicios_linea`, `pie_final`, `ejemplo_nota` |
+| Banner de abierto/cerrado ("¡Estamos que ardemos!…") | `index.html` | `textos.banner_abierto_*`, `banner_cerrado_*` |
+| Tiempos y frases del seguimiento ("Ya está en el comal…") | `pedido.html` | `textos.seguimiento.*` |
+| WhatsApp (botones, pie, mensajes, seguimiento) | `WHATSAPP_NUMBER` en 2 páginas | `contacto.whatsapp` |
+| Teléfono visible, dirección, dirección corta (retiro), ciudad y región (Wompi), Instagram y TikTok | `index.html`, `pedido.html` | `contacto.*` |
+| Coordenadas del local | `RESTAURANTE` | `config.ubicacion` (el mismo dato que ya usaba el servidor) |
+| Tarifas de domicilio | `TARIFAS_DOMICILIO` | `tarifas_domicilio` (tabla) → `domicilio.tarifas` |
+| Factor de recorrido, área y pin mínimo | `FACTOR_RECORRIDO`, `api/_ubicacion.js` | `config.domicilio` |
+| Llave pública de Wompi (test y prod) | `WOMPI_PUBLIC_KEY` | `config.publico.wompi` → solo sale la del modo vigente |
+| `WOMPI_MODE` | `index.html` | `restaurante_secretos.otros.wompi_modo` (lo decide el servidor) |
+| URL de retorno de Wompi | `https://taqueiros-2-0.vercel.app/?pago=exitoso` | `location.origin + "/?pago=exitoso"` |
+| Horarios de respaldo (`SCHEDULE`) | `index.html` | **eliminado**: el horario sale de `/api/estado` (sin respuesta no se inventa) |
+| Nombre y descripción de la PWA | `manifest.json` | `/api/manifest` (`config.publico.pwa`, `marca.colores`) |
+| Claves de `localStorage` | `taqueiros-*-v1` | `menu-v2`, `carrito-v2`, `seguimiento-v2`, `pedido-pendiente-v2` (genéricas y con el id del restaurante dentro) |
+
+Residuos que **no** son datos de un restaurante y se dejaron (documentados): las tipografías (Anton / Fredoka / Libre
+Franklin), unos cuantos grises cálidos de interfaz (`#5a4a3a`, `#8a7a63`, `#6b5c4c`, `#150d0b`, `#e9dcbb`…) que no son
+colores de marca, el nombre del objeto global `TAQUEIROS_SUPABASE` (de `supabase-publico.js`, compartido con el panel) y el
+pie `LOS TAQUEIROS · PEDIDO WEB` del ticket impreso (`ticket-comanda.js`), que es del panel (paso siguiente).
+
+### 14.3 Forma del JSON de configuración (`restaurantes.config`)
+
+El dueño edita `nombre` y `config`; el resto de la fila es de Carlos. `config` es un objeto; **solo** lo de abajo llega al
+navegador, y solo validado. Todo es opcional: lo que falta se ve neutro.
+
+```jsonc
+{
+  "publico": {                                  // lo que puede ver el navegador
+    "marca": {
+      "logo": "Recursos/logo/logo.png",         // ruta del sitio o https del Supabase del proyecto (Storage)
+      "icono_192": "...", "icono_512": "...",   // PWA; si faltan se usa el logo
+      "emoji": "🌮",                            // hasta 8 caracteres
+      "colores": {                              // #RRGGBB exacto; lo inválido se descarta
+        "primario": "#C1272D", "primario_oscuro": "#8A1B1F", "primario_brillo": "#E14A42",
+        "claro": "#F7ECD6", "claro_suave": "#FFF8EA", "oscuro": "#1C1210", "oscuro_2": "#241714",
+        "acento": "#E3A008", "positivo": "#5C7A3B", "texto_secundario": "#D9C9A8",
+        "texto_tenue": "#B9A88C", "positivo_brillo": "#7FA855"
+      },
+      "colores_zonas": ["#5C7A3B", "#8FA83F", "#E3A008", "#E07B39"]   // hasta 8
+    },
+    "textos": {                                 // texto plano de una línea, hasta 400 caracteres
+      "titulo_pagina": "...", "descripcion_pagina": "...", "eslogan": "...", "tagline": "...",
+      "descripcion_pie": "...", "servicios_linea": "...", "pie_final": "...", "ejemplo_nota": "...",
+      "banner_abierto_icono": "🔥", "banner_abierto_titulo": "...",
+      "banner_abierto_texto": "Ahorita sí estamos atendiendo pedidos{cierre}. ...",   // {cierre} = " — hoy hasta las 10:30 p. m." o vacío
+      "banner_cerrado_icono": "🌮", "banner_cerrado_mensaje": "...",                   // si el dueño no escribió su mensaje de cerrado
+      "seguimiento": {                          // pedido.html; hasta 200 caracteres
+        "tiempo_nuevo": "...", "tiempo_preparacion": "...", "tiempo_camino": "...",
+        "tiempo_recoger": "...", "tiempo_entregado": "...",
+        "frase_nuevo": "...", "frase_preparacion": "...", "frase_camino": "...",
+        "frase_recoger": "...", "frase_entregado": "..."
+      }
+    },
+    "contacto": {
+      "whatsapp": "573125249438",               // solo dígitos (8 a 15); sin él no hay botones de WhatsApp
+      "telefono": "+57 312 524 9438", "direccion": "...", "direccion_corta": "...",   // la corta sale en el seguimiento (retiro)
+      "ciudad": "...", "region": "...",         // los usa el widget de Wompi
+      "instagram": "usuario", "tiktok": "usuario"       // sin @; letras, números, punto y guion bajo
+    },
+    "wompi": {                                  // llaves PUBLICAS (pub_...): públicas por diseño
+      "llave_publica_test": "pub_test_...", "llave_publica_prod": "pub_prod_..."
+    },
+    "pwa": { "nombre": "Panel Taqueiros", "nombre_corto": "Comandas" }   // manifest; por defecto "Panel <nombre>" / "Comandas"
+  },
+  "ubicacion": { "lat": 7.8997382, "lng": -72.4968525 },                 // origen del domicilio (no sale tal cual: ver 14.4)
+  "domicilio": { "factor_recorrido": 1.3, "pin_minimo_metros": 100,
+                 "area": { "latMin": 7.75, "latMax": 8.1, "lngMin": -72.68, "lngMax": -72.35 } }   // ya los usa el servidor
+}
+```
+
+Reglas: la llave pública del modo vigente solo se entrega si es del tipo del modo (`pub_test_` para prueba, `pub_prod_`
+para producción) y el servidor tiene el secreto de integridad para firmar; **nunca** se guarda aquí una llave privada, un
+secreto de integridad/eventos ni una apikey (el SQL 12 se detiene si encuentra algo así en la config de Taqueiros). Las
+imágenes: ruta relativa del sitio (sin `..`, sin `//`, sin `:`) o `http(s)` del origen del Supabase del proyecto; ninguna
+otra. El nombre del restaurante es `restaurantes.nombre` (columna), no va aquí.
+
+### 14.4 `/api/restaurante`: la respuesta
+
+```jsonc
+{ "id": "...", "slug": "...", "nombre": "...", "zona_horaria": "America/Bogota", "moneda": "COP",
+  "modulos": { "pasarela": true, "seguimiento": true, "comandas": true, "impresion": true },
+  "servicio": { "estado": "activo" | "suspendido", "sirve": true, "motivo": null | "servicio_suspendido" },
+  "marca": { "logo", "icono_192", "icono_512", "emoji", "colores": {...}, "colores_zonas": [...] },
+  "textos": { ..., "seguimiento": {...} },
+  "contacto": { "whatsapp", "telefono", "direccion", "direccion_corta", "ciudad", "region", "instagram", "tiktok" },
+  "ubicacion": { "lat", "lng" } | null,
+  "domicilio": { "ofrece": true, "factor_recorrido": 1.3, "tarifas": [{ "hasta": 2, "precio": 5000 }, ..., { "hasta": 999, "precio": null }] },
+  "pago": { "disponible": true, "pasarela": "wompi", "modo": "test" | "produccion" | null, "llave_publica": "pub_..." | null } }
+```
+
+* **Nunca** devuelve plan, modalidad de pago, vigencia, días de gracia (en gracia dice `activo`), el resto de `config`,
+  ni nada de `restaurante_secretos` (se consulta solo **si hay** modo y secreto de integridad; no se devuelve ni se guarda),
+  ni de `miembros`. `Cache-Control: no-store`.
+* Un restaurante **sin tarifas o sin ubicación** no ofrece domicilio (`ofrece: false`): la página esconde esa opción.
+* **El modo de cobro y la llave los decide el servidor** (`otros.wompi_modo`; `modoDePago` sin el modo del navegador). Para
+  Taqueiros sin `wompi_modo` el resultado es `test` (lo mismo que decía `WOMPI_MODE = "pruebas"`). Otro restaurante sin
+  `wompi_modo` queda con `pago.disponible = false`: solo se ve el menú y WhatsApp.
+* La página manda a `crear-pedido` el mismo modo que el servidor le dijo (nunca uno elegido por ella).
+
+### 14.5 Cómo se pinta el front
+
+1. La página se abre con una **pantalla de carga** (tapa todo) y pide `/api/restaurante`. Si llega: se aplican colores
+   (variables CSS), logos, textos, enlaces y módulos, y se quita la pantalla. Un `?r=<slug>` en la URL (previews, ver 12.2)
+   se reenvía a todas las llamadas a la API; en producción el servidor lo ignora.
+2. Si **falla** (dominio desconocido, servidor caído, respuesta inválida) la pantalla se convierte en un **mensaje neutro**
+   ("Este sitio no está disponible" con 404; "No pudimos cargar la página" + *Reintentar* con otro fallo), con paleta neutra
+   y sin un solo dato de ningún restaurante, tampoco de Taqueiros. Nunca hay valores por defecto de otro restaurante.
+3. **Servicio suspendido:** el menú se ve; se esconden "Pagar en línea" y "Pedir por WhatsApp" y aparece el mensaje neutro
+   "Este restaurante no está recibiendo pedidos en este momento." (sin hablar de la mensualidad). `crear-pedido` además
+   responde 403 `servicio_suspendido`, y la página lo trata igual.
+4. **Módulos** (`modulos`): sin `seguimiento` se esconden "Mi pedido", "¿Buscas tu pedido?", el banner y el enlace de la
+   confirmación, y `pedido.html` avisa que no está disponible; sin `pasarela` (o sin llave/secreto) no hay "Pagar en línea";
+   sin WhatsApp no hay botones de WhatsApp; sin domicilio configurado no se ofrece domicilio. No se inventan flujos nuevos.
+5. **Seguridad.** Todo dato que viene de la base se inserta con `textContent` o con atributos ya validados; nunca con
+   `innerHTML` (incluidos el mensaje de "cerrado", los días del horario y el tooltip del mapa, que antes eran HTML crudo).
+   Los colores se validan con `^#[0-9A-Fa-f]{6}$` en el servidor **y** en el navegador y se aplican con `setProperty`; las
+   imágenes solo son rutas del sitio o del origen del Supabase del proyecto (nada de `javascript:` ni `data:`); WhatsApp,
+   redes y llaves por formato. Verificado en el navegador con datos hostiles (14.10).
+6. **Almacenamiento del navegador.** `localStorage` es **por origen** (esquema + dominio + puerto): dos restaurantes en dos
+   dominios no comparten nada (confirmado en las pruebas con `alfa.localhost` y `beta.localhost`). Aun así el menú de
+   respaldo, el carrito, el seguimiento y el resumen del pago pendiente se guardan con el id del restaurante y se descartan si
+   no coincide (un mismo origen que sirviera a dos restaurantes, como un preview con `?r=`, tampoco los mezcla). Las claves
+   viejas `taqueiros-*-v1` ya no se leen: un cliente con un carrito a medio armar en el momento del despliegue lo verá vacío
+   una sola vez.
+7. **Lo que cambió a propósito para Taqueiros** (todo lo demás es idéntico): los pedidos *nuevos* se siguen por un enlace con
+   token (14.8); sin respuesta de `/api/estado` el banner de horario no se inventa (antes mostraba un horario escrito en el
+   código) y se deja pedir (el servidor valida el horario al crear el pedido); el mensaje de "cerrado", los días del horario
+   y el nombre ya no se pegan como HTML.
+
+Limitación conocida: el título y la descripción los pone JavaScript, así que una vista previa de enlace (WhatsApp, redes)
+que no ejecuta JS verá el título neutro "Pedidos en línea". Si importa, el siguiente paso es servir `index.html` desde una
+función que inyecte `<title>` y las etiquetas `og:` según el dominio.
+
+### 14.6 PWA y service worker
+
+* `/manifest.json` lo sirve `api/manifest.js` según el dominio (nombre, nombre corto, descripción, colores e íconos del
+  restaurante, validados igual que en 14.4). Host desconocido: 404 con el mismo cuerpo que el resto. Taqueiros recibe
+  **exactamente** el manifest de antes (se compara en las pruebas).
+* `sw.js` v9: **no precachea nada** (ni el manifest, que ahora cambia por restaurante, ni un logo fijo); `/manifest.json`,
+  `/api/*` (incluidos `/api/restaurante` y `/api/menu`), Supabase y las páginas van **siempre por la red**. Solo se guarda lo
+  que se pide bajo `/Recursos/` y las fuentes, y el caché es por origen (un dominio nunca ve el de otro). Al subir la versión
+  se borran las cachés `taqueiros-panel-v8` que traían precacheados el manifest y el logo de Taqueiros.
+* `panel.html` sigue enlazando `/manifest.json`: no hubo que tocarlo.
+
+### 14.7 Número de pedido: `numero`, no `id`
+
+`id` es la secuencia de **toda** la tabla (compartida por todos los restaurantes); `numero` es el contador de **cada**
+restaurante. Con un solo restaurante coinciden (salvo huecos); con el segundo divergen. Ahora todo lo que ven el cliente o el
+personal usa `numero` (si una fila no lo trae, por seguridad se usa el `id` para no imprimir `#undefined`); las operaciones
+internas siguen usando `id`.
+
+| Dónde | Antes | Ahora |
+|---|---|---|
+| "¿Buscas tu pedido?" (`buscar_mis_pedidos`) | devolvía `p.id` como `numero` | devuelve `p.numero` (SQL 12) |
+| Seguimiento (`seguimiento(ref)` → `pedido.html`) | `p.id` como `numero` | `p.numero` (SQL 12) |
+| Comanda de WhatsApp y alerta "sin atender" | `pedido.id` | `pedido.numero` |
+| Ticket de comanda, reimpresión, prueba (`ticket-comanda.js`) | `p.id` | `p.numero` |
+| Tablero, avisos y cronómetros del panel (`panel.html`) | `p.id` | `p.numero` |
+| Historial (`historial.html`; `buscar_historial` ya devolvía la fila completa) | `p.id` | `p.numero` |
+| Confirmación del pedido (`index.html`) | muestra la **referencia** (nunca mostró un número) | sin cambio (a propósito: es lo que ve hoy Taqueiros) |
+
+Prueba de que **la impresión no cambió**: `node pruebas/impresion/comparar-tickets.mjs` imprime los mismos 7 tickets
+(normal, 12 productos con notas largas, nombres y direcciones largos, ñ y tildes, HTML hostil, reimpresión, prueba) con el
+panel de `debc1c5` y con el de ahora y compara el HTML letra por letra: **7 de 7 idénticos** (solo se normalizan las horas).
+Además hay pruebas unitarias (con `numero = id` el ticket es idéntico) y el escenario 21 del e2e (con `numero ≠ id` el
+tablero, el ticket y la reimpresión muestran el número).
+
+### 14.8 Enlace de seguimiento: decisión
+
+**Hallazgo.** El enlace no usa un id secuencial: usa la referencia `TAQ-<milisegundos>-<6 hex>`. No es adivinable en la
+práctica (sin saber el milisegundo exacto hay ≈10¹² combinaciones por minuto), pero solo tiene 24 bits de azar y su
+parte temporal es predecible; `seguimiento` no tiene límite de intentos. Severidad: **baja**, pero es la puerta a la
+dirección, las indicaciones y los productos de un cliente.
+
+**Corrección aplicada (SQL 12).** `pedidos.token_seguimiento`: 32 caracteres hexadecimales al azar (un UUID v4 sin guiones,
+122 bits), único e inmutable desde el navegador. `crear-pedido` lo devuelve (`tokenSeguimiento`), la confirmación, el banner
+y "¿Buscas tu pedido?" arman el enlace con él, y `seguimiento(ref)` abre un pedido por su token. **Compatibilidad:**
+`pedidos.enlace_por_referencia` vale `true` en los pedidos que ya existían (su enlace de siempre, la referencia, **sigue
+funcionando**; además reciben su token) y `false` en los nuevos (la referencia sola ya no abre nada). Las columnas se
+agregan sin `UPDATE` (sin triggers ni eventos de Realtime). Ni `seguimiento` ni `buscar_mis_pedidos` cambiaron de firma (el
+SQL 10 las conoce por su firma y la comprobación "ninguna función SECURITY DEFINER desconocida" sigue valiendo).
+
+Costos y límites, a la vista: (1) una pestaña de un cliente abierta **antes** del despliegue que cree un pedido después del
+SQL 12 verá "No encontramos ese pedido" en el seguimiento hasta recargar (el pedido llega igual al restaurante, y
+"¿Buscas tu pedido?" le da el enlace bueno); por eso conviene correr el SQL 12 justo después de desplegar. (2) El personal
+del restaurante (que ya ve teléfono y dirección de sus clientes) también lee el token en su panel. (3) No se agregó límite de
+intentos a `seguimiento` (con 122 bits no hace falta; el límite por IP sigue siendo el pendiente P4).
+
+### 14.9 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. Las llaves se piden con `Read-Host` (no se ven al pegarlas): pega
+**UNA sola vez** (clic derecho **o** Ctrl+V, nunca ambos). Nada de esto toca la base real salvo el paso 2.
+
+**1. Despliegue.** Al subir a `main`, Vercel despliega solo. Con el SQL 12 sin correr, Taqueiros se ve igual (el servidor usa
+sus valores de respaldo y el log avisa `[Publico] Taqueiros usa N valores de respaldo`). Abre
+`https://taqueiros-2-0.vercel.app/api/restaurante` (debe mostrar la marca, textos, tarifas y la llave **pública**; ningún
+secreto) y `https://taqueiros-2-0.vercel.app/manifest.json`.
+
+**2. SQL 12.** VS Code → abre `supabase/12-config-publica.sql` → **Ctrl+A, Ctrl+C** → Supabase → SQL Editor → New query →
+pega → **"Run without RLS"**. Resultado esperado: **24 filas, todas `OK`**. Si algo falla verás `MR paso n: ...` o `LA
+MIGRACION 12 SE REVIRTIO` con la lista, y no se cambió nada. Se puede repetir. No vuelvas a correr el SQL 10 después (recrearía
+`buscar_mis_pedidos` con su versión anterior; correr el 12 otra vez la repone).
+
+**3. Verificación contra la base real (solo lectura salvo las pruebas que crean y borran sus propios restaurantes).**
+
+```powershell
+$k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/probar-compatibilidad.mjs                    # esperado: 26 PASAN
+node supabase/probar-servidor-multirestaurante.mjs         # esperado: todos PASA (≈173), "Limpieza: todo lo creado se borro."
+node supabase/probar-aislamiento.mjs                       # esperado: todas PASA (con Realtime real)
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+**4. Recorrido a mano en producción** (lo único que ninguna prueba automática reemplaza): el menú se ve igual que antes
+(nombre, logo, colores, pie); armar un pedido y pagarlo con Wompi **sandbox** (la pantalla de confirmación, el enlace de
+seguimiento ahora trae un código largo, "Seguir mi pedido" funciona); "¿Buscas tu pedido?" con ese celular y total
+(muestra "Pedido #N" con el número de Taqueiros y su enlace abre el seguimiento); en el panel: el pedido aparece con su
+número, suena, imprime y **Reimprimir** (mismo ticket); historial y menú-admin. En un equipo con el panel instalado,
+recarga una vez: toma `sw.js` v9. En Chrome → F12 → Application → Manifest: nombre `Panel Taqueiros`.
+
+**5. Cuando quieras cobrar de verdad.** Ya **no** se edita `index.html`: el modo lo decide el servidor. Fija
+`WOMPI_MODO=produccion` (y los secretos prod) con `cargar-secretos.mjs --slug=taqueiros` como en 13.5 paso 2; la página
+pasa sola a la llave `pub_prod_` de `config.publico.wompi`. Mientras no lo fijes, la página (y el servidor) siguen en pruebas.
+
+**6. Dar de alta un restaurante nuevo** (se suma a 12.8): después de crearlo, llenar su `config.publico` con el JSON de 14.3
+(en Supabase → Table editor → `restaurantes` → `config`, o con `update public.restaurantes set config = '...'::jsonb where slug = '...'`),
+cargar su `tarifas_domicilio`, `wompi_modo` y llaves, y su dominio en `restaurante_dominios` y en Vercel. Con
+`config` vacío el sitio funciona y se ve neutro.
+
+### 14.10 Qué se probó y qué no
+
+**Probado por mí (local, sin tocar la base real):**
+
+* `config-publica.mjs` (nuevo): **49** — el SQL 12 sobre una base con el SQL 10 y el 11, dos veces y tras re-correr el 10;
+  pedidos existentes intactos (id, numero, `actualizado_en`, sin `UPDATE`); enlaces viejos siguen sirviendo y los nuevos solo con
+  token; `numero` y token en `seguimiento`/`buscar_mis_pedidos`; el token no se cambia desde el navegador; la mezcla no pisa
+  nada y no toca a otros restaurantes; el JSON del SQL = el de `_respaldo-taqueiros.js`; y **17 mutaciones** del propio SQL 12
+  (todas detectadas).
+* `servidor.mjs`: **186** (167 de antes, 2 adaptadas al nuevo formato y 19 nuevas: marca/tarifas/llaves de cada restaurante sin
+  cruces, datos hostiles, modos de pago y llave del otro modo, sin datos = neutro, respaldo solo de Taqueiros, manifest, número
+  en WhatsApp y alertas, token). También pasa con `SQL12_NO=1` (el código nuevo antes del SQL 12).
+* `front.mjs` (nuevo, Chrome sin interfaz sobre los manejadores reales y el Supabase falso): **104** — dos restaurantes en dos
+  dominios (cada uno su nombre, colores, logo, textos, menú, tarifas, llave y número; ninguno ve datos del otro); dominio
+  desconocido y servidor caído = mensaje neutro; **datos hostiles** (HTML, `onerror`, `<script>`, CSS, `javascript:`, bidi en
+  nombre, textos, contacto, mensaje de cerrado, horario, menú, frases del seguimiento) no se ejecutan ni se inyectan, **y aunque el
+  servidor (o un intermediario) mandara esos datos SIN validar el navegador los descarta** (escenario 3b); suspendido, módulos apagados y
+  sin datos; flujo de pago con un Wompi simulado (llave, monto, firma con el secreto del restaurante, redirección al origen,
+  enlace con token); almacenamiento por restaurante; y **Taqueiros idéntico** a como estaba en `debc1c5`: 603–627 elementos
+  comparados con su texto, atributos y **estilos calculados** en 6 estados de la página (portada, carrito, formulario de pago,
+  buscar mi pedido con resultados, seguimiento y cerrado), más las tarifas, coordenadas, llave y modo.
+* **Revisión por mutación del frontend** (`mutaciones-front.mjs`, nuevo): rompe a propósito 38 defensas de `index.html`, `pedido.html` y
+  `restaurante-publico.js` (cada `textContent` vuelto `innerHTML`, cada validador, el token, `p_restaurante`, el modo de cobro, módulos,
+  servicio suspendido, almacenamiento por restaurante…): **36 detectadas, 2 equivalentes declaradas con su razón, 0 sobrevivientes**
+  (la primera corrida dejó pasar 2: una prueba cuyo dato hostil no distinguía la defensa —se corrigió— y una defensa en capas).
+  **Revisión por mutación del servidor** (`mutaciones-servidor.mjs`, 26 mutaciones nuevas sobre `_publico.js`, `manifest.js`,
+  número y token, y las 5 de `restaurante.js` reapuntadas): **25 detectadas, 1 equivalente, 0 sobrevivientes**; la primera pasada dejó
+  pasar 3 (URL con usuario y clave, llave de pago con formato roto, y una mutación mal formulada) y se agregaron los datos hostiles
+  que faltaban. **La corrida completa de las ~175 mutaciones anteriores del servidor (cuyo código no cambió) no se terminó en esta sesión**: llegó a 111 detectadas y 0 sobrevivientes antes de quedarse sin tiempo. Volver a correrla completa y a solas (`node pruebas/multirestaurante/mutaciones-servidor.mjs`, ~25 minutos) antes de dar por cerrada esta fase.
+* `comparar-tickets.mjs`: 7/7 tickets idénticos (14.7). `ticket-comanda.test.js`: 67 unitarias en total (3 nuevas).
+  `e2e.js` del panel: **180** comprobaciones (173 de antes + 7 del escenario 21 nuevo, número ≠ id).
+* Baterías anteriores, todas verdes: `rls.mjs` 234, `hallazgos.mjs` 32, `planes.mjs` 11, `sim.mjs` (34 OK, con y sin
+  `conPendientes`), `dominios.mjs` 35, `cargar-secretos-test.mjs` 20, `probar-compatibilidad` contra el falso 26,
+  `probar-servidor-multirestaurante` contra el falso 173 y `probar-aislamiento` contra el falso 231 de 238 (las 7 que fallan son
+  las de Realtime, que el falso no emula, igual que antes). Cambiaron solo las que dependían de lo que ahora cambia: las dos
+  pruebas del formato de `/api/restaurante`, `probar-compatibilidad` (mismo motivo) y `probar-aislamiento` (un pedido nuevo se
+  abre con su token).
+
+**Solo se pueden probar contra la base real o en producción (pendiente de Carlos):** el SQL 12 sobre el esquema verdadero
+(paso 2); las tres verificaciones del paso 3; que Vercel respete la reescritura `/manifest.json` → `/api/manifest` (con el
+archivo estático ya borrado) y el caché del borde por dominio (P5); el widget **real** de Wompi (las pruebas usan uno
+simulado) y un pago sandbox de punta a punta; la impresora física; que `taqueiros-2-0.vercel.app` en el navegador real
+(Chrome lo fuerza a HTTPS por la lista HSTS del dominio `.app`, por eso las pruebas usan `taqueiros.localhost` para Taqueiros).
+
+### 14.11 Riesgos y pendientes para el paso siguiente (panel y administración)
+
+1. `panel.html`, `menu-admin.html`, `historial.html`, `marca.js` y el pie del ticket siguen con la marca de Taqueiros escrita
+   (`LOS TAQUEIROS · PEDIDO WEB`, logo, título). Hay que pasarlos a `restaurante-publico.js`/`/api/restaurante`. El panel debería
+   mostrar además el aviso de **gracia** (no es público, ver H10) desde un endpoint con sesión.
+2. `menu-admin.html` inserta sin `restaurante_id` (cae en Taqueiros por el defecto transitorio) y sube las fotos a la raíz del
+   bucket: sigue igual hasta ese paso; después se retiran el defecto y la regla del bucket.
+3. El dueño ya puede escribir `config.publico` desde su panel (la política de `restaurantes` se lo permite): el panel de
+   administración necesita un formulario con las mismas validaciones (colores, URLs, textos). Las del servidor y el navegador
+   descartan lo inválido, pero el formulario debería avisar.
+4. Con muchos restaurantes, `/api/restaurante` hace dos consultas extra por visita (tarifas y modo de cobro; se pueden pedir en
+   paralelo y ya lo están). Si pesa, ponerle un caché de borde corto **después** de verificar `Vary: Host` con dos dominios (P5).
+5. Las vistas previas de enlace no ejecutan JavaScript (14.5): título y descripción dinámicos pedirían servir el HTML desde una
+   función.
+6. P1 (13.4): el interruptor de producción pasó del navegador al servidor; mientras `otros.wompi_modo` no esté fijado para
+   Taqueiros, `crear-pedido` todavía acepta el modo que mande el navegador (la página ya no lo elige). Fijarlo y retirar ese
+   respaldo cuando se cobre de verdad.
+7. `TAQUEIROS_SUPABASE` (nombre del objeto global) y las tipografías siguen siendo de Taqueiros; renombrar con el panel.
+8. **Límite de funciones de Vercel:** `api/manifest.js` es la función número **11** (las que no empiezan con `_`: alertas,
+   crear-pedido, disponibilidad, estado, generar-firma, keep-alive, manifest, menu, reembolso, restaurante, webhook-wompi). El plan
+   Hobby permite 12 por despliegue: la siguiente que se agregue obliga a juntar endpoints o a cambiar de plan.
