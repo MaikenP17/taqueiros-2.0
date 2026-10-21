@@ -256,6 +256,8 @@ async function escenario(nombre, fn) {
 
   // ---- base falsa y entorno del servidor ------------------------------------------------------------------
   const falso = await levantar({ puerto: PUERTO_FALSO, validarConfig: false });
+  // Estas pruebas guardan a proposito un mensaje de cerrado hostil (con HTML) para ver que la pagina publica no lo ejecuta aunque llegara: desde el SQL 15 la base lo rechazaria, asi que se apaga SOLO ese trigger
+  await falso.db.exec('alter table public.configuracion disable trigger configuracion_validar');
   const URL_FALSO = falso.url;
   process.env.SUPABASE_URL = URL_FALSO;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_FAKE_0000';

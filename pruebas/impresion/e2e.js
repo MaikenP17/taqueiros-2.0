@@ -802,7 +802,8 @@ async function escenario(nombre, fn) {
       comprobar(await p.eval("(function(){var m=document.getElementById('menuLateral');return m.getAttribute('role')==='dialog'&&m.getAttribute('aria-modal')==='true'&&!!m.getAttribute('aria-label')&&document.getElementById('menuBtn').getAttribute('aria-controls')==='menuLateral';})()"),
         "role=dialog, aria-modal, aria-label y aria-controls en su sitio");
       const texto = await p.eval("Array.from(document.querySelectorAll('#menuLista .menu-item')).map(function(e){return e.querySelector('.menu-txt').firstChild.textContent;}).join('|')");
-      comprobar(texto === "Historial|Menú|Horario|Configuración|Notificaciones|Cerrar sesión", "orden de opciones: " + texto);
+      // ("Datos de mi restaurante" es la opcion nueva del dueno, seccion 17: el usuario de esta prueba es dueno)
+      comprobar(texto === "Historial|Menú|Horario|Datos de mi restaurante|Configuración|Notificaciones|Cerrar sesión", "orden de opciones: " + texto);
       comprobar(await p.eval("(function(){var l=document.querySelectorAll('#menuLista .menu-item');var u=l[l.length-1],pen=l[l.length-2];return u.classList.contains('separado')&&u.getBoundingClientRect().top>pen.getBoundingClientRect().bottom+4;})()"),
         "Cerrar sesion va al final, separado");
       comprobar(await p.eval("['horariosBtn','impresionBtn','notifBtn','logoutBtn'].every(function(id){var e=document.getElementById(id);return e&&e.closest('#menuLateral');})"),

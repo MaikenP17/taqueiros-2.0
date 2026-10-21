@@ -13,15 +13,16 @@ restaurantes**, con aislamiento estricto de datos. Este documento describe la ba
 > personal (`panel.html`, `menu-admin.html`, `historial.html`, el pie del ticket, `sw.js`) trabajan solo con el restaurante de su
 > dominio, con la membresía verificada y con la marca del restaurante (sin SQL nuevo). La **sección 16** es el paso después: **endurecer la base**
 > (`supabase/13-endurecer.sql`: sin valores por defecto de `restaurante_id`, `config` validada en la base, mínimo privilegio) y **mover las fotos de la raíz del bucket**
-> (`migrar-fotos-raiz.mjs` + `14-retirar-regla-bucket.sql`). Siguen pendientes la interfaz de administración (formulario de datos del restaurante, superadmin),
-> agrupar endpoints y la vista previa de enlaces (16.10).
+> (`migrar-fotos-raiz.mjs` + `14-retirar-regla-bucket.sql`). La **sección 17** es el paso después: **agrupar endpoints** (11 → 6 funciones de Vercel, sin cambiar ninguna URL), la **vista previa de enlaces por restaurante** y el formulario
+> **"Datos de mi restaurante"** del dueño (`supabase/15-datos-restaurante.sql`, que además valida el horario). Sigue pendiente la interfaz del superadmin (17.9).
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
 8. Qué se probó y qué no · 9. Riesgos · 10. Revisión de seguridad del SQL 10 · 11. Fallo `pg_statistic` ·
 12. Servidor multi-restaurante (SQL 11 + api/) · 13. Revisión adversaria del servidor ·
 14. Frontend público multi-restaurante (SQL 12) · 15. Paneles del personal por restaurante ·
-**16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz**
+16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz ·
+**17. Agrupar endpoints, vista previa de enlaces y "Datos de mi restaurante" (SQL 15)**
 
 ---
 
@@ -699,6 +700,9 @@ SQL 11 sin tumbar a Taqueiros. Cualquier otro host sigue dando error.
 
 ### 12.3 Inventario de endpoints y cómo filtra cada uno
 
+> Desde la sección 17, los manejadores de `menu`, `estado`, `disponibilidad`, `restaurante`, `manifest`, `alertas` y `keep-alive` viven en `api/_modulos/` (los mismos, movidos de archivo) y los despachan
+> `api/publico.js` y `api/cron.js`; **las URL de esta tabla no cambian**.
+
 | Endpoint | Quién llama | Restaurante sale de | Cómo filtra / qué usa |
 |---|---|---|---|
 | `GET /api/menu` | público | Host | `categorias` y `productos` con `restaurante_id`; copia de respaldo en memoria **por restaurante**; `Cache-Control` del borde + `Vary: Host`. Suspendido sigue mostrando menú. |
@@ -1302,9 +1306,8 @@ otra. El nombre del restaurante es `restaurantes.nombre` (columna), no va aquí.
    código) y se deja pedir (el servidor valida el horario al crear el pedido); el mensaje de "cerrado", los días del horario
    y el nombre ya no se pegan como HTML.
 
-Limitación conocida: el título y la descripción los pone JavaScript, así que una vista previa de enlace (WhatsApp, redes)
-que no ejecuta JS verá el título neutro "Pedidos en línea". Si importa, el siguiente paso es servir `index.html` desde una
-función que inyecte `<title>` y las etiquetas `og:` según el dominio.
+Limitación conocida (**resuelta en la sección 17.3**): el título y la descripción los pone JavaScript, así que una vista previa de enlace (WhatsApp, redes)
+que no ejecuta JS veía el título neutro "Pedidos en línea". Ahora los rastreadores reciben la página con las etiquetas `og:` del restaurante.
 
 ### 14.6 PWA y service worker
 
@@ -1458,14 +1461,13 @@ simulado) y un pago sandbox de punta a punta; la impresora física; que `taqueir
    descartan lo inválido, pero el formulario debería avisar.
 4. Con muchos restaurantes, `/api/restaurante` hace dos consultas extra por visita (tarifas y modo de cobro; se pueden pedir en
    paralelo y ya lo están). Si pesa, ponerle un caché de borde corto **después** de verificar `Vary: Host` con dos dominios (P5).
-5. Las vistas previas de enlace no ejecutan JavaScript (14.5): título y descripción dinámicos pedirían servir el HTML desde una
-   función.
+5. ~~Las vistas previas de enlace no ejecutan JavaScript (14.5)~~ **Resuelto en la sección 17.3.**
 6. P1 (13.4): el interruptor de producción pasó del navegador al servidor; mientras `otros.wompi_modo` no esté fijado para
    Taqueiros, `crear-pedido` todavía acepta el modo que mande el navegador (la página ya no lo elige). Fijarlo y retirar ese
    respaldo cuando se cobre de verdad.
 7. ~~`TAQUEIROS_SUPABASE` (nombre del objeto global) y las tipografías siguen siendo de Taqueiros~~ **Resuelto en la sección 15**
    (`SUPABASE_PUBLICO`; tipografías por restaurante con lista permitida).
-8. **Límite de funciones de Vercel:** `api/manifest.js` es la función número **11** (las que no empiezan con `_`: alertas,
+8. ~~**Límite de funciones de Vercel:**~~ **Resuelto en la sección 17.2 (ahora son 6 de 12).** *(Texto original:)* `api/manifest.js` era la función número **11** (las que no empiezan con `_`: alertas,
    crear-pedido, disponibilidad, estado, generar-firma, keep-alive, manifest, menu, reembolso, restaurante, webhook-wompi). El plan
    Hobby permite 12 por despliegue: la siguiente que se agregue obliga a juntar endpoints o a cambiar de plan.
 
@@ -1724,12 +1726,12 @@ tipografías. **No se hizo, y queda para 2B-4:**
    al borrar/cambiar una foto vieja la página intenta borrarla de la raíz: con la regla retirada, ese borrado fallaría en silencio (queda un aviso en consola). Decidir:
    mover las fotos a `{restaurante_id}/` (hay que copiar el archivo con la API de Storage y actualizar `productos.imagen`; con SQL solo no se mueve el archivo) o conservar
    solo el borrado en la raíz.
-3. **Formulario de configuración** (el dueño ya puede escribir `config.publico`): con las mismas validaciones que el servidor y el navegador (colores `#RRGGBB`,
+3. ~~**Formulario de configuración**~~ **Hecho en la sección 17.4 (solo textos, contacto y nombre; la marca sigue siendo del administrador).** *(Texto original:)* (el dueño ya puede escribir `config.publico`): con las mismas validaciones que el servidor y el navegador (colores `#RRGGBB`,
    URLs de logo, textos, WhatsApp) y **selector de las dos tipografías** con la lista de 15.5; que avise lo que se descarta.
-4. **Agrupación de endpoints:** siguen siendo **11 de 12** funciones de Vercel Hobby; este paso **no agregó ninguna** (el aviso de gracia, que habría pedido un endpoint
+4. ~~**Agrupación de endpoints**~~ **Hecha en la sección 17.2 (6 de 12).** *(Texto original:)* siguen siendo **11 de 12** funciones de Vercel Hobby; este paso **no agregó ninguna** (el aviso de gracia, que habría pedido un endpoint
    con sesión, no se hizo: el dueño ya puede leer su fila de `restaurantes` con RLS —incluye `vigente_hasta` y `dias_gracia`— así que se puede mostrar sin función nueva; falta
    decidir quién lo ve y con qué texto). Candidatos a unir: `estado` + `disponibilidad`, `restaurante` + `manifest`, `keep-alive` + `alertas`.
-5. **Vista previa de enlaces:** sin cambios; las páginas privadas llevan `noindex`. Las públicas siguen con el título neutro hasta que se sirva el HTML desde una función.
+5. ~~**Vista previa de enlaces**~~ **Hecha en la sección 17.3.** *(Texto original:)* sin cambios; las páginas privadas llevan `noindex`. Las públicas siguen con el título neutro hasta que se sirva el HTML desde una función.
 6. **Superadmin:** un superadmin que no es miembro de un restaurante hoy **no** entra a su panel (la comprobación es estricta); la interfaz de superadmin deberá traer su
    camino ("entrar como"). Un usuario baneado en Auth conserva su token ~1 h (P9), pero RLS deja de darle datos en cuanto se desactiva su membresía y el panel lo saca
    en ≤ 10 min.
@@ -2019,19 +2021,19 @@ direcciones nuevas; el recorrido a mano del panel y de menu-admin; un pago real 
 
 ### 16.10 Riesgos y pendientes para el prompt siguiente (2B-5) y la revisión de Opus
 
-1. **Agrupación de endpoints:** siguen siendo **11 de 12** funciones de Vercel Hobby; esta fase no agregó ninguna. Candidatos: `estado` + `disponibilidad`, `restaurante` + `manifest`, `keep-alive` + `alertas`. Al unir
+1. ~~**Agrupación de endpoints**~~ **Hecha en la sección 17.2.** *(Texto original:)* siguen siendo **11 de 12** funciones de Vercel Hobby; esta fase no agregó ninguna. Candidatos: `estado` + `disponibilidad`, `restaurante` + `manifest`, `keep-alive` + `alertas`. Al unir
    endpoints, el espía de URLs y el arnés (`escenarios-servidor.mjs`) llaman a los manejadores por nombre de archivo (`M.restaurante`, `M.manifest`…): habrá que actualizarlos.
-2. **Formulario de datos del restaurante (2B-5):** el dueño **solo** puede escribir `nombre`, `config.publico.textos` y `config.publico.contacto`; la marca, tipografías, ubicación, domicilio, llaves públicas y PWA
+2. ~~**Formulario de datos del restaurante (2B-5)**~~ **Hecho en la sección 17.4.** *(Texto original:)* el dueño **solo** puede escribir `nombre`, `config.publico.textos` y `config.publico.contacto`; la marca, tipografías, ubicación, domicilio, llaves públicas y PWA
    requieren superadmin o servidor (una función de servidor con sesión; `api/_sesion.js` ya existe). El formulario puede usar `public.config_restaurante_errores(config)` (RPC; lo pueden llamar `authenticated` y el
    servidor) para **avisar antes de guardar** con los mismos mensajes. Si se quiere que el dueño edite la marca: ampliar la lista `#- '{publico,textos}' #- '{publico,contacto}'` del trigger (una línea) **y** decidir
    si pasa por `api/` con auditoría. El texto de un campo vacío cuenta como ausente (no es un error).
-3. **Vista previa de enlaces:** sin cambios; sigue pendiente servir el HTML desde una función que inyecte `<title>` y `og:` (agregaría una función de Vercel: ver el punto 1).
+3. ~~**Vista previa de enlaces**~~ **Hecha en la sección 17.3.** *(Texto original:)* sin cambios; sigue pendiente servir el HTML desde una función que inyecte `<title>` y `og:` (agregaría una función de Vercel: ver el punto 1).
 4. **Valores que aceptan las dos capas:** si el formulario guarda un texto con salto de línea o una URL `http`, la base lo rechaza (el servidor los toleraba). Cualquier campo nuevo se agrega en cuatro lugares (16.4).
 5. **`restaurante_taqueiros_id()` sigue existiendo** (trigger `personal → miembros`, `validar_producto` hasta el 14 y la regla de la raíz hasta el 14). Después del SQL 14 solo la usa `personal_a_miembros()`: se puede
    borrar junto con la tabla legada `personal` cuando ya no se use.
 6. **Tablas privadas nuevas:** cualquier tabla nueva con `restaurante_id` nace sin valor por defecto (bien) pero **con privilegios de Supabase para `anon`/`authenticated`** (`ALTER DEFAULT PRIVILEGES`): el SQL que la cree
    debe revocarlos y activar RLS; las comprobaciones "anon sin privilegios sobre ninguna tabla" y "RLS en todas" del 10, 11, 13 y 14 la detendrían.
-7. **`configuracion.horarios` y `mensaje_cerrado`** los escribe el dueño sin validación de forma en la base (solo `HH:MM` en el navegador y el parseo del servidor). No es una superficie nueva, pero es la única
+7. ~~**`configuracion.horarios` y `mensaje_cerrado`**~~ **Validados en la base desde la sección 17.5 (SQL 15).** *(Texto original:)* los escribe el dueño sin validación de forma en la base (solo `HH:MM` en el navegador y el parseo del servidor). No es una superficie nueva, pero es la única
    escritura de JSON libre que le queda al dueño: candidata a una validación parecida a la de `config`.
 8. **Archivos sueltos en la raíz del bucket** (fotos subidas y reemplazadas antes de la sección 15 que ningún producto usa): después del SQL 14 solo el servidor puede borrarlos; no estorban. El script los cuenta y no los toca.
 9. **Realtime y `DELETE`, el registro público de Auth, el límite de peticiones (P4), Preview de Vercel (P2) y `?clave=`** del cron: sin cambios (secciones 9, 13 y 15).
@@ -2051,3 +2053,355 @@ node pruebas/multirestaurante/inspeccion.mjs                 # secciones nuevas 
 node pruebas/multirestaurante/rls.mjs                        # 237 con el SQL 13 (SQL13_NO=1: 234 como antes)
 node pruebas/multirestaurante/contra-falso.mjs probar-aislamiento.mjs   # etc.: cualquier script de supabase/ contra el falso
 ```
+
+---
+
+## 17. Agrupar endpoints, vista previa de enlaces y "Datos de mi restaurante" (SQL 15)
+
+Tres cosas de estructura y presentación que quedaban después de la sección 16: (1) **Vercel Hobby permite 12 funciones por despliegue y ya se usaban 11**, y el
+panel de superadmin que viene necesita espacio; (2) al pegar el enlace de un restaurante en WhatsApp o Instagram la tarjeta decía el título neutro "Pedidos en línea"
+(las vistas previas no ejecutan JavaScript); (3) el dueño no tenía un formulario para el nombre, los textos y el contacto de su restaurante, aunque la base (SQL 13) ya le
+permite escribir justo eso. **Ninguna URL externa cambia, Taqueiros se ve y funciona igual, y la lógica revisada por Opus (webhook, crear-pedido, reembolso, sesión,
+alertas) solo se mueve de archivo o no se toca.**
+
+### 17.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `api/publico.js`, `api/cron.js`, `api/_despacho.js` (nuevos) | Dos funciones de Vercel que **despachan** a módulos. `_despacho.js` es la única lógica: elige el módulo por el último segmento del path, o por `_ruta`. |
+| `api/_modulos/*.js` | `menu`, `estado`, `disponibilidad`, `restaurante`, `manifest`, `alertas` y `keep-alive`: **los mismos manejadores de siempre, movidos con `git mv`**; solo cambiaron las rutas de sus `require` (`./_x.js` → `../_x.js`). Más `vista-previa.js` (nuevo, 17.3). |
+| `vercel.json` | 8 reescrituras (cada URL de siempre → su función agrupada), 3 redirecciones por User-Agent (vista previa) y `functions.includeFiles` para que la vista previa lea `index.html` y `pedido.html`. |
+| `api/_publico.js` | `datosVistaPrevia()` (título, descripción, imagen y color de la vista previa; mismos validadores que `/api/restaurante`). Nada más cambió. |
+| `datos-restaurante.js` (nuevo), `panel.html`, `panel-restaurante.js` | El formulario "Datos de mi restaurante" y su opción del menú lateral (solo dueño). `PR.mostrarRol()` ahora también muestra u oculta lo marcado con `data-solo-rol`. |
+| `supabase/15-datos-restaurante.sql`, `15-revertir.sql` (nuevos) | La función `guardar_datos_restaurante`, la validación del horario y del mensaje de cerrado (pendiente 16.10-7). |
+| `supabase/13-endurecer.sql` | **Solo el dato de una prueba interna**: el insert de control sobre `configuracion` ahora copia el horario de Taqueiros en vez de usar `'{}'`, para que el SQL 13 se pueda volver a correr después del 15 (el trigger nuevo rechaza `'{}'`). No cambia nada de lo que hace el SQL 13. |
+| `supabase/probar-compatibilidad.mjs`, `probar-servidor-multirestaurante.mjs` | La primera llama a `api/publico.js` con las URL de siempre; la segunda acepta `VIA=despachador` o `VIA=reescrita` para correr sus escenarios a través de los despachadores. |
+| `pruebas/` | `agrupacion.mjs`, `vista-previa.mjs`, `vercel-emulador.mjs`, `mutaciones-agrupacion.mjs`, `datos-restaurante.mjs`, `reglas-navegador.mjs`, `mutaciones-15.mjs`, `datos-restaurante.test.js`, escenario 13 de `panel.mjs` y 34 mutaciones nuevas en `mutaciones-panel.mjs`. El arnés llama ahora a los módulos y, además, a través de los despachadores. |
+
+### 17.2 Agrupar endpoints
+
+Vercel cuenta **una función por cada archivo de `api/` que no empiece por guion bajo** (en cualquier nivel). Lo que vive bajo un nombre con `_` (los helpers y `_modulos/`) no cuenta.
+
+| Antes (11) | Después |
+|---|---|
+| `api/menu.js`, `estado.js`, `disponibilidad.js`, `restaurante.js`, `manifest.js` | módulos en `api/_modulos/` → función **`api/publico.js`** |
+| `api/alertas.js`, `keep-alive.js` | módulos en `api/_modulos/` → función **`api/cron.js`** |
+| `api/crear-pedido.js`, `generar-firma.js`, `reembolso.js`, `webhook-wompi.js` | **sin tocar** (sus propias funciones) |
+
+**Resultado: 6 funciones de 12** (`crear-pedido`, `cron`, `generar-firma`, `publico`, `reembolso`, `webhook-wompi`). Quedan 6 libres para el superadmin. Una prueba falla si
+alguna vez pasan de 7 (`agrupacion.mjs`, A1) y otra exige que sean exactamente estas 6 (A2), para que sumar una sea una decisión y no un descuido.
+
+**Por qué esas cuatro no se agruparon.** Son las de dinero y autorización (revisadas por Opus). Moverlas no liberaba más espacio del necesario y cada cambio ahí es riesgo: la URL de
+Wompi (`/api/webhook-wompi`) queda **literalmente el mismo archivo**. Candidatos para agrupar más adelante, si hiciera falta: `crear-pedido` + `generar-firma` + `reembolso`.
+
+**Tabla de reescrituras** (`vercel.json`; el método, las cabeceras, el cuerpo y el resto de la consulta —`?r=`, `?clave=`— pasan intactos):
+
+| URL externa (no cambia) | Quién la usa | Reescritura | Función → módulo |
+|---|---|---|---|
+| `/api/menu` | páginas públicas | `/api/publico?_ruta=menu` | `publico` → `menu` |
+| `/api/estado` | `index.html` | `/api/publico?_ruta=estado` | `publico` → `estado` |
+| `/api/disponibilidad` | `index.html` | `/api/publico?_ruta=disponibilidad` | `publico` → `disponibilidad` |
+| `/api/restaurante` | páginas públicas y privadas | `/api/publico?_ruta=restaurante` | `publico` → `restaurante` |
+| `/manifest.json` | `panel.html` (PWA) | `/api/publico?_ruta=manifest` | `publico` → `manifest` |
+| `/api/manifest` | (compatibilidad) | `/api/publico?_ruta=manifest` | `publico` → `manifest` |
+| `/api/alertas` | cron-job.org (`Authorization: Bearer` o `?clave=`) | `/api/cron?_ruta=alertas` | `cron` → `alertas` |
+| `/api/keep-alive` | cron-job.org **y el cron de Vercel** (`vercel.json` → `crons`) | `/api/cron?_ruta=keep-alive` | `cron` → `keep-alive` |
+| `/api/webhook-wompi`, `/api/crear-pedido`, `/api/generar-firma`, `/api/reembolso` | Wompi, páginas, panel | — (archivos propios) | las mismas funciones de siempre |
+
+Además, 3 **redirecciones** por User-Agent para la vista previa (17.3).
+
+**Cómo elige el módulo `_despacho.js`** (en este orden y nada más):
+1. El **último segmento del path** si es una ruta conocida (`/api/menu` → `menu`) o el alias `manifest.json`. Si Vercel entrega la URL original, esto basta; y como **manda sobre el parámetro**,
+   `/api/menu?_ruta=restaurante` sigue siendo el menú.
+2. Si no, el parámetro `_ruta` que puso la reescritura, leído de `req.query` o de la propia URL (cubre que `req.url` traiga la dirección reescrita).
+3. Sin ninguna: `404 {"error":"No encontrado"}` (el mismo cuerpo que un host desconocido). Las rutas se buscan en un `Set` y la tabla de nombres no tiene prototipo, así que `constructor`,
+   `__proto__` o `toString` no son rutas.
+
+Elegir otro módulo con `?_ruta=` solo da acceso a *otro endpoint de la misma función* con exactamente sus mismas protecciones (el host del restaurante, la autorización del cron):
+`publico` no sirve alertas ni keep-alive, y `cron` no sirve el menú (prueba B5).
+
+**El comportamiento es idéntico — cómo se demuestra.** `agrupacion.mjs`, sección C: el mismo guion de **98 escenarios** (menú, estado, disponibilidad, datos públicos y manifest de 4
+restaurantes y de un host desconocido; los dos crons con Bearer, en minúsculas, con `?clave=` buena y mala, vacía, con Basic y con las dos a la vez; crear-pedido válido, agotado,
+de otro restaurante, con el precio manipulado, sin cuerpo, suspendido, domicilio con y sin cobertura; generar-firma; webhook con firma buena, de otro restaurante, mala, de monto
+distinto, de ambiente equivocado, repetido y rechazo tardío; reembolso sin sesión; suspensión y reactivación) se ejecuta contra **el código del commit anterior (`d689d4d`, sacado de
+git)** y contra el actual, cada uno con **su propia base** (Postgres 16 real) sembrada igual y **pasando por `vercel.json`** (`vercel-emulador.mjs`). Se comparan el código de estado, el
+cuerpo y **todas las cabeceras** de cada respuesta —los que no modifican nada, con las dos formas en que Vercel puede entregar la URL (la original y la reescrita)— y, al final, las dos bases
+(pedidos, salud del WhatsApp, contadores) y los avisos de WhatsApp enviados. Solo se normalizan los valores que cambian por diseño en cada corrida (referencias `TAQ-<ms>-<hex>`, tokens, fechas).
+Además los 187 escenarios de `servidor.mjs` pasan **tres veces**: contra los módulos, contra los despachadores con la URL original y con la reescrita (`--via=`). `B1` prueba que cada URL
+externa llega al módulo correcto (con módulos-testigo) con su método, `Authorization` y consulta, entregada de 4 formas.
+
+**Lo que ninguna prueba local puede asegurar (se mira en producción, 17.8):** que Vercel entregue `req.url` y `req.query` como se documenta (por eso el despachador acepta las dos formas y la
+prueba exige las cuatro combinaciones); que, si la consulta original y la del destino repiten un nombre, gane el destino (el despachador no depende de eso: el path manda); y que el cron de
+Vercel (`/api/keep-alive`) pase por la reescritura como cualquier petición. Es una petición HTTP normal a la URL de producción, igual que la de cron-job.org.
+
+### 17.3 Vista previa de enlaces por restaurante
+
+**Qué pasaba.** Los rastreadores de WhatsApp, Instagram/Facebook, Telegram, X, Slack, LinkedIn y Discord piden la página **una vez**, no ejecutan JavaScript y arman la tarjeta con las
+etiquetas del HTML. `index.html` es un archivo estático igual para todos y el nombre lo pone JavaScript: la tarjeta decía "Pedidos en línea".
+
+**Diseño pedido** (que las personas sigan recibiendo el HTML estático y solo los rastreadores, por User-Agent, reciban el HTML con los datos inyectados, con una regla de reescritura) **y por qué no se
+puede tal cual.** La documentación de Vercel (vercel.json → `rewrites`) dice: *"The `source` property should NOT be a file because precedence is given to the filesystem prior to rewrites being applied"*.
+`/` es un archivo (`index.html`), así que una reescritura condicionada por User-Agent **nunca se evaluaría**. Las alternativas: (a) `routes` (legado): corre antes del sistema de archivos, pero la
+documentación dice que `routes` no revisa el sistema de archivos por defecto y hay reportes de 404 en todos los archivos estáticos: **si fallara, rompería el sitio de todos**; (b) renombrar las
+páginas estáticas para que `/` no sea un archivo y reescribir *para todos*: obliga a mover `index.html` y `pedido.html` y **toca a las personas**; (c) Routing Middleware: sería otra función de Vercel.
+
+**Diseño elegido: redirección temporal (307) condicionada por User-Agent.** Las redirecciones se evalúan **antes** que el sistema de archivos (documentado: *"redirects are always processed before rewrites"*),
+solo coinciden con rastreadores y, si la regla no funcionara en producción, **lo peor que pasa es que la tarjeta sigue neutra** (nada se rompe para nadie):
+
+```
+rastreador:  GET /            -> 307 Location: /api/publico?_ruta=vista-previa&_pagina=index
+             GET /api/publico?... (UA de rastreador) -> 200 index.html con title, description y og:* del restaurante del Host
+persona:     GET /            -> el archivo estático de siempre (sin pasar por ninguna función; index.html no cambió ni un byte)
+```
+
+Las reglas son para `/`, `/index.html` (menú) y `/pedido.html` (seguimiento: título "Sigue tu pedido | Nombre", sin copiar la referencia ni el token del enlace). User-Agent: `WhatsApp`, `facebookexternalhit`,
+`Facebot`, `meta-externalagent`, `meta-externalfetcher` (Facebook e Instagram), `TelegramBot`, `Twitterbot` (X), `Slackbot`, `Slack-ImgProxy`, `LinkedInBot`, `Discordbot`. La misma lista está en `vercel.json` y en el módulo
+(una prueba exige que sean idénticas, 6c). **No está "Instagram"** a propósito: es el navegador interno de la app (las *personas* que entran por el enlace de la biografía); la tarjeta de Instagram la arma el
+rastreador de Meta. Tampoco Googlebot (ejecuta JavaScript). El módulo repite la comprobación (sin distinguir mayúsculas) y **a una persona que llegue a la función le responde 302 a la página normal**: aunque la
+regla de Vercel fuera demasiado ancha, nunca se le sirve algo raro a una persona.
+
+**Qué recibe el rastreador:** la propia `index.html` (o `pedido.html`) con el `<title>` cambiado y estas etiquetas agregadas al comienzo de la cabeza: `description`, `theme-color`, `og:site_name`, `og:type=website`,
+`og:locale=es_CO`, `og:title`, `og:description`, `og:url` (`https://<host>/` o `/pedido.html`), `og:image` + `og:image:alt`, `twitter:card=summary`, `twitter:title`, `twitter:description`, `twitter:image`.
+Título y descripción son los mismos que pinta la página (`titulo_pagina`/`descripcion_pagina`, o el nombre y "Pide en línea en <nombre>."). **La imagen** es el logo (o el ícono de 512, o el de 192) como URL
+**absoluta https**: una ruta del sitio se completa con el host; una URL del Storage esperado se deja tal cual; todo lo demás (http, `//`, `javascript:`, `data:`, otros orígenes, usuario:clave) no sale.
+
+**Seguridad.** Todo valor sale de `_publico.js` (mismas listas y validadores que `/api/restaurante`) y **se escapa** (`& < > " '`) para HTML y atributos; hay un test con un valor hostil en *cada* campo (3j) y 12 mutaciones
+sobre el escape. Un host desconocido, una base caída, una página ilegible o cualquier excepción devuelven **la página neutra de siempre** (el archivo tal cual, o una página mínima con "Pedidos en línea" si ni se puede leer):
+nunca datos de otro restaurante. El restaurante sale **solo del Host**, con la misma resolución de la sección 12.2.
+
+**Riesgos de caché y cómo se resuelven.**
+
+| Riesgo | Resolución |
+|---|---|
+| Que la CDN guarde la variante del rastreador y se la sirva a una persona (o la de un restaurante a otro) | La respuesta lleva `Cache-Control: private, no-store` y `Vary: Host, User-Agent`: **ninguna caché compartida la guarda**. Se descartó un `s-maxage` corto: el ahorro sería casi nulo (una invocación por cada rastreo) y el riesgo no. |
+| Que la CDN guarde la *redirección* de un rastreador y se la sirva a personas | Las redirecciones de `vercel.json` se evalúan en cada petición, no son una respuesta guardada. Aun así, si ocurriera, la persona recibiría la página con etiquetas, que es la página completa y funciona; además el módulo la devuelve a `/`. |
+| Que un rastreador reciba el archivo estático guardado en la CDN | La redirección va **antes** del sistema de archivos. Si no se aplicara, el rastreador ve lo de siempre (tarjeta neutra), no un error. |
+| Suplantar el User-Agent | Cualquiera puede pedir la variante con `curl -A WhatsApp`: solo contiene datos que `/api/restaurante` ya entrega públicamente. Cada rastreo cuesta una invocación (la resolución del host sí se guarda 30 s); no hay límite de peticiones (pendiente P4). |
+| Datos viejos | El servidor guarda **30 s** en memoria el restaurante de cada host (12.2): lo que el dueño edita se ve en el sitio y en la vista previa en ≤ 30 s. **WhatsApp, además, guarda la tarjeta de un enlace por días**: para verla de nuevo hay que cambiar el enlace (`?v=2`) o usar el depurador. |
+
+### 17.4 "Datos de mi restaurante" (formulario del dueño)
+
+En el menú lateral del panel (☰) aparece **"Datos de mi restaurante"**, **solo para el rol dueño**. Abre una ventana con 32 campos en 5 grupos. **No se editan aquí** (son del administrador y la base se lo
+impide al dueño): colores, logo, tipografías, ubicación, domicilio, módulos, plan, estado, vigencia, llaves de pago y PWA.
+
+| Grupo | Campos (regla de la base, docs 16.4) |
+|---|---|
+| Tu restaurante | **Nombre** (1 a 120; sin `<` `>` ni controles) |
+| Contacto | WhatsApp (8 a 15 dígitos; se admiten espacios, `+`, paréntesis y guiones, **se guardan solo los números**), teléfono (≤ 40), dirección (≤ 200), dirección corta (≤ 200), ciudad (≤ 80), región (≤ 80), Instagram y TikTok (usuario `[A-Za-z0-9._]` ≤ 60, **se guarda sin @**) |
+| Textos de tu página | título y descripción de la página (salen en la vista previa), eslogan, frase de portada, texto y cierre del pie, línea de servicios, ejemplo de nota (≤ 400 cada uno) |
+| Avisos de abierto y cerrado | ícono, título y mensaje del aviso de abierto (escribe `{cierre}` para la hora de cierre), ícono y mensaje del de cerrado (≤ 400) |
+| Seguimiento del pedido | 5 tiempos y 5 frases (≤ 200) |
+
+**Reglas de todo texto** (idénticas a la base): una sola línea; sin `<` ni `>`; sin caracteres de control, de ancho cero ni marcas bidi; no puede parecer un secreto (`prv_`, `sb_secret_`, JWT, `apikey`...);
+no puede ser una sola palabra de 32 o más letras/números. **Lo vacío borra el campo.**
+
+**Cómo valida antes de guardar.** (1) En el navegador, con las mismas reglas; dice **en español qué campo falla y por qué**, lo marca (`aria-invalid`) y no manda nada. (2) Le pregunta a la base con la
+config candidata (`public.config_restaurante_errores`, SQL 13): es la misma función del trigger, así que el aviso es el de la base; si lo que falla está *fuera* del formulario (por ejemplo un logo viejo
+inválido) lo dice y pide avisar al administrador. (3) **Avisa de lo que se ajusta** (el WhatsApp queda solo en números, el usuario sin @, los saltos de línea pasan a espacios, los invisibles se quitan): deja
+en el formulario exactamente lo que se guardará y pide pulsar Guardar otra vez. La prueba `reglas-navegador.mjs` compara el veredicto del navegador con el de la base en **14 415 combinaciones** de campo y valor
+(hostiles, límites, emojis, secretos, números, usuarios, ruido): ninguna difiere.
+
+**Cómo se evita perder claves y pisar ediciones.**
+* **No se pierde ninguna otra clave de la config.** El formulario manda **solo los campos que cambiaron**, cada uno como `{campo, antes, despues}`, a `public.guardar_datos_restaurante(p_restaurante, p_cambios)`.
+  La función toma el candado de la fila (`SELECT … FOR UPDATE`), modifica *esas rutas* dentro de la base (`jsonb_set` / `#-`) y guarda: no reemplaza la config entera, así que la marca, la ubicación, el domicilio,
+  las llaves y el resto de los textos quedan EXACTAMENTE igual (comprobado campo por campo; y un campo que la persona no tocó no se manda aunque la copia guardada tenga espacios de más).
+* **No se pisan cambios simultáneos.** Cada campo se compara con el valor que la persona *vio* ("antes"). Si otra persona ya lo cambió, la función **no guarda NADA** y devuelve los campos en conflicto con su
+  valor actual; el formulario marca esos campos ("Otra persona cambió este dato… ahora dice «…»"), conserva lo que se escribió, actualiza los campos que la persona no tocó y pide revisar y pulsar Guardar otra vez
+  (ahí sí reemplaza, a sabiendas). Dos ediciones de campos *distintos* se suman sin conflicto. El candado de la fila serializa a dos que lleguen a la vez: la segunda lee lo que guardó la primera.
+
+**Quién puede.** La función exige ser el **dueño de ese restaurante** (o superadmin / servidor) y es **`SECURITY INVOKER`**: corre con los permisos de quien la llama, así que RLS y el trigger del SQL 13 siguen siendo
+la defensa de fondo. Un cajero, la cocina, el dueño de *otro* restaurante, alguien sin membresía y `anon` reciben `42501` aunque fabriquen la llamada o hagan el `UPDATE` directo; un dueño que mande campos de la marca,
+el plan, el estado, la vigencia, los módulos, el slug, las llaves, la ubicación o el domicilio recibe `22023` (no están en la lista cerrada) o `42501` (por `UPDATE` directo). Para los demás roles la opción además
+**se esconde** (y `DatosRestaurante.abrir()` revisa el rol otra vez); esconderla es comodidad, no seguridad.
+
+**Si falta el SQL 15** el formulario abre y carga, y al guardar dice "Falta activar esta función en la base de datos (el SQL 15)": no se pierde nada. Lo ya guardado se ve en el sitio público en ≤ 30 s (caché del servidor).
+
+### 17.5 SQL 15 (`supabase/15-datos-restaurante.sql`)
+
+Atómico, idempotente, con marcadores `-- >>> PASO n`, bloques `DO` que relanzan el error como `MR paso n: …`, barridos de catálogo por OID, **30 comprobaciones `OK`/`FALLA`**, apto para "Run without RLS".
+
+1. **PASO 0** precondiciones: los SQL 10 a 13 aplicados (en especial el trigger `proteger_campos_restaurante` del 13) y la foto de las tablas para comprobar que no cambió ningún dato.
+2. **PASO 1: horario y mensaje de cerrado validados en la base** (el pendiente 16.10-7). `public.configuracion_errores(horarios, mensaje, validar_horarios, validar_mensaje)` (función pura) y el trigger
+   `configuracion_validar`. Reglas: `horarios` es una **lista de exactamente 7 días**, cada uno **con las claves `dia` (texto 1 a 20, sin `<` `>` ni controles), `abre` y `cierra` (`HH:MM` de 00:00 a 23:59; `cierra` también
+   `24:00`) y `activo` (booleano)**, sin otras claves; `mensaje_cerrado` ≤ 300 caracteres, sin `<` `>`, sin controles ni invisibles (**sí** admite el salto de línea). Aplica a todos los roles. En un `INSERT` se revisa todo; en un
+   `UPDATE` **solo lo que cambia** (cerrar o abrir el local nunca se frena por un horario viejo). **Antes de activarlo comprueba que el horario y el mensaje actuales de Taqueiros las cumplen y, si no, se detiene
+   sin cambiar nada diciendo qué día y qué campo corregir** (`horarios.2.abre`: el 0 es Domingo y el 6 Sábado); los demás restaurantes solo se informan.
+3. **PASO 2: `public.guardar_datos_restaurante`** (17.4), con lista cerrada de 32 campos, hasta 40 cambios por llamada, `search_path` fijo, `revoke` a `public` y `anon`, `grant` a `authenticated` y `service_role`.
+4. **PASO 3** comprobaciones, entre ellas pruebas con un restaurante de prueba que **se deshace** (aplica, conflicto, borrar, campos no permitidos, pedidos mal formados, valores no válidos, sin membresía, `anon`) y las de seguridad:
+   las funciones nuevas no son `SECURITY DEFINER`, `anon` no ejecuta ninguna, `anon` solo ejecuta `seguimiento` y `buscar_mis_pedidos`, RLS en todas las tablas, y ninguna fila cambió.
+
+**Reversa:** `supabase/15-revertir.sql` (6 filas `OK`): quita el trigger y las tres funciones; no toca datos ni el SQL 13. El formulario mostrará que falta la función; el horario deja de validarse.
+
+**Nota sobre el SQL 13:** se puede volver a correr después del 15 (se probó). Antes fallaba su prueba interna de `configuracion` (insertaba `'{}'`); ahora copia el horario de Taqueiros.
+
+### 17.6 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. Las llaves se piden con `Read-Host` (no se ven): pega **UNA sola vez** (clic derecho **o** Ctrl+V, nunca ambos). No pegues ninguna llave en el chat.
+
+**1. El despliegue ya ocurrió** (el `git push` a `main` despliega solo). Antes de tocar la base, haz las comprobaciones de **17.8** (A: funciones, URL, crons; B: vista previa). Con el SQL 15 sin correr, todo funciona igual;
+solo el formulario nuevo dirá que falta la función al guardar.
+
+**2. Respaldo** (solo lee):
+
+```powershell
+$k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/exportar-respaldo.mjs
+```
+
+Esperado: filas por tabla y "Respaldo completo". Si dice "NO coincide", no sigas.
+
+**3. SQL 15.** VS Code → abre `supabase/15-datos-restaurante.sql` → **Ctrl+A, Ctrl+C** → Supabase → SQL Editor → New query → pega → **"Run without RLS"**. Esperado: **30 filas, todas `OK`**. Si falla verás `MR paso n: …` o
+`LA MIGRACION 15 SE REVIRTIO` con la lista, y **no se cambió nada**. Lo más probable: *"El horario o el mensaje de cerrado ACTUALES de Taqueiros no cumplen las reglas nuevas"* con la lista de qué día y campo corregir
+(Table editor → `configuracion` → la fila de Taqueiros → `horarios`). Se puede repetir. **Si algo se rompe:** `supabase/15-revertir.sql` (6 filas `OK`).
+
+**4. Pruebas contra la base real** (crean y borran sus propios restaurantes `test-…`; no tocan Taqueiros):
+
+```powershell
+node supabase/probar-compatibilidad.mjs                  # esperado: 26 PASAN (ahora pasa por api/publico.js)
+node supabase/probar-servidor-multirestaurante.mjs       # esperado: todo PASA (174), "Limpieza: todo lo creado se borro."
+$env:VIA = "despachador"; node supabase/probar-servidor-multirestaurante.mjs   # lo mismo, a través de api/publico.js y api/cron.js (174)
+Remove-Item Env:VIA
+node supabase/probar-aislamiento.mjs                     # esperado: todo PASA (con Realtime real; ≈259)
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+**5. Recorrido a mano** (17.8, parte C): entra al panel como dueño, ☰ → "Datos de mi restaurante".
+
+**6. Pruebas locales** (no tocan la base real; una vez `npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2`):
+
+```powershell
+node --test pruebas/*.test.js                             # unitarias (86)
+node pruebas/multirestaurante/agrupacion.mjs              # 17.2: conteo, URL -> modulo, equivalencia contra d689d4d (32, ~10 s)
+node pruebas/multirestaurante/vista-previa.mjs            # 17.3 (57, ~5 s)
+node pruebas/multirestaurante/servidor.mjs                # 187; tambien --via=despachador y --via=reescrita
+node pruebas/multirestaurante/datos-restaurante.mjs       # SQL 15 + formulario vs base (76, ~90 s); --mutaciones agrega la revision por mutacion
+node pruebas/multirestaurante/panel.mjs                   # paginas privadas con 2 restaurantes (331, ~5 min); SOLO="^13\." corre solo el formulario
+node pruebas/multirestaurante/mutaciones-agrupacion.mjs   # revision por mutacion de despachadores, reescrituras y vista previa (~10 min)
+node pruebas/multirestaurante/mutaciones-15.mjs           # revision por mutacion del SQL 15 (~15 min)
+```
+
+### 17.7 Qué se probó y qué no
+
+**Probado por mí (local, sin tocar la base real; Postgres 16 real en PGlite con los SQL 10 a 13 y 15, roles reales y RLS):**
+
+* `agrupacion.mjs` (nuevo, **32**): conteo de funciones (exactamente las 6 y nunca más de 7), cada URL externa llega al módulo correcto (módulos-testigo; 13 URL × 4 formas de entregar la URL; `?_ruta=` hostil, `__proto__`, `constructor`...), y la
+  **equivalencia contra el commit `d689d4d`**: 98 escenarios × (código de estado + cuerpo + todas las cabeceras), más el estado final de las dos bases y los avisos de WhatsApp. Cero diferencias.
+* `vista-previa.mjs` (nuevo, **57**): dos restaurantes con su título, descripción e imagen (y 40 peticiones en paralelo sin cruces); 11 User-Agent de rastreadores × 3 rutas; 7 clases de personas/herramientas (incluye el navegador de Instagram y
+  Googlebot) reciben el archivo estático, que es **byte a byte el del commit anterior**; datos hostiles escapados o descartados (con un valor hostil en *cada* campo); host desconocido, base caída, módulo roto, página ilegible o con otra forma → la página
+  neutra; cabeceras; la misma lista de rastreadores en `vercel.json` y en el módulo; la página inyectada es la estática con solo lo agregado.
+* `servidor.mjs` (**187**) contra los módulos, contra los despachadores con la URL original y con la reescrita. `probar-servidor-multirestaurante.mjs` contra el falso: **174** en los tres modos. `probar-compatibilidad`: **26** (ahora por `api/publico.js`).
+* `datos-restaurante.mjs` (nuevo, **76**): el SQL 15 dos veces (30 comprobaciones `OK`), sin cambiar ningún dato; el dueño edita los 32 campos, no pierde claves, dos ediciones no se pisan (conflicto con el mismo campo; se suman con campos distintos);
+  cajero, cocina, dueño de otro restaurante, sin membresía y `anon` rechazados (también por `UPDATE` directo); 30 campos fuera de la lista, 15 pedidos mal formados y 17 valores no válidos rechazados (también para el servidor); horarios y
+  mensajes hostiles rechazados para dueño, superadmin y servidor; cerrar/abrir el local no se frena por un horario viejo; el SQL se detiene sin cambiar nada si el horario de Taqueiros no cumple (y dice día y campo) o si falta el SQL 13;
+  convive con el SQL 14; la reversa; el SQL 13 se puede volver a correr después. **`reglas-navegador.mjs`: 14 415 combinaciones** de campo y valor con el mismo veredicto en el navegador y en la base, y lo que arma el formulario lo guarda la función tal cual.
+* `datos-restaurante.test.js` (nuevo, **12**) y el total de unitarias: **86**.
+* **`panel.mjs` (Chrome + `supabase-js` real + RLS real + Realtime emulado): 331**, con el **escenario 13 nuevo (59 comprobaciones, dos restaurantes)**: el dueño ve la opción y cajero/cocina no (aunque llamen al formulario desde la consola);
+  cajero, cocina y el dueño de otro restaurante no pueden guardar fabricando la llamada ni por `UPDATE` directo; el dueño que fabrique plan, estado, vigencia, módulos, slug, marca, llaves, ubicación o domicilio es rechazado y **ni A ni B cambian
+  en nada**; el dueño edita nombre, título, eslogan, seguimiento y teléfono: queda en la base, **no se pierde ninguna otra clave**, se manda solo lo que cambió, el nombre se ve de inmediato y **se refleja en `/api/restaurante`, el manifest y la página
+  pública**; valores inválidos con mensaje en español y sin llamar a la base; ajustes avisados antes de guardar; **dos pestañas** (conflicto: no se pisa y no se guarda nada de la segunda; campos distintos: se suman); una config vieja inválida fuera del
+  formulario; un nombre hostil guardado antes se muestra como texto; cancelar con cambios, Escape, perder el rol con el formulario abierto; sin errores de JavaScript. Revisadas a ojo las capturas a 1280 y 390 px (`CAPTURAS=<carpeta>`).
+* **Revisión por mutación** (rompe una defensa a la vez y exige que algo la detecte): despachadores, reescrituras y vista previa **102 mutaciones: 99 detectadas, 3 equivalentes, 0 sin detectar**; SQL 15 **81: 65 detectadas, 16 equivalentes, 0**;
+  formulario (navegador, menú y rol) **34: 31 detectadas, 3 equivalentes, 0**; páginas privadas anteriores **71: 64 / 7 / 0**; servidor **184: 174 / 10 / 0**; SQL 13 (`endurecer.mjs --mutaciones`) 536 pruebas, 0 fallas.
+  La primera pasada dejó pasar 7 mutaciones del SQL 15 y 2 de la vista previa y obligó a agregar pruebas: el escape del `og:image` y del `og:url` (3j/3k), el nombre del día con caracteres de control, editar los 32 campos de una vez,
+  un valor guardado con espacios de más, el servidor llamando con un restaurante que no existe, el mensaje claro del paso 0 y del paso 1.2. Las equivalentes están declaradas con su razón en cada archivo de mutaciones (casi todas son defensa en capas:
+  por ejemplo, el `grant` a `authenticated` ya lo dan los privilegios por defecto de Supabase, o `req.query._ruta` y el alias `manifest.json` se cubren entre sí: quitando los dos juntos **sí** se detecta).
+* Baterías anteriores, **todas verdes**: `e2e.js` del panel **180**, `comparar-tickets.mjs` **7 de 7**, `front.mjs` **104**, `rls.mjs` **237**, `hallazgos.mjs` **32**, `planes.mjs` **11**, `sim.mjs` **34 OK** (con y sin `conPendientes`), `dominios.mjs` **35**,
+  `config-publica.mjs` **49**, `cargar-secretos-test.mjs` **20**, `endurecer.mjs` **426**, `migrar-fotos.mjs` **126**, `inspeccion.mjs` **4**, `probar-aislamiento` contra el falso **252 de 259** (las 7 que fallan son las de Realtime, que el falso no emula, igual
+  que antes), `probar-menu-rls`, `probar-impresion-rls` y `probar-categoria-apagada` en orden. **Cambió lo esperado solo en:** `e2e.js` (el orden de las opciones del menú ahora incluye "Datos de mi restaurante", que ve el dueño de esa prueba),
+  `front.mjs` (apaga el trigger del horario porque guarda a propósito un mensaje hostil) y `panel.mjs` (lo mismo para el horario hostil y la comparación "Taqueiros idéntico" ignora la opción nueva del menú).
+
+**Solo se puede probar contra la base real o en producción (pendiente de Carlos):** el SQL 15 sobre el esquema verdadero (incluye que el horario real de Taqueiros pase las reglas: si no, el SQL lo dice y no cambia nada) y los scripts de `supabase/`;
+que **Vercel real** se comporte como documenta (17.8: funciones = 6, `req.url`/`req.query` tras la reescritura, el cron de Vercel por la reescritura, la redirección por User-Agent en `/`, `includeFiles`); los depuradores de enlaces y WhatsApp real; un pago con
+Wompi sandbox de punta a punta (el webhook es el mismo archivo de siempre); la impresora física; y el recorrido del formulario con tu cuenta real.
+
+### 17.8 Qué comprobar en producción apenas termine el despliegue
+
+Lo único que ninguna prueba local reemplaza (Vercel real). En PowerShell (usa `curl.exe`, no `curl`, que en Windows es un alias de otro comando). `$h` es el dominio de Taqueiros.
+
+**A. Las funciones, las URL y los crons**
+
+```powershell
+$h = "https://taqueiros-2-0.vercel.app"
+curl.exe -s -o NUL -w "menu:           %{http_code} %{content_type}`n" "$h/api/menu"          # 200 application/json
+curl.exe -s -o NUL -w "estado:         %{http_code}`n" "$h/api/estado"                          # 200
+curl.exe -s -o NUL -w "disponibilidad: %{http_code}`n" "$h/api/disponibilidad"                  # 200
+curl.exe -s -o NUL -w "restaurante:    %{http_code}`n" "$h/api/restaurante"                     # 200
+curl.exe -s -D - -o NUL "$h/manifest.json" | Select-String "HTTP/|content-type"                 # 200 application/manifest+json
+curl.exe -s "$h/api/restaurante" | ConvertFrom-Json | Select-Object nombre, slug                # el nombre y slug de Taqueiros
+curl.exe -s -i "$h/api/alertas"    | Select-String "HTTP/|No autorizado"                        # 401 {"error":"No autorizado"}
+curl.exe -s -i "$h/api/keep-alive" | Select-String "HTTP/|No autorizado"                        # 401
+curl.exe -s -i -X POST "$h/api/webhook-wompi" -H "Content-Type: application/json" -d "{}"       # 200 {"received":true} (como siempre; NO 404 ni 405)
+```
+
+Los dos crons con credencial (el secreto se pide una sola vez y no queda en el historial):
+
+```powershell
+$s = Read-Host "CRON_SECRET (UNA sola vez)" -AsSecureString
+$e = [System.Net.NetworkCredential]::new('', $s).Password
+curl.exe -s -H "Authorization: Bearer $e" "$h/api/keep-alive"          # {"ok":true,"momento":"...","huerfanosBorrados":...}
+curl.exe -s -o NUL -w "alertas con Bearer:  %{http_code}`n" -H "Authorization: Bearer $e" "$h/api/alertas"   # 200
+curl.exe -s -o NUL -w "alertas con ?clave=: %{http_code}`n" "$h/api/alertas?clave=$e"                        # 200 (la compatibilidad sigue)
+Remove-Variable e, s
+```
+
+* Vercel → proyecto → **Deployments** → el último → **Functions** (o el log del *build*): deben ser **6** (`publico`, `cron`, `crear-pedido`, `generar-firma`, `reembolso`, `webhook-wompi`).
+* Vercel → **Settings → Cron Jobs** → `/api/keep-alive` → **Run**: en los logs debe salir `[KeepAlive] Supabase respondio…` y 200 (es la prueba de que el cron de Vercel pasa por la reescritura).
+* cron-job.org: el siguiente disparo de `/api/alertas` y `/api/keep-alive` debe quedar en 200 (su historial). **No cambies sus URL.**
+* Wompi (sandbox): un pedido de punta a punta (llega al panel, suena, imprime, llega el WhatsApp). Es la prueba de que `/api/webhook-wompi` sigue entregando.
+* Taqueiros se ve igual: menú, pedido, seguimiento, panel con impresión automática y Reimprimir, historial, resumen, menu-admin.
+
+**B. La vista previa de enlaces** (si algo de esto falla, no se rompió nada: la tarjeta sigue neutra; ver el plan B en 17.9)
+
+```powershell
+# Un rastreador: 307 hacia la funcion...
+curl.exe -s -D - -o NUL -A "WhatsApp/2.23.20.0" "$h/" | Select-String "HTTP/|location"          # HTTP/2 307 + location: /api/publico?_ruta=vista-previa&_pagina=index
+# ...y, siguiendo la redireccion (-L), la pagina con las etiquetas del restaurante
+curl.exe -sL -A "WhatsApp/2.23.20.0" "$h/" | Select-String '<title>|og:|twitter:|theme-color|name="description"'
+curl.exe -sL -D - -o NUL -A "facebookexternalhit/1.1" "$h/" | Select-String "HTTP/|cache-control|vary|x-vista-previa"
+#   esperado al final: 200, cache-control: private, no-store, vary: Host, User-Agent, x-vista-previa: restaurante
+# Una persona: el HTML estatico de siempre (sin x-vista-previa, sin redireccion)
+curl.exe -s -D - -o NUL -A "Mozilla/5.0 (Windows NT 10.0) Chrome/120" "$h/" | Select-String "HTTP/|x-vista-previa|cache-control"
+curl.exe -s -A "Mozilla/5.0 (Windows NT 10.0) Chrome/120" "$h/" | Select-String "<title>"       # <title>Pedidos en línea</title>
+# El navegador de Instagram es una persona (no debe redirigir)
+curl.exe -s -D - -o NUL -A "Mozilla/5.0 (iPhone) Instagram 300.0" "$h/" | Select-String "HTTP/"  # HTTP/2 200
+# El seguimiento: titulo propio y la referencia NO aparece
+curl.exe -sL -A "Twitterbot/1.0" "$h/pedido.html?ref=TAQ-123-abcdef" | Select-String "<title>|og:url"
+```
+
+Depuradores (así lo ve cada red): **Facebook/Instagram** → [Sharing Debugger](https://developers.facebook.com/tools/debug/) → pega `https://taqueiros-2-0.vercel.app/` → *Scrape Again* (muestra el título, la
+descripción, la imagen y la "ruta de redirección"); **LinkedIn** → [Post Inspector](https://www.linkedin.com/post-inspector/); **Telegram** → pega el enlace en *Mensajes guardados*; **Discord** → pégalo en un canal
+privado; **WhatsApp** → mándalo a tu propio chat (**WhatsApp guarda la tarjeta de cada enlace por días: agrégale `?v=2` para forzar una nueva**); **X**: ya no hay validador, se ve al publicar. Con un segundo restaurante
+registrado (17.9), repite con su dominio: cada uno debe mostrar su nombre y su logo.
+
+**C. El formulario** (con tu usuario dueño, en `https://taqueiros-2-0.vercel.app/panel.html`)
+
+1. ☰ → **Datos de mi restaurante**: abre con el nombre, el contacto y los textos de siempre. Con el SQL 15 sin correr dirá "Falta activar esta función…" al guardar.
+2. Cambia solo el **eslogan**, **Guardar** → "Datos guardados". En ≤ 30 s `https://taqueiros-2-0.vercel.app/` muestra el eslogan nuevo. Déjalo como estaba.
+3. WhatsApp con espacios y `+` → avisa que se guardarán solo los números. Un texto con `<b>` → se rechaza en español. Cancelar con cambios → pide confirmar.
+4. Con un usuario **cajero** o **cocina**: la opción no aparece en ☰.
+5. Dos pestañas con el formulario abierto: guarda un campo en la primera y el *mismo* campo en la segunda → avisa que otra persona lo cambió y no pisa nada.
+
+**D. Si algo sale mal:** el deploy se revierte con `git revert --no-edit <hash> && git push` (los hashes están en el debrief) y, para la base, `supabase/15-revertir.sql`. Ninguna reversa toca datos.
+
+### 17.9 Riesgos y pendientes (para la revisión de Opus de 2B-3, 2B-4 y 2B-5, y para el panel de superadmin)
+
+1. **Vercel no se pudo probar aquí.** El enrutador está emulado según la documentación (`vercel-emulador.mjs`: redirects → sistema de archivos → rewrites). Los supuestos que solo producción confirma están en 17.2 y 17.8:
+   forma de `req.url`/`req.query` tras una reescritura (el despachador acepta las dos), el cron de Vercel pasando por la reescritura, y que las `redirects` con `has` por `user-agent` se apliquen a `/`.
+   **Plan B de la vista previa** si el curl del paso B no redirige: (a) mover `index.html` y `pedido.html` a una carpeta (p. ej. `paginas/`) y reescribir `/`, `/index.html`, `/pedido.html` hacia allá *para todos*, con la regla
+   por User-Agent *antes*; así `/` deja de ser un archivo y la reescritura sí se evalúa (cambia dónde viven los archivos y exige tocar las pruebas que los leen); o (b) Routing Middleware (una función más).
+2. **El despachador (`_despacho.js`)** es lo nuevo con más superficie. Revisar: que el path mande sobre `_ruta`, que los nombres con prototipo no cuenten, que `cron` y `publico` no se sirvan mutuamente, y que `autorizadoCron` siga
+   leyendo `?clave=` de `req.url` (ahí `?clave=` viaja intacto por la reescritura; Vercel conserva la consulta original).
+3. **Vista previa:** es una función pública sin caché, invocable con solo cambiar el User-Agent (cuesta una invocación; la resolución del host sí se guarda 30 s). No hay límite de peticiones (P4 sigue pendiente). Lee `index.html` y
+   `pedido.html` del disco (`includeFiles`): si alguien las reorganiza, `inyectar` devuelve `null` y se sirve la página tal cual (una prueba, 7c, avisa).
+4. **`guardar_datos_restaurante`:** `SECURITY INVOKER`; la defensa real es RLS + `proteger_campos_restaurante` (SQL 13). Si algún día se amplía lo que el trigger deja escribir al dueño, esta función sigue acotada a su lista de 32 campos. Aceptan
+   la función `authenticated` (por privilegios por defecto y grant explícito) y `service_role`; un **superadmin** también puede usarla (no es miembro: pasa por `es_superadmin()`). Los 32 campos están en **cuatro lugares** que una prueba compara
+   (la lista del SQL, `datos-restaurante.js`, las reglas del SQL 13 y esta documentación).
+5. **Horario:** el trigger nuevo también rechaza al servidor y al superadmin un horario de otra forma (exactamente 7 días con `dia/abre/cierra/activo`). `aprovisionar_restaurante()` crea uno válido. Un restaurante cuyo horario *actual* no cumpla solo se
+   informa al aplicar el SQL (se valida cuando cambie su horario). El panel actual (`horariosBtn`) escribe exactamente esa forma.
+6. **Caché de 30 s** (`_restaurante.js`): lo que edita el dueño tarda hasta 30 s en verse en el sitio, el manifest y la vista previa (por instancia). Si molesta, el formulario podría llamar a un endpoint que invalide la caché (agregaría un endpoint con sesión).
+7. **Panel de superadmin:** hay 6 funciones libres. `api/_sesion.js` ya existe; el panel actual **no deja entrar a un superadmin que no sea miembro** (15.3), así que la interfaz deberá traer su camino de "entrar como". `guardar_datos_restaurante`
+   y `config_restaurante_errores` ya le sirven al superadmin; **la marca, la ubicación, el domicilio y las llaves** siguen sin formulario (solo SQL o `UPDATE` con la llave de servidor): un formulario de superadmin deberá escribirlos por una función
+   propia (con auditoría) y validar con `config_restaurante_errores`.
+8. **Para agrupar más** (si hiciera falta espacio): `crear-pedido` + `generar-firma` + `reembolso` → una función `pedidos`; el despachador ya lo permite. No se hizo para no tocar la lógica de dinero.
+9. Sin cambios: `?clave=` del cron (se mantiene), el defecto transitorio ya retirado en la 16, Realtime y `DELETE`, P1 (`wompi_modo` de Taqueiros antes de cobrar de verdad), P2/P4–P13.
