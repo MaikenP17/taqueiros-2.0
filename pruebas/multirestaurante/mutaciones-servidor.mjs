@@ -32,8 +32,19 @@ import { correrContraFalso, RAIZ } from './servidor.mjs';
 
 const TAQ = '00000000-0000-4000-8000-000000000001';
 const API = path.join(RAIZ, 'api');
-const archivos = fs.readdirSync(API).filter((f) => f.endsWith('.js'));
+// api/*.js y api/_modulos/*.js (los endpoints agrupados). Las mutaciones nombran el archivo por su nombre ('estado.js');
+// si el nombre esta en api/_modulos/ se resuelve solo (los nombres no se repiten entre las dos carpetas).
+const archivos = [
+  ...fs.readdirSync(API).filter((f) => f.endsWith('.js')),
+  ...fs.readdirSync(path.join(API, '_modulos')).filter((f) => f.endsWith('.js')).map((f) => '_modulos/' + f)
+];
 const original = Object.fromEntries(archivos.map((f) => [f, fs.readFileSync(path.join(API, f), 'utf8').replace(/\r\n/g, '\n')]));
+const rutaDe = (nombre) => {
+  if (original[nombre] !== undefined) return nombre;
+  const hay = archivos.filter((f) => f.endsWith('/' + nombre));
+  if (hay.length !== 1) throw new Error('mutacion mal definida: el archivo "' + nombre + '" no existe o es ambiguo');
+  return hay[0];
+};
 
 /* ---- mutaciones: [nombre, archivo, buscar, reemplazar, { equivalente: 'razon' }] ---------------------- */
 const M = [];
@@ -281,7 +292,10 @@ for (const [archivo, texto] of Object.entries(original)) {
 function crearMutante(dir, { archivo, buscar, reemplazar, indice, largo, tambien, cabecera }) {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(dir, '_modulos'), { recursive: true });
   for (const f of archivos) fs.writeFileSync(path.join(dir, f), original[f]);
+  archivo = rutaDe(archivo);
+  if (tambien) tambien = [rutaDe(tambien[0]), tambien[1], tambien[2]];
   const aplicar = (arch, b, r) => {
     let t = fs.readFileSync(path.join(dir, arch), 'utf8');
     const n = t.split(b).length - 1;

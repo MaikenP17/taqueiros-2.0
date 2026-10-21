@@ -7,6 +7,8 @@
      node pruebas/multirestaurante/servidor.mjs
      node pruebas/multirestaurante/servidor.mjs --grupo=webhook,alertas   (solo esos grupos)
      node pruebas/multirestaurante/servidor.mjs --sin-invariante          (sin el espia de filtros)
+     node pruebas/multirestaurante/servidor.mjs --via=despachador         (los mismos escenarios a traves de api/publico.js y api/cron.js)
+     node pruebas/multirestaurante/servidor.mjs --via=reescrita           (idem, con la URL reescrita /api/publico?_ruta=...)
 
    Necesita (una vez):  npm i --no-save @electric-sql/pglite@0.2.17
    Sale con codigo 1 si alguna prueba falla.
@@ -45,7 +47,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const falso = await levantar({ puerto: 54331, validarConfig: false });
   console.log(`Supabase falso listo (${((Date.now() - t0) / 1000).toFixed(1)} s). Corriendo los escenarios...`);
   const { resultados, limpieza } = await correrContraFalso(falso, path.join(RAIZ, 'api'), {
-    soloGrupos: grupos, sinInvariante: process.argv.includes('--sin-invariante')
+    soloGrupos: grupos, sinInvariante: process.argv.includes('--sin-invariante'), via: arg('via') || 'modulo'
   });
   imprimir(resultados);
   const fallas = resultados.filter((r) => !r.ok).length;

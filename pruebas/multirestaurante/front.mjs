@@ -34,6 +34,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { levantar } from './fake-supabase.mjs';
 import { REPO } from './sim.mjs';
+import { crearEmulador } from './vercel-emulador.mjs';
+const EMULADOR = crearEmulador(REPO);
 
 const require = createRequire(import.meta.url);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -148,7 +150,16 @@ function adaptar(res) {
 function crearSitio({ raiz, puerto, falsoUrl, rutaApi, globalName = 'SUPABASE_PUBLICO' }) {
   raiz = path.resolve(raiz);
   const api = {};
-  const handler = (n) => api[n] || (api[n] = require(path.join(rutaApi, n + '.js')));
+  /* La API se llama como la llamaria Vercel: vercel.json decide a que funcion va cada URL (emulador) y la funcion
+     recibe la URL reescrita (/api/publico?_ruta=menu...) con su parametro interno. */
+  async function llamarApi(req, res, url) {
+    const d = EMULADOR.resolver({ metodo: req.method, ruta: url.pathname + url.search, headers: req.headers });
+    if (d.tipo !== 'funcion') { res.statusCode = 404; res.end('{}'); return; }
+    req.url = d.urlReescrita;
+    req.query = Object.fromEntries(new URLSearchParams(d.urlReescrita.split('?')[1] || ''));
+    const modulo = api[d.archivo] || (api[d.archivo] = require(path.join(path.dirname(rutaApi), d.archivo)));
+    await modulo(req, res);
+  }
   const manejadores = ['restaurante', 'menu', 'estado', 'disponibilidad', 'crear-pedido', 'manifest'];
 
   const servidor = http.createServer(async (req, res) => {
@@ -198,7 +209,7 @@ function crearSitio({ raiz, puerto, falsoUrl, rutaApi, globalName = 'SUPABASE_PU
         }
         req.body = cuerpo; req.query = {};
         if (nombre === 'crear-pedido') estadoServidor.ultimoPedido = cuerpo;
-        await handler(nombre)(req, adaptar(res));
+        await llamarApi(req, adaptar(res), url);
         return;
       }
 
@@ -834,7 +845,8 @@ async function escenario(nombre, fn) {
       comprobar(malos.length === 0, `${n}: ningun valor propio de Taqueiros escrito`, malos.join(' '));
     }
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
-    comprobar(/"source":\s*"\/manifest\.json"/.test(leer('vercel.json')) && /"destination":\s*"\/api\/manifest"/.test(leer('vercel.json')), 'vercel.json reescribe /manifest.json a /api/manifest');
+    const rutaManifest = EMULADOR.resolver({ ruta: '/manifest.json' });
+    comprobar(rutaManifest.tipo === 'funcion' && rutaManifest.archivo === 'api/publico.js' && /_ruta=manifest/.test(rutaManifest.urlReescrita), 'vercel.json lleva /manifest.json a la funcion agrupada (modulo manifest)');
     comprobar(/const VERSION = "v10"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v10, sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
   });

@@ -6,10 +6,39 @@
       "schedule": "0 8 * * *"
     }
   ],
-  "rewrites": [
-    {
-      "source": "/manifest.json",
-      "destination": "/api/manifest"
+  "functions": {
+    "api/publico.js": {
+      "includeFiles": "{index,pedido}.html"
     }
+  },
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{ "type": "header", "key": "user-agent", "value": ".*(WhatsApp|facebookexternalhit|Facebot|meta-externalagent|meta-externalfetcher|TelegramBot|Twitterbot|Slackbot|Slack-ImgProxy|LinkedInBot|Discordbot).*" }],
+      "destination": "/api/publico?_ruta=vista-previa&_pagina=index",
+      "permanent": false
+    },
+    {
+      "source": "/index.html",
+      "has": [{ "type": "header", "key": "user-agent", "value": ".*(WhatsApp|facebookexternalhit|Facebot|meta-externalagent|meta-externalfetcher|TelegramBot|Twitterbot|Slackbot|Slack-ImgProxy|LinkedInBot|Discordbot).*" }],
+      "destination": "/api/publico?_ruta=vista-previa&_pagina=index",
+      "permanent": false
+    },
+    {
+      "source": "/pedido.html",
+      "has": [{ "type": "header", "key": "user-agent", "value": ".*(WhatsApp|facebookexternalhit|Facebot|meta-externalagent|meta-externalfetcher|TelegramBot|Twitterbot|Slackbot|Slack-ImgProxy|LinkedInBot|Discordbot).*" }],
+      "destination": "/api/publico?_ruta=vista-previa&_pagina=pedido",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    { "source": "/manifest.json", "destination": "/api/publico?_ruta=manifest" },
+    { "source": "/api/menu", "destination": "/api/publico?_ruta=menu" },
+    { "source": "/api/estado", "destination": "/api/publico?_ruta=estado" },
+    { "source": "/api/disponibilidad", "destination": "/api/publico?_ruta=disponibilidad" },
+    { "source": "/api/restaurante", "destination": "/api/publico?_ruta=restaurante" },
+    { "source": "/api/manifest", "destination": "/api/publico?_ruta=manifest" },
+    { "source": "/api/alertas", "destination": "/api/cron?_ruta=alertas" },
+    { "source": "/api/keep-alive", "destination": "/api/cron?_ruta=keep-alive" }
   ]
 }

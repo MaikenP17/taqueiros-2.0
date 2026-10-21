@@ -78,10 +78,16 @@ require.cache[rutaSupabase] = {
   }
 };
 
-for (const ruta of ["alertas", "keep-alive"]) {
-  const manejador = require(path.join("..", "api", ruta + ".js"));
+/* Los dos endpoints viven en api/_modulos/ y los despacha api/cron.js (vercel.json reescribe /api/alertas y /api/keep-alive
+   hacia alla). Se prueban los dos: el modulo solo y a traves del despachador, con la URL de siempre. */
+const CARGAS = [
+  ["modulo", (ruta) => require(path.join("..", "api", "_modulos", ruta + ".js"))],
+  ["despachador cron.js", () => require("../api/cron.js")]
+];
+for (const [via, cargar] of CARGAS) for (const ruta of ["alertas", "keep-alive"]) {
+  const manejador = cargar(ruta);
 
-  test(`/api/${ruta}: 401 sin secreto, 200 con Bearer y con ?clave=, y el secreto no se imprime`, async () => {
+  test(`[${via}] /api/${ruta}: 401 sin secreto, 200 con Bearer y con ?clave=, y el secreto no se imprime`, async () => {
     process.env.CRON_SECRET = SECRETO;
     const impreso = [];
     const originales = {};

@@ -1,5 +1,5 @@
-const { pingBase, limpiarHuerfanos } = require("./_supabase.js");
-const { autorizadoCron } = require("./_cron.js");
+const { pingBase, limpiarHuerfanos } = require("../_supabase.js");
+const { autorizadoCron } = require("../_cron.js");
 
 /* =============================================================
    MANTENER DESPIERTO EL PROYECTO DE SUPABASE

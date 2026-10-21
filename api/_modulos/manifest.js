@@ -1,5 +1,5 @@
-const { exigirRestaurante } = require("./_restaurante.js");
-const { datosManifest } = require("./_publico.js");
+const { exigirRestaurante } = require("../_restaurante.js");
+const { datosManifest } = require("../_publico.js");
 
 /* =============================================================
    MANIFEST DE LA PWA (el panel instalable), POR RESTAURANTE

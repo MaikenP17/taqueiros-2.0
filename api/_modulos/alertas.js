@@ -1,7 +1,7 @@
-const { consultarPedidos, actualizarPedidoPorReferencia, listarRestaurantes } = require("./_supabase.js");
-const { notificarWhatsApp } = require("./_notificar.js");
-const { autorizadoCron } = require("./_cron.js");
-const { restauranteActivo, leerSecretos, contactoAlertas } = require("./_restaurante.js");
+const { consultarPedidos, actualizarPedidoPorReferencia, listarRestaurantes } = require("../_supabase.js");
+const { notificarWhatsApp } = require("../_notificar.js");
+const { autorizadoCron } = require("../_cron.js");
+const { restauranteActivo, leerSecretos, contactoAlertas } = require("../_restaurante.js");
 
 /* =============================================================
    ALERTA DE PEDIDOS SIN ATENDER

@@ -1,5 +1,5 @@
-const { leerMenu, menuDeRespaldo } = require("./_menu.js");
-const { exigirRestaurante } = require("./_restaurante.js");
+const { leerMenu, menuDeRespaldo } = require("../_menu.js");
+const { exigirRestaurante } = require("../_restaurante.js");
 
 /* =============================================================
    EL MENU PARA LA PAGINA DEL CLIENTE

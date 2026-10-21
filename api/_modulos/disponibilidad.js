@@ -1,5 +1,5 @@
-const { leerEstadoMenu } = require("./_menu.js");
-const { exigirRestaurante } = require("./_restaurante.js");
+const { leerEstadoMenu } = require("../_menu.js");
+const { exigirRestaurante } = require("../_restaurante.js");
 
 /* =============================================================
    QUE SE PUEDE PEDIR AHORA MISMO

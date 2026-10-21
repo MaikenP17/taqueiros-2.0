@@ -1,5 +1,5 @@
-const { exigirRestaurante } = require("./_restaurante.js");
-const { datosPublicos } = require("./_publico.js");
+const { exigirRestaurante } = require("../_restaurante.js");
+const { datosPublicos } = require("../_publico.js");
 
 /* =============================================================
    DATOS PUBLICOS DEL RESTAURANTE DE ESTE HOST

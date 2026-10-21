@@ -3,8 +3,8 @@
    (SOLO LECTURA: no crea, no cambia y no borra nada)
 
    Ejecuta, SIN modificarlos, los mismos manejadores que corren en
-   Vercel (api/menu.js, api/estado.js, api/disponibilidad.js,
-   api/restaurante.js y la validacion de precios de crear-pedido) contra la
+   Vercel (api/publico.js, que despacha /api/menu, /api/estado, /api/disponibilidad,
+   /api/restaurante, y la validacion de precios de crear-pedido) contra la
    base real, ya con el SQL 10 aplicado, SIMULANDO una visita al host de
    produccion de Taqueiros (taqueiros-2-0.vercel.app), y comprueba que
    respondan lo de siempre: Taqueiros debe verse exactamente igual.
@@ -57,9 +57,9 @@ function llamar(handler, ruta) {
   });
 }
 
-const menuHandler = require("../api/menu.js");
-const estadoHandler = require("../api/estado.js");
-const dispHandler = require("../api/disponibilidad.js");
+const menuHandler = require("../api/publico.js");
+const estadoHandler = require("../api/publico.js");
+const dispHandler = require("../api/publico.js");
 const { validarItems } = require("../api/_precios.js");
 
 // Silenciar los console.error del codigo actual si algo falla (se reportan abajo)
@@ -68,7 +68,7 @@ const origError = console.error;
 console.error = (...a) => errores.push(a.map(String).join(" "));
 
 /* ---- /api/menu ---- */
-const menu = await llamar(menuHandler);
+const menu = await llamar(menuHandler, "/api/menu");
 const productos = (menu.cuerpo && menu.cuerpo.productos) || [];
 const categorias = (menu.cuerpo && menu.cuerpo.categorias) || [];
 prueba("/api/menu responde 200 con ok:true", menu.status === 200 && menu.cuerpo && menu.cuerpo.ok === true && !menu.cuerpo.deRespaldo, JSON.stringify(menu.cuerpo).slice(0, 150));
@@ -78,7 +78,7 @@ prueba("/api/menu no mezcla restaurantes: ningun id de producto repetido", new S
 prueba("/api/menu no expone restaurante_id (mismas columnas de siempre)", productos.every((p) => !("restaurante_id" in p)), "");
 
 /* ---- /api/estado ---- */
-const estado = await llamar(estadoHandler);
+const estado = await llamar(estadoHandler, "/api/estado");
 const horarios = (estado.cuerpo && estado.cuerpo.horarios) || [];
 prueba("/api/estado responde 200", estado.status === 200, JSON.stringify(estado.cuerpo).slice(0, 150));
 prueba("/api/estado lee los 7 dias de la configuracion (no cayo al respaldo 'abierto')", horarios.length === 7, `${horarios.length} dias; errores del handler: ${errores.slice(-2).join(" | ")}`);
@@ -86,7 +86,7 @@ prueba("/api/estado devuelve abierto (booleano) y horarioHoy", typeof (estado.cu
 prueba("/api/estado conserva sus campos de siempre y agrega 'servicio' sin romper nada", ["abierto", "mensaje", "horarioHoy", "horarios"].every((k) => k in (estado.cuerpo || {})) && estado.cuerpo.servicio && estado.cuerpo.servicio.sirve === true, JSON.stringify(estado.cuerpo).slice(0, 150));
 
 /* ---- /api/restaurante (nuevo): solo datos publicos ---- */
-const restHandler = require("../api/restaurante.js");
+const restHandler = require("../api/publico.js");
 const rr = await llamar(restHandler, "/api/restaurante");
 prueba("/api/restaurante resuelve el host de Taqueiros y responde 'servicio.sirve'", rr.status === 200 && rr.cuerpo && rr.cuerpo.slug === "taqueiros" && rr.cuerpo.id === RID && rr.cuerpo.servicio && rr.cuerpo.servicio.sirve === true, JSON.stringify(rr.cuerpo).slice(0, 150));
 // (el endpoint ahora devuelve marca, textos, contacto, tarifas y la llave PUBLICA de pago: lo que no debe salir sigue siendo lo interno)
@@ -102,7 +102,7 @@ const desconocido = await new Promise((resolve) => {
 prueba("un host desconocido recibe 404 (no el menu de Taqueiros)", desconocido.status === 404, JSON.stringify(desconocido));
 
 /* ---- /api/disponibilidad ---- */
-const disp = await llamar(dispHandler);
+const disp = await llamar(dispHandler, "/api/disponibilidad");
 prueba("/api/disponibilidad responde ok:true con las dos listas", disp.status === 200 && disp.cuerpo && disp.cuerpo.ok === true && Array.isArray(disp.cuerpo.agotados) && Array.isArray(disp.cuerpo.categoriasInactivas), JSON.stringify(disp.cuerpo).slice(0, 150));
 
 /* ---- validacion de precios de crear-pedido (lee productos y categorias) ---- */

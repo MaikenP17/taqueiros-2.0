@@ -345,8 +345,55 @@ function datosManifest(restaurante, env) {
   };
 }
 
+/* Lo que necesita la VISTA PREVIA de un enlace (api/_modulos/vista-previa.js): titulo, descripcion e
+   imagen de la pagina que se comparte. Sale de las mismas listas y validadores que /api/restaurante, asi
+   que un dato hostil de la config no pasa por aqui tampoco.
+
+     pagina   "index" (el menu) o "pedido" (el seguimiento)
+     host     el host YA normalizado de la peticion (solo letras, numeros, puntos y guiones)
+
+   El titulo y la descripcion de "index" son los mismos que pinta la pagina con JavaScript
+   (titulo_pagina y descripcion_pagina, o el nombre del restaurante). La imagen es el logo del
+   restaurante como URL ABSOLUTA https: una ruta del sitio se completa con el host; una URL del
+   Storage esperado se deja tal cual; cualquier otra cosa (http, otros origenes) no sale. */
+function datosVistaPrevia(restaurante, host, pagina, env) {
+  const cfg = configEfectiva(restaurante);
+  const publico = objeto(cfg.publico);
+  const marca = marcaPublica(publico.marca, origenesPermitidos(env));
+  const textos = textosPublicos(publico.textos);
+  const nombre = texto(restaurante.nombre, 120) || restaurante.slug;
+
+  const esPedido = pagina === "pedido";
+  const titulo = esPedido ? "Sigue tu pedido | " + nombre : (textos.titulo_pagina || nombre);
+  const descripcion = esPedido
+    ? "Sigue el estado de tu pedido en " + nombre + "."
+    : (textos.descripcion_pagina || ("Pide en línea en " + nombre + "."));
+
+  let imagen = null;
+  const candidata = marca.logo || marca.icono_512 || marca.icono_192;
+  if (candidata && typeof host === "string" && host) {
+    if (RUTA_RELATIVA.test(candidata)) {
+      imagen = "https://" + host + "/" + (candidata.startsWith("/") ? candidata.slice(1) : candidata);
+    } else {
+      try {
+        const u = new URL(candidata);
+        if (u.protocol === "https:") imagen = u.href;
+      } catch (e) { /* no es una URL */ }
+    }
+  }
+
+  return {
+    nombre,
+    titulo,
+    descripcion,
+    imagen,
+    url: "https://" + host + (esPedido ? "/pedido.html" : "/"),
+    colorTema: marca.colores.primario || null
+  };
+}
+
 module.exports = {
   texto, color, urlSegura, origenesPermitidos, configEfectiva,
-  construirPublico, datosPublicos, datosManifest,
+  construirPublico, datosPublicos, datosManifest, datosVistaPrevia,
   COLORES, TEXTOS, TEXTOS_SEGUIMIENTO, FUENTES_PERMITIDAS
 };

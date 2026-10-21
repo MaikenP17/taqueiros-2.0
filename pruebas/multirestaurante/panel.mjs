@@ -42,6 +42,8 @@ import crypto from 'node:crypto';
 import { levantar } from './fake-supabase.mjs';
 import { crearRealtime } from './realtime-falso.mjs';
 import { REPO } from './sim.mjs';
+import { crearEmulador } from './vercel-emulador.mjs';
+const EMULADOR = crearEmulador(REPO);
 
 const require = createRequire(import.meta.url);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -201,7 +203,16 @@ const uidDeBearer = (auth) => {
 function crearSitio({ raiz, puerto, falsoUrl, rutaApi, globalName, rt, etiqueta }) {
   raiz = path.resolve(raiz);
   const api = {};
-  const handler = (n) => api[n] || (api[n] = require(path.join(rutaApi, n + '.js')));
+  /* La API se llama como la llamaria Vercel: vercel.json decide a que funcion va cada URL (emulador) y la funcion
+     recibe la URL reescrita (/api/publico?_ruta=menu...) con su parametro interno. */
+  async function llamarApi(req, res, url) {
+    const d = EMULADOR.resolver({ metodo: req.method, ruta: url.pathname + url.search, headers: req.headers });
+    if (d.tipo !== 'funcion') { res.statusCode = 404; res.end('{}'); return; }
+    req.url = d.urlReescrita;
+    req.query = Object.fromEntries(new URLSearchParams(d.urlReescrita.split('?')[1] || ''));
+    const modulo = api[d.archivo] || (api[d.archivo] = require(path.join(path.dirname(rutaApi), d.archivo)));
+    await modulo(req, res);
+  }
   const origenSupabase = `http://${HOST_SUPABASE}:${puerto}`;
 
   const servidor = http.createServer(async (req, res) => {
@@ -265,7 +276,7 @@ function crearSitio({ raiz, puerto, falsoUrl, rutaApi, globalName, rt, etiqueta 
           return;
         }
         req.query = Object.fromEntries(url.searchParams);
-        await handler(nombre)(req, adaptar(res));
+        await llamarApi(req, adaptar(res), url);
         return;
       }
 

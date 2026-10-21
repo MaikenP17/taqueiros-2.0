@@ -32,7 +32,9 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 export async function correrEscenarios(opts) {
   const {
     apiDir, urlBase, llaveServicio, llavePublicable = '', real = false,
-    sinInvariante = false, soloGrupos = null, log = () => {}
+    sinInvariante = false, soloGrupos = null, log = () => {},
+    via = 'modulo'          // 'modulo' (los manejadores de api/_modulos/), 'despachador' (api/publico.js y api/cron.js con la URL
+                            // original, como cuando Vercel la conserva) o 'reescrita' (con la URL reescrita /api/publico?_ruta=...)
   } = opts;
   const URL_BASE = urlBase.replace(/\/$/, '');
   const resultados = [];
@@ -118,9 +120,30 @@ export async function correrEscenarios(opts) {
 
   // ---- manejadores reales ---------------------------------------------------------
   const api = (n) => require(path.join(apiDir, n + '.js'));
+  /* Los endpoints agrupados (sección 17) viven en api/_modulos/ y los despachan api/publico.js y api/cron.js.
+     La bateria entera corre contra los modulos y, con 'via', tambien a traves de los despachadores. */
+  const DESPACHADOR = { menu: 'publico', estado: 'publico', disponibilidad: 'publico', restaurante: 'publico', manifest: 'publico', alertas: 'cron', 'keep-alive': 'cron' };
+  const URL_PUBLICA = { menu: '/api/menu', estado: '/api/estado', disponibilidad: '/api/disponibilidad', restaurante: '/api/restaurante', manifest: '/manifest.json', alertas: '/api/alertas', 'keep-alive': '/api/keep-alive' };
+  const modulo = (n) => {
+    if (via === 'modulo') return require(path.join(apiDir, '_modulos', n + '.js'));
+    const despachador = api(DESPACHADOR[n]);
+    return (req, res) => {
+      const u = new URL(req.url, 'http://x');
+      if (via === 'despachador') {
+        u.pathname = URL_PUBLICA[n];           // la URL original llega intacta
+        req.query = {};
+      } else {
+        u.pathname = '/api/' + DESPACHADOR[n];  // llega la URL reescrita, con el parametro interno
+        u.searchParams.set('_ruta', n);
+        req.query = Object.fromEntries(u.searchParams);
+      }
+      req.url = u.pathname + u.search;
+      return despachador(req, res);
+    };
+  };
   const M = {
-    menu: api('menu'), estado: api('estado'), disponibilidad: api('disponibilidad'), crear: api('crear-pedido'),
-    webhook: api('webhook-wompi'), alertas: api('alertas'), keepAlive: api('keep-alive'), restaurante: api('restaurante'),
+    menu: modulo('menu'), estado: modulo('estado'), disponibilidad: modulo('disponibilidad'), crear: api('crear-pedido'),
+    webhook: api('webhook-wompi'), alertas: modulo('alertas'), keepAlive: modulo('keep-alive'), restaurante: modulo('restaurante'),
     reembolso: api('reembolso'), firma: api('generar-firma')
   };
   const R = api('_restaurante');
@@ -681,7 +704,7 @@ export async function correrEscenarios(opts) {
     ===================================================================== */
     grupo('publico');
     const PUB = api('_publico');
-    const MAN = M.manifest = api('manifest');
+    const MAN = M.manifest = modulo('manifest');
     const llavePubTest = 'pub_test_' + 'A'.repeat(20) + sfx;
     const llavePubProd = 'pub_prod_' + 'B'.repeat(20) + sfx;
     const bidi = String.fromCharCode(0x202e), cero = String.fromCharCode(0x200b), nulo = String.fromCharCode(0);

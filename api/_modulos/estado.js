@@ -1,5 +1,5 @@
-const { estadoRestaurante } = require("./_horario.js");
-const { exigirRestaurante, restauranteActivo } = require("./_restaurante.js");
+const { estadoRestaurante } = require("../_horario.js");
+const { exigirRestaurante, restauranteActivo } = require("../_restaurante.js");
 
 /* =============================================================
    Estado del restaurante para la pagina publica.
