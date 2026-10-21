@@ -21,7 +21,7 @@ const {
    con el catalogo de _precios.js y firma ESE total. Asi nadie
    puede pagar menos manipulando el navegador.
 
-   Devuelve: { referencia, numero, total, firma, ... }
+   Devuelve: { referencia, numero, tokenSeguimiento, total, firma, ... }
 
    MULTI-RESTAURANTE: el restaurante sale del host (ver _restaurante.js), nunca
    del cuerpo de la peticion. Todo lo demas es de ESE restaurante: su menu y
@@ -260,6 +260,9 @@ module.exports = async (req, res) => {
     res.status(200).json({
       referencia,
       numero: pedidoGuardado ? pedidoGuardado.numero : null,
+      // Enlace de seguimiento no adivinable (SQL 12). Antes del SQL 12 la columna no existe y el
+      // navegador sigue con la referencia, que tambien abre el seguimiento de esos pedidos.
+      tokenSeguimiento: pedidoGuardado && pedidoGuardado.token_seguimiento ? pedidoGuardado.token_seguimiento : null,
       subtotal,
       costoDomicilio,
       distanciaKm,

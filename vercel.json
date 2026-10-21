@@ -5,5 +5,11 @@
       "path": "/api/keep-alive",
       "schedule": "0 8 * * *"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/manifest.json",
+      "destination": "/api/manifest"
+    }
   ]
 }

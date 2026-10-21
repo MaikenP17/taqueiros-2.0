@@ -1,28 +1,31 @@
-const { exigirRestaurante, restauranteActivo } = require("./_restaurante.js");
+const { exigirRestaurante } = require("./_restaurante.js");
+const { datosPublicos } = require("./_publico.js");
 
 /* =============================================================
    DATOS PUBLICOS DEL RESTAURANTE DE ESTE HOST
 
-   Lo usara el frontend para saber como pintarse (nombre, colores, logo, que
-   modulos mostrar, si el servicio esta activo) sin llevar nada escrito a mano.
+   Lo leen las paginas publicas (index.html, pedido.html) para saber como
+   pintarse y que ofrecer, sin llevar nada escrito a mano:
 
-   SOLO devuelve datos no sensibles. La lista es explicita (se arma campo por
-   campo, no se copia la fila):
+     id, slug, nombre, zona_horaria, moneda
+     modulos     que partes del producto tiene activas (pasarela, seguimiento...)
+     servicio    { estado: activo|suspendido, sirve, motivo }
+     marca       logo, iconos, emoji, colores
+     textos      eslogan, mensajes, textos del seguimiento
+     contacto    WhatsApp, telefono, direccion, redes
+     ubicacion   { lat, lng } del local (el mapa del domicilio)
+     domicilio   { ofrece, factor_recorrido, tarifas: [{ hasta, precio|null }] }
+     pago        { disponible, pasarela, modo: test|produccion, llave_publica }
 
-     id            para llamar a las funciones publicas de la base (p_restaurante)
-     slug, nombre
-     zona_horaria
-     modulos       que partes del producto tiene activas (pasarela, seguimiento...)
-     config        SOLO config.publico (colores, logo, WhatsApp de contacto, etc.)
-     servicio      { estado: activo|suspendido, sirve, motivo }
+   La forma exacta, de donde sale cada cosa y que NO sale nunca esta en
+   api/_publico.js y en docs/multirestaurante.md (seccion 14). Todo se arma campo
+   por campo y se valida (colores, URLs, telefonos, textos): lo que no pasa se omite.
 
-   NO devuelve nunca: plan, modalidad de pago, fecha de vigencia ni dias de gracia
-   (datos comerciales), el resto de config (puede traer configuracion interna),
-   nada de restaurante_secretos (llaves de Wompi, CallMeBot), ni miembros.
-   Tampoco si el restaurante esta en periodo de GRACIA: eso le diria a cualquier
-   visitante (o a la competencia) que esta atrasado con la mensualidad. En gracia
-   sigue recibiendo pedidos, asi que aqui dice "activo".
+   El modo de cobro y la llave publica los decide el SERVIDOR (otros.wompi_modo de
+   restaurante_secretos); el navegador no elige. La llave que sale es la PUBLICA
+   (pub_...) del modo vigente y solo si hay secreto de integridad para firmar.
 
+   En gracia (atrasado con la mensualidad) dice "activo": eso no es publico.
    Sin cache en el borde: es por host y el estado del servicio cambia; la
    resolucion del host ya se guarda 30 s en memoria (ver _restaurante.js).
 ============================================================= */
@@ -35,22 +38,13 @@ module.exports = async (req, res) => {
   const restaurante = await exigirRestaurante(req, res);
   if (!restaurante) return;
 
-  const servicio = restauranteActivo(restaurante);
-  const cfg = restaurante.config && typeof restaurante.config === "object" ? restaurante.config : {};
-  const publico = cfg.publico && typeof cfg.publico === "object" && !Array.isArray(cfg.publico) ? cfg.publico : {};
-
-  res.setHeader("Cache-Control", "no-store");
-  res.status(200).json({
-    id: restaurante.id,
-    slug: restaurante.slug,
-    nombre: restaurante.nombre,
-    zona_horaria: restaurante.zona_horaria,
-    modulos: restaurante.modulos || {},
-    config: publico,
-    servicio: {
-      estado: servicio.sirve ? "activo" : "suspendido",
-      sirve: servicio.sirve,
-      motivo: servicio.sirve ? null : "servicio_suspendido"
-    }
-  });
+  try {
+    const datos = await datosPublicos(restaurante);
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).json(datos);
+  } catch (err) {
+    console.error("[Restaurante] No se pudieron armar los datos publicos:", err.message);
+    res.setHeader("Cache-Control", "no-store");
+    res.status(500).json({ error: "No se pudieron cargar los datos del restaurante" });
+  }
 };

@@ -162,7 +162,7 @@ m('H8 precios: se aceptan cantidades fraccionarias', '_precios.js', 'if (!Number
 m('H8 precios: sin maximo por linea', '_precios.js', 'if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {', 'if (!Number.isInteger(cantidad) || cantidad < 1) {');
 m('H9 sesion: tokens con caracteres fuera de ASCII imprimible llegan a fetch (500)', '_sesion.js', ' || /[^\\x21-\\x7E]/.test(t)) return null;', ') return null;');
 m('H9 sesion: sin largo maximo del token', '_sesion.js', 'if (!t || t.length > LARGO_MAXIMO_TOKEN ||', 'if (!t ||');
-m('restaurante: vuelve a decir que el restaurante esta en gracia', 'restaurante.js', 'estado: servicio.sirve ? "activo" : "suspendido",', 'estado: servicio.estado,');
+m('restaurante: vuelve a decir que el restaurante esta en gracia', '_publico.js', 'estado: servicio.sirve ? "activo" : "suspendido",', 'estado: servicio.estado,');
 // Mutaciones propias de la revision sobre lo que ya existia
 m('webhook: la firma se compara sin exigir el mismo largo (timingSafeEqual lanza: 500 en vez de 401)', 'webhook-wompi.js', 'return a.length === b.length && crypto.timingSafeEqual(a, b);', 'return crypto.timingSafeEqual(a, b);');
 m('webhook: la comparacion de la firma distingue mayusculas (Wompi manda el checksum en MAYUSCULAS: se rechazarian todos los pagos)', 'webhook-wompi.js', 'const a = Buffer.from(calculado.toUpperCase());\n  const b = Buffer.from(recibido.toUpperCase());', 'const a = Buffer.from(calculado);\n  const b = Buffer.from(recibido);');
@@ -184,10 +184,39 @@ m('alertas: el contacto es siempre el mismo (el primero)', 'alertas.js', 'contac
 m('alertas: avisa aunque no haya contacto (y marca como avisado)', 'alertas.js', 'if (!contacto.telefono || !contacto.apikey) {', 'if (false) {');
 m('alertas: consulta los pedidos de Taqueiros', 'alertas.js', 'const rid = restaurante.id;', `const rid = "${TAQ}";`);
 m('alertas: un restaurante que falla detiene a los demas', 'alertas.js', '        } catch (err) {\n          // Un restaurante con problemas no deja sin aviso a los demas\n          console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);\n        }', '        } finally {\n        }');
-m('restaurante: devuelve toda la config (incluye lo interno)', 'restaurante.js', 'config: publico,', 'config: cfg,');
-m('restaurante: expone el plan', 'restaurante.js', 'modulos: restaurante.modulos || {},', 'modulos: restaurante.modulos || {},\n    plan: restaurante.plan,');
-m('restaurante: expone la vigencia', 'restaurante.js', 'zona_horaria: restaurante.zona_horaria,', 'zona_horaria: restaurante.zona_horaria,\n    vigente_hasta: restaurante.vigente_hasta,');
-m('restaurante: siempre dice que el servicio esta activo', 'restaurante.js', 'sirve: servicio.sirve,', 'sirve: true,');
+m('restaurante: devuelve toda la config (incluye lo interno)', '_publico.js', '    moneda: "COP",\n    modulos,', '    moneda: "COP",\n    config: cfg,\n    modulos,');
+m('restaurante: expone el plan', '_publico.js', '    moneda: "COP",\n    modulos,', '    moneda: "COP",\n    plan: restaurante.plan,\n    modulos,');
+m('restaurante: expone la vigencia', '_publico.js', 'zona_horaria: restaurante.zona_horaria,', 'zona_horaria: restaurante.zona_horaria,\n    vigente_hasta: restaurante.vigente_hasta,');
+m('restaurante: siempre dice que el servicio esta activo', '_publico.js', 'sirve: servicio.sirve,', 'sirve: true,');
+
+// Datos publicos y manifest (seccion 14): cada validacion de lo que sale hacia el navegador
+m('14 publico: los colores no se validan', '_publico.js', 'return typeof valor === "string" && COLOR.test(valor.trim()) ? valor.trim() : null;', 'return typeof valor === "string" ? valor : null;');
+m('14 publico: el color no tiene que ser #RRGGBB completo (regex sin anclas)', '_publico.js', 'const COLOR = /^#[0-9A-Fa-f]{6}$/;', 'const COLOR = /#[0-9A-Fa-f]{6}/;');
+m('14 publico: una URL puede ser javascript: o data:', '_publico.js', '  if (u.protocol !== "https:" && u.protocol !== "http:") return null;\n', '',
+  { equivalente: 'el origen de javascript:/data: es "null", que nunca esta en la lista de origenes permitidos (otra capa); quitar las dos SI se detecta (la mutacion del origen lo cubre)' });
+m('14 publico: una URL puede ser de cualquier origen', '_publico.js', '  if (!(origenes || []).includes(u.origin)) return null;\n', '');
+m('14 publico: una URL puede traer usuario y clave', '_publico.js', '  if (u.username || u.password) return null;\n', '');
+m('14 publico: una ruta relativa puede subir de carpeta o ser //dominio', '_publico.js', 'if (RUTA_RELATIVA.test(s) && !s.includes("..") && !s.includes("//")) return s;', 'if (RUTA_RELATIVA.test(s)) return s;');
+m('14 publico: los textos conservan caracteres de control, ancho cero y bidi', '_publico.js', 'valor.replace(CONTROLES, " ").replace(BLANCOS, " ")', 'valor.replace(BLANCOS, " ")');
+m('14 publico: los textos no tienen tope de largo', '_publico.js', '.slice(0, maximo || 300);', '.slice(0, 100000);');
+m('14 publico: el WhatsApp no se valida', '_publico.js', 'if (WHATSAPP.test(wa)) sal.whatsapp = wa;', 'sal.whatsapp = wa;');
+m('14 publico: el usuario de la red social no se valida', '_publico.js', 'if (USUARIO_RED.test(v)) sal[k] = v;', 'sal[k] = v;');
+m('14 publico: los textos desconocidos tambien salen (se copia el objeto)', '_publico.js', '  sal.seguimiento = segSal;', '  Object.assign(sal, textos);\n  sal.seguimiento = segSal;');
+m('14 publico: la llave de Wompi no se valida', '_publico.js', 'if (!LLAVE_WOMPI.test(t)) return null;', 'if (false) return null;');
+m('14 publico: se entrega la llave aunque no sea del modo (la de prueba en produccion)', '_publico.js', 'return t.startsWith(modo === "produccion" ? "pub_prod_" : "pub_test_") ? t : null;', 'return t;');
+m('14 publico: se entrega la llave aunque no haya secreto de integridad', '_publico.js', 'llave_publica: ex.modo && llave && ex.integridadOk && modulos.pasarela ? llave : null', 'llave_publica: ex.modo ? llave : null');
+m('14 publico: la pasarela se ofrece aunque falte el secreto de integridad', '_publico.js', 'disponible: !!(ex.modo && llave && ex.integridadOk && modulos.pasarela),', 'disponible: !!(ex.modo && llave && modulos.pasarela),');
+m('14 publico: la pasarela apagada en modulos se ignora', '_publico.js', 'disponible: !!(ex.modo && llave && ex.integridadOk && modulos.pasarela),', 'disponible: !!(ex.modo && llave && ex.integridadOk),');
+m('14 publico: el modo de pago lo elige el navegador (se asume produccion)', '_publico.js', 'modoDePago(restaurante, secretos, undefined)', 'modoDePago(restaurante, secretos, "produccion")');
+m('14 publico: el respaldo de Taqueiros se usa para CUALQUIER restaurante', '_publico.js', 'if (!restaurante || restaurante.id !== RESTAURANTE_TAQUEIROS_ID) return cfg;', 'if (!restaurante) return cfg;');
+m('14 publico: el respaldo pisa lo que ya tiene la base', '_publico.js', 'const completa = mezclar(CONFIG_TAQUEIROS, cfg, cuenta);', 'const completa = mezclar(cfg, CONFIG_TAQUEIROS, cuenta);');
+m('14 publico: el nombre del restaurante no se limpia', '_publico.js', 'nombre: texto(restaurante.nombre, 120) || restaurante.slug,', 'nombre: restaurante.nombre,');
+m('14 manifest: el manifest no es por restaurante (nombre fijo)', 'manifest.js', 'name: d.nombre,', 'name: "Panel",');
+m('14 manifest: el nombre corto no se limita', '_publico.js', 'nombreCorto: texto(pwa.nombre_corto, 12) || "Comandas",', 'nombreCorto: String(pwa.nombre_corto || "Comandas"),');
+m('14 manifest: los iconos no se validan (se usa el valor crudo)', '_publico.js', 'icono192: marca.icono_192 || marca.logo,', 'icono192: objeto(publico.marca).icono_192 || marca.logo,');
+m('14 numero: la comanda de WhatsApp vuelve a mostrar el id', '_notificar.js', 'String(pedido.numero != null ? pedido.numero : pedido.id).padStart(3, "0")', 'String(pedido.id).padStart(3, "0")');
+m('14 numero: la alerta de sin atender vuelve a mostrar el id', 'alertas.js', 'String(pedido.numero != null ? pedido.numero : pedido.id).padStart(3, "0")', 'String(pedido.id).padStart(3, "0")');
+m('14 token: crear-pedido ya no devuelve el token de seguimiento', 'crear-pedido.js', 'tokenSeguimiento: pedidoGuardado && pedidoGuardado.token_seguimiento ? pedidoGuardado.token_seguimiento : null,', 'tokenSeguimiento: null,');
 m('reembolso: cualquiera con sesion puede', 'reembolso.js', 'if (!(await esDuenoOSuperadmin(restaurante.id, usuario))) {', 'if (false) {');
 m('reembolso: el cajero tambien puede (no se exige el rol dueno)', 'reembolso.js', '&activo=is.true&rol=eq.dueno&', '&activo=is.true&');
 m('reembolso: un dueno desactivado todavia puede', 'reembolso.js', '`user_id=eq.${usuario.id}&activo=is.true&rol=eq.dueno&', '`user_id=eq.${usuario.id}&rol=eq.dueno&');

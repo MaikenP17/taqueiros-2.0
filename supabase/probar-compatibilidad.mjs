@@ -89,7 +89,12 @@ prueba("/api/estado conserva sus campos de siempre y agrega 'servicio' sin rompe
 const restHandler = require("../api/restaurante.js");
 const rr = await llamar(restHandler, "/api/restaurante");
 prueba("/api/restaurante resuelve el host de Taqueiros y responde 'servicio.sirve'", rr.status === 200 && rr.cuerpo && rr.cuerpo.slug === "taqueiros" && rr.cuerpo.id === RID && rr.cuerpo.servicio && rr.cuerpo.servicio.sirve === true, JSON.stringify(rr.cuerpo).slice(0, 150));
-prueba("/api/restaurante no expone plan, vigencia, secretos ni la config interna", !/plan|vigente|dias_gracia|modalidad|wompi|callmebot|secret/i.test(JSON.stringify(rr.cuerpo)), JSON.stringify(rr.cuerpo).slice(0, 150));
+// (el endpoint ahora devuelve marca, textos, contacto, tarifas y la llave PUBLICA de pago: lo que no debe salir sigue siendo lo interno)
+prueba("/api/restaurante no expone plan, vigencia, secretos ni la config interna", !/"plan"|vigente|dias_gracia|modalidad|callmebot|secret|integridad|eventos|prv_/i.test(JSON.stringify(rr.cuerpo)), JSON.stringify(rr.cuerpo).slice(0, 150));
+prueba("/api/restaurante devuelve la marca, el contacto, las tarifas y la llave PUBLICA de Taqueiros (de la base o, si falta el SQL 12, de su respaldo)",
+  rr.cuerpo && rr.cuerpo.marca && rr.cuerpo.marca.colores && rr.cuerpo.marca.colores.primario === "#C1272D" && rr.cuerpo.contacto && rr.cuerpo.contacto.whatsapp === "573125249438"
+  && rr.cuerpo.domicilio && rr.cuerpo.domicilio.ofrece === true && rr.cuerpo.domicilio.tarifas.length === 5
+  && rr.cuerpo.pago && (rr.cuerpo.pago.llave_publica === null || /^pub_(test|prod)_/.test(rr.cuerpo.pago.llave_publica)), JSON.stringify(rr.cuerpo).slice(0, 200));
 const desconocido = await new Promise((resolve) => {
   const res = { status(c) { this.c = c; return this; }, setHeader() {}, json(o) { resolve({ status: this.c, cuerpo: o }); } };
   Promise.resolve(menuHandler({ method: "GET", headers: { host: "desconocido.ejemplo.test" }, query: {}, url: "/api/menu" }, res)).catch((e) => resolve({ status: 500, cuerpo: String(e) }));

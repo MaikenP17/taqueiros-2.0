@@ -667,8 +667,21 @@ async function main() {
     r = await api("POST", "rpc/limpiar_pedidos_huerfanos", { cuerpo: { horas: 24 } });
     prueba("anon no ejecuta limpiar_pedidos_huerfanos", rechazada(r), detalle(r));
     // Las dos puertas publicas
-    r = await api("POST", "rpc/seguimiento", { cuerpo: { ref: `${etiqueta}-a-1` } });
-    prueba("anon SI puede seguimiento(ref) y NO recibe telefono ni correo", r.status === 200 && filas(r).length === 1 && !("cliente_telefono" in filas(r)[0]) && !("cliente_email" in filas(r)[0]), detalle(r));
+    // Desde el SQL 12 un pedido NUEVO se abre con su token_seguimiento (la referencia sola ya no basta); antes del SQL 12 la
+    // columna no existe y se usa la referencia, como siempre.
+    const idSeg = filas(await svc("GET", `pedidos?select=*&referencia=eq.${etiqueta}-a-1`))[0];
+    const conToken = !!(idSeg && idSeg.token_seguimiento);
+    r = await api("POST", "rpc/seguimiento", { cuerpo: { ref: conToken ? idSeg.token_seguimiento : `${etiqueta}-a-1` } });
+    prueba("anon SI puede seguimiento(ref) y NO recibe telefono ni correo", r.status === 200 && filas(r).length === 1 && !("cliente_telefono" in filas(r)[0]) && !("cliente_email" in filas(r)[0]) && !("token_seguimiento" in filas(r)[0]), detalle(r));
+    if (conToken) {
+      prueba("seguimiento devuelve el NUMERO del restaurante (pedidos.numero), no el id", r.status === 200 && filas(r).length === 1 && Number(filas(r)[0].numero) === Number(idSeg.numero), detalle(r));
+      r = await api("POST", "rpc/seguimiento", { cuerpo: { ref: `${etiqueta}-a-1` } });
+      prueba("seguimiento con la REFERENCIA de un pedido nuevo ya no devuelve nada (solo abre el token)", r.status === 200 && filas(r).length === 0, detalle(r));
+      r = await api("POST", "rpc/seguimiento", { cuerpo: { ref: "x".repeat(32) } });
+      prueba("seguimiento con un token inventado no devuelve nada", r.status === 200 && filas(r).length === 0, detalle(r));
+      r = await api("PATCH", `pedidos?referencia=eq.${etiqueta}-a-1`, { token: dA.token, cuerpo: { token_seguimiento: "a".repeat(32) } });
+      prueba("el dueno NO puede cambiar el token de seguimiento de un pedido", r.status >= 400, detalle(r));
+    }
     r = await api("POST", "rpc/buscar_mis_pedidos", { cuerpo: { telefono: "3000000000", total_pagado: 1000 } });
     prueba("buscar_mis_pedidos (como la llama el sitio hoy) NO trae pedidos de otros restaurantes", r.status === 200 && filas(r).every((x) => !String(x.referencia).startsWith(etiqueta)), detalle(r));
     r = await api("POST", "rpc/buscar_mis_pedidos", { cuerpo: { telefono: "3000000000", total_pagado: 1000, p_restaurante: A } });

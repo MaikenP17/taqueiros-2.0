@@ -140,7 +140,8 @@ function construirComanda(pedido, opciones) {
   // Por defecto es una comanda nueva; las alertas de pedidos sin
   // atender reutilizan el mismo formato con otro encabezado.
   lineas.push(op.encabezado || "\u{1F32E} *NUEVO PEDIDO PAGADO*");
-  lineas.push(`Pedido #${String(pedido.id).padStart(3, "0")} \u00b7 ${pedido.referencia}`);
+  // El numero que ve el restaurante es el de SU contador (pedidos.numero), no el id global de la tabla.
+  lineas.push(`Pedido #${String(pedido.numero != null ? pedido.numero : pedido.id).padStart(3, "0")} \u00b7 ${pedido.referencia}`);
   if (op.subtitulo) lineas.push(`\u23F1 ${op.subtitulo}`);
   lineas.push("");
 

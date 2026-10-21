@@ -16,6 +16,10 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
     // (para probar la transicion en la que la tabla todavia no existe).
     const f11 = process.env.SQL11_ARCHIVO || path.join(REPO, 'supabase', '11-dominios.sql');
     if (!process.env.SQL11_NO && fs.existsSync(f11)) await db.exec(fs.readFileSync(f11, 'utf8'));
+    // SQL 12 (config publica de Taqueiros y enlace de seguimiento por token). SQL12_NO=1 lo omite (para probar el codigo
+    // nuevo ANTES de correr el SQL 12: Taqueiros debe verse igual con los valores de respaldo).
+    const f12 = path.join(REPO, 'supabase', '12-config-publica.sql');
+    if (!process.env.SQL12_NO && fs.existsSync(f12)) await db.exec(fs.readFileSync(f12, 'utf8'));
   }
 
   const passwords = new Map();   // email -> password

@@ -75,7 +75,7 @@ async function alertarRestaurante(restaurante, limite, desde, fin) {
 
     try {
       await notificarWhatsApp(pedido, {
-        encabezado: `⚠️ *PEDIDO #${String(pedido.id).padStart(3, "0")} SIN ATENDER*`,
+        encabezado: `⚠️ *PEDIDO #${String(pedido.numero != null ? pedido.numero : pedido.id).padStart(3, "0")} SIN ATENDER*`,
         subtitulo: `${espera} minutos esperando`,
         tiempoMaximoMs: restante - 500
       }, contacto);

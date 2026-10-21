@@ -143,6 +143,7 @@ export async function correrEscenarios(opts) {
         setHeader(k, v) { this.cab[k] = v; },
         status(c) { this.code = c; return this; },
         json(o) { fin(this.code, o, this.cab); return this; },
+        send(o) { fin(this.code, o, this.cab); return this; },
         end() { fin(this.code, undefined, this.cab); return this; }
       };
       Promise.resolve(manejador(req, res)).catch((e) => fin(500, { error: 'EXCEPCION: ' + e.message }, {}));
@@ -616,11 +617,12 @@ export async function correrEscenarios(opts) {
        3. /api/restaurante: solo datos no sensibles
     ===================================================================== */
     grupo('restaurante');
-    await T('devuelve nombre, slug, id, modulos, config PUBLICA y estado de servicio', async () => {
+    await T('devuelve nombre, slug, id, modulos y estado de servicio, y la config en su forma publica (sin copiar la config tal cual)', async () => {
       const r = await invocar(M.restaurante, { host: hA, ruta: '/api/restaurante' });
       const c = r.cuerpo;
-      return es(r.status === 200 && c.slug === slugDe(A) && c.nombre === A.nombre && c.id === A.id && igual(c.config, { color: 'rojo', logo: 'a.png' })
-        && c.modulos && c.modulos.pasarela === true && c.servicio.estado === 'activo' && c.servicio.sirve === true, JSON.stringify(c));
+      return es(r.status === 200 && c.slug === slugDe(A) && c.nombre === A.nombre && c.id === A.id && !('config' in c)
+        && c.modulos && c.modulos.pasarela === true && c.servicio.estado === 'activo' && c.servicio.sirve === true
+        && c.moneda === 'COP' && c.ubicacion && c.ubicacion.lat === ORIGEN.lat && c.domicilio.ofrece === true && c.domicilio.tarifas.length === 3, JSON.stringify(c));
     });
     await T('NO expone secretos, plan, vigencia, gracia, modalidad ni la config interna', async () => {
       const textos = [];
@@ -628,10 +630,10 @@ export async function correrEscenarios(opts) {
         const x = await invocar(M.restaurante, { host: h, ruta: '/api/restaurante' });
         textos.push(JSON.stringify(x.cuerpo));
         const llaves = Object.keys(x.cuerpo);
-        if (llaves.some((k) => !['id', 'slug', 'nombre', 'zona_horaria', 'modulos', 'config', 'servicio'].includes(k))) return es(false, 'campo inesperado: ' + llaves.join(','));
+        if (llaves.some((k) => !['id', 'slug', 'nombre', 'zona_horaria', 'moneda', 'modulos', 'servicio', 'marca', 'textos', 'contacto', 'ubicacion', 'domicilio', 'pago'].includes(k))) return es(false, 'campo inesperado: ' + llaves.join(','));
       }
       const t = textos.join('|');
-      return es(!todosLosSecretos.some((s) => s && t.includes(s)) && !/SOLO-INTERNO-A|vigente_hasta|dias_gracia|modalidad|plan|ubicacion|callmebot|wompi/i.test(t), t.slice(0, 200));
+      return es(!todosLosSecretos.some((s) => s && t.includes(s)) && !/SOLO-INTERNO-A|vigente_hasta|dias_gracia|modalidad|"plan"|callmebot|integridad|eventos/i.test(t), t.slice(0, 200));
     });
     await T('reporta el servicio suspendido; en gracia dice "activo" (estar atrasado con la mensualidad no es publico) y sin fechas', async () => {
       await parchear('restaurantes', `id=eq.${B.id}`, { estado: 'suspendido' }); R.invalidarCache();
@@ -648,6 +650,235 @@ export async function correrEscenarios(opts) {
       const p = await invocar(M.restaurante, { metodo: 'POST', host: hA });
       const g = await invocar(M.restaurante, { host: hA });
       return es(p.status === 405 && g.cab['Cache-Control'] === 'no-store', `${p.status} ${g.cab['Cache-Control']}`);
+    });
+
+    /* =====================================================================
+       3b. DATOS PUBLICOS COMPLETOS (marca, textos, contacto, tarifas, pago) y MANIFEST
+           Lo leen index.html y pedido.html (y panel.html para el manifest).
+    ===================================================================== */
+    grupo('publico');
+    const PUB = api('_publico');
+    const MAN = M.manifest = api('manifest');
+    const llavePubTest = 'pub_test_' + 'A'.repeat(20) + sfx;
+    const llavePubProd = 'pub_prod_' + 'B'.repeat(20) + sfx;
+    const bidi = String.fromCharCode(0x202e), cero = String.fromCharCode(0x200b), nulo = String.fromCharCode(0);
+
+    const configCompleta = (n, extra = {}) => ({
+      ubicacion: ORIGEN,
+      domicilio: { factor_recorrido: 1.3 },
+      interno: 'SOLO-INTERNO-' + n,
+      publico: {
+        marca: { logo: `Recursos/${n}/logo.png`, icono_192: `Recursos/${n}/i192.png`, emoji: '\u{1F355}',
+                 colores: { primario: '#112233', oscuro: '#0A0B0C', claro: '#F0F0F0' }, colores_zonas: ['#111111', '#222222'] },
+        textos: { eslogan: `Eslogan de ${n}`, tagline: `Tagline de ${n}`, seguimiento: { frase_nuevo: `Recibido en ${n}` } },
+        contacto: { whatsapp: '57' + (3100000000 + n.charCodeAt(0)), telefono: `Tel ${n}`, direccion: `Calle de ${n}`, instagram: `ig_${n}` },
+        wompi: { llave_publica_test: llavePubTest, llave_publica_prod: llavePubProd }
+      },
+      ...extra
+    });
+    const conConfig = async (r, config, fn) => {
+      const original = (await leer('restaurantes', `id=eq.${r.id}&select=config`))[0].config;
+      await parchear('restaurantes', `id=eq.${r.id}`, { config }); R.invalidarCache();
+      try { return await fn(); } finally { await parchear('restaurantes', `id=eq.${r.id}`, { config: original }); R.invalidarCache(); }
+    };
+    const publico = (host) => invocar(M.restaurante, { host, ruta: '/api/restaurante' });
+    const conSecretos = async (r, cambios, fn) => {
+      const original = await secretosDe(r);
+      const restaurar = {}; for (const k of Object.keys(cambios)) restaurar[k] = original[k];
+      await parchear('restaurante_secretos', `restaurante_id=eq.${r.id}`, cambios); R.invalidarCache();
+      try { return await fn(); } finally { await parchear('restaurante_secretos', `restaurante_id=eq.${r.id}`, restaurar); R.invalidarCache(); }
+    };
+
+    await T('cada restaurante ve SU marca, textos, contacto, ubicacion, tarifas y llaves; nada del otro', async () => {
+      return conConfig(A, configCompleta('a'), () => conConfig(B, configCompleta('b', { ubicacion: { lat: 7.5, lng: -72.1 } }), async () => {
+        const a = await publico(hA), b = await publico(hB);
+        const ta = JSON.stringify(a.cuerpo), tb = JSON.stringify(b.cuerpo);
+        return es(a.status === 200 && b.status === 200
+          && a.cuerpo.marca.logo === 'Recursos/a/logo.png' && b.cuerpo.marca.logo === 'Recursos/b/logo.png'
+          && a.cuerpo.marca.emoji === '\u{1F355}' && a.cuerpo.marca.colores.primario === '#112233' && igual(a.cuerpo.marca.colores_zonas, ['#111111', '#222222'])
+          && a.cuerpo.textos.eslogan === 'Eslogan de a' && b.cuerpo.textos.eslogan === 'Eslogan de b'
+          && a.cuerpo.textos.seguimiento.frase_nuevo === 'Recibido en a' && b.cuerpo.textos.seguimiento.frase_nuevo === 'Recibido en b'
+          && a.cuerpo.contacto.direccion === 'Calle de a' && b.cuerpo.contacto.direccion === 'Calle de b' && a.cuerpo.contacto.instagram === 'ig_a'
+          && a.cuerpo.contacto.whatsapp !== b.cuerpo.contacto.whatsapp
+          && igual(a.cuerpo.ubicacion, ORIGEN) && igual(b.cuerpo.ubicacion, { lat: 7.5, lng: -72.1 })
+          && igual(a.cuerpo.domicilio.tarifas, [{ hasta: 2, precio: 3000 }, { hasta: 5, precio: 6000 }, { hasta: 999, precio: null }])
+          && igual(b.cuerpo.domicilio.tarifas, [{ hasta: 2, precio: 4500 }, { hasta: 3, precio: 5500 }, { hasta: 999, precio: null }])
+          && a.cuerpo.domicilio.factor_recorrido === 1.3
+          && a.cuerpo.nombre === A.nombre && b.cuerpo.nombre === B.nombre
+          && !/Recursos\/b|Eslogan de b|Calle de b|ig_b|Recibido en b/.test(ta) && !/Recursos\/a|Eslogan de a|Calle de a|ig_a|Recibido en a/.test(tb)
+          && !/SOLO-INTERNO/.test(ta + tb), (ta + tb).slice(0, 300));
+      }));
+    });
+
+    await T('un dato HOSTIL en la config no sale como HTML, CSS ni URL peligrosa: se omite o queda como texto plano', async () => {
+      const origenOk = `${URL_BASE}/storage/v1/object/public/productos/${A.id}/logo.png`;
+      const hostil = configCompleta('a');
+      hostil.publico.marca = {
+        logo: 'javascript:alert(1)', icono_192: 'data:image/png;base64,AAAA', icono_512: 'http://usuario:clave@' + new URL(URL_BASE).host + '/storage/v1/object/public/productos/x.png',
+        emoji: '<img src=x onerror=alert(1)>',
+        colores: { primario: 'red;background:url(//evil.example/x)', oscuro: '#12345', claro: '#GGGGGG', acento: 'rgb(1,2,3)', positivo: '#0a0B0c', texto_tenue: 'var(--x)', claro_suave: '#112233; color:red' },
+        colores_zonas: ['#111111', 'url(x)', '#222222', 5, null, '#12345678']
+      };
+      hostil.publico.textos = {
+        eslogan: '<script>alert(1)</script>', tagline: 'a'.repeat(900), descripcion_pie: `x${bidi}y${cero}zw\nlinea`, script: 'no debe salir',
+        seguimiento: { frase_nuevo: '<b onmouseover=alert(1)>', clave_desconocida: 'no debe salir' }
+      };
+      hostil.publico.contacto = { whatsapp: 'no-es-un-numero', telefono: 'x'.repeat(100), instagram: '<b>x</b>', tiktok: '@valido_1', direccion: '  Calle   1  ' };
+      hostil.publico.wompi = { llave_publica_test: 'pub_test_"><img src=x onerror=window.__pwn=1>', llave_publica_prod: llavePubProd + '<x>', privada: 'prv_test_SECRETISIMA1234567890' };
+      hostil.publico.secreto = 'NO-DEBE-SALIR'; hostil.publico.pwa = { nombre: 'x' };
+      const c1 = await conConfig(A, hostil, async () => (await publico(hA)).cuerpo);
+      const c2 = await conConfig(A, configCompleta('a', { publico: { marca: { logo: origenOk, icono_192: '//evil.example/x.png', icono_512: 'Recursos/../../etc/passwd' } } }), async () => (await publico(hA)).cuerpo);
+      const t = JSON.stringify(c1);
+      return es(c1.marca.logo === null && c1.marca.icono_192 === null && c1.marca.icono_512 === null
+        && igual(c1.marca.colores, { positivo: '#0a0B0c' }) && igual(c1.marca.colores_zonas, ['#111111', '#222222'])
+        && c1.marca.emoji === '<img src=x onerror=alert(1)>'.slice(0, 8)
+        && c1.textos.eslogan === '<script>alert(1)</script>' && c1.textos.tagline.length === 400 && !('script' in c1.textos)
+        && c1.textos.descripcion_pie === 'x y zw linea' && PUB.texto(`a${nulo}b`) === 'a b' && !/NO-DEBE-SALIR|no debe salir/.test(t)
+        && c1.textos.seguimiento.frase_nuevo === '<b onmouseover=alert(1)>' && !('clave_desconocida' in c1.textos.seguimiento)
+        && !('whatsapp' in c1.contacto) && c1.contacto.telefono.length === 40 && !('instagram' in c1.contacto) && c1.contacto.tiktok === 'valido_1' && c1.contacto.direccion === 'Calle 1'
+        && c1.pago.llave_publica === null && !/prv_test|SECRETISIMA/.test(t)
+        && !t.includes(bidi) && !t.includes(cero) && !t.includes(nulo)
+        && c2.marca.logo === origenOk && c2.marca.icono_192 === null && c2.marca.icono_512 === null, t.slice(0, 400));
+    });
+
+    await T('el nombre del restaurante es texto plano (una linea, sin invisibles)', async () => {
+      await parchear('restaurantes', `id=eq.${B.id}`, { nombre: `  Taqueria  ${bidi}Los${cero}  Tres\n ` }); R.invalidarCache();
+      const r = await publico(hB);
+      await parchear('restaurantes', `id=eq.${B.id}`, { nombre: B.nombre }); R.invalidarCache();
+      return es(r.cuerpo.nombre === 'Taqueria Los Tres', JSON.stringify(r.cuerpo.nombre));
+    });
+
+    await T('pago: modo y llave PUBLICA los decide el servidor; solo sale la del modo vigente y nunca la otra', async () => {
+      const t = await conConfig(A, configCompleta('a'), async () => {
+        const test = await publico(hA);
+        const prod = await conSecretos(A, { otros: { wompi_modo: 'produccion' }, wompi_integridad_prod: secretoDe('a', 'integridad-prod') }, () => publico(hA));
+        return { test: test.cuerpo, prod: prod.cuerpo };
+      });
+      todosLosSecretos.push(secretoDe('a', 'integridad-prod'));
+      const tt = JSON.stringify(t.test), tp = JSON.stringify(t.prod);
+      return es(igual(t.test.pago, { disponible: true, pasarela: 'wompi', modo: 'test', llave_publica: llavePubTest })
+        && igual(t.prod.pago, { disponible: true, pasarela: 'wompi', modo: 'produccion', llave_publica: llavePubProd })
+        && !tt.includes(llavePubProd) && !tp.includes(llavePubTest), tt.slice(-160) + tp.slice(-160));
+    });
+    await T('pago: sin llave del modo vigente, sin secreto de integridad o con la pasarela apagada, NO esta disponible (y no se entrega la llave del otro modo)', async () => {
+      const r = await conConfig(A, configCompleta('a'), async () => {
+        const sinProd = await conSecretos(A, { otros: { wompi_modo: 'produccion' }, wompi_integridad_prod: secretoDe('a', 'integridad-prod') }, async () =>
+          conConfig(A, configCompleta('a', { publico: { ...configCompleta('a').publico, wompi: { llave_publica_test: llavePubTest } } }), () => publico(hA)));
+        const sinIntegridad = await conSecretos(A, { wompi_integridad_test: null }, () => publico(hA));
+        const apagada = await (async () => {
+          await parchear('restaurantes', `id=eq.${A.id}`, { modulos: { pasarela: false, seguimiento: true, comandas: true, impresion: true } }); R.invalidarCache();
+          try { return await publico(hA); } finally { await parchear('restaurantes', `id=eq.${A.id}`, { modulos: { pasarela: true, seguimiento: true, comandas: true, impresion: true } }); R.invalidarCache(); }
+        })();
+        const cruzada = await conConfig(A, configCompleta('a', { publico: { ...configCompleta('a').publico, wompi: { llave_publica_test: llavePubProd, llave_publica_prod: llavePubTest } } }), () => publico(hA));
+        return { sinProd: sinProd.cuerpo, sinIntegridad: sinIntegridad.cuerpo, apagada: apagada.cuerpo, cruzada: cruzada.cuerpo };
+      });
+      const sinLlave = (c) => c.pago.disponible === false && c.pago.llave_publica === null;
+      return es(sinLlave(r.sinProd) && r.sinProd.pago.modo === 'produccion' && !JSON.stringify(r.sinProd).includes(llavePubTest)
+        && sinLlave(r.sinIntegridad) && sinLlave(r.apagada) && r.apagada.modulos.pasarela === false
+        && sinLlave(r.cruzada) && !JSON.stringify(r.cruzada).includes(llavePubProd) && !JSON.stringify(r.cruzada).includes(llavePubTest), JSON.stringify([r.sinProd.pago, r.sinIntegridad.pago, r.apagada.pago, r.cruzada.pago]));
+    });
+    await T('pago: un restaurante sin modo de cobro ni secretos (D) no ofrece pasarela; las tarifas y la ubicacion ausentes se reportan sin inventar nada', async () => {
+      const r = await invocar(M.restaurante, { host: hD, ruta: '/api/restaurante' });
+      return es(r.status === 200 && r.cuerpo.pago.disponible === false && r.cuerpo.pago.modo === null && r.cuerpo.pago.llave_publica === null
+        && r.cuerpo.domicilio.ofrece === false && igual(r.cuerpo.domicilio.tarifas, []) && r.cuerpo.ubicacion === null, JSON.stringify(r.cuerpo).slice(0, 300));
+    });
+
+    await T('un restaurante SIN datos (D) se ve neutro: ni un solo valor de Taqueiros', async () => {
+      const r = await invocar(M.restaurante, { host: hD, ruta: '/api/restaurante' });
+      const t = JSON.stringify(r.cuerpo);
+      return es(r.status === 200 && igual(r.cuerpo.marca, { logo: null, icono_192: null, icono_512: null, emoji: null, colores: {}, colores_zonas: [] })
+        && igual(r.cuerpo.textos, { seguimiento: {} }) && igual(r.cuerpo.contacto, {})
+        && !/Taqueiros|C1272D|573125249438|pub_test_Bkf|pub_prod_Iwa|Cúcuta|Recursos\/logo/i.test(t), t.slice(0, 300));
+    });
+
+    await T('Taqueiros: completa con el respaldo SOLO lo que su config no trae (campo por campo), y deja un aviso en el log', async () => {
+      const taq = { id: TAQUEIROS_ID, slug: 'taqueiros', nombre: 'Los Taqueiros', estado: 'activo', zona_horaria: 'America/Bogota', modulos: { pasarela: true }, config: {} };
+      const ex = { tarifas: [{ hasta: 2, precio: 5000 }, { hasta: 999, precio: null }], modo: 'test', integridadOk: true, env: { SUPABASE_URL: URL_BASE } };
+      const desde = logs.length;
+      const v = PUB.construirPublico(taq, ex);
+      const parcial = PUB.construirPublico({ ...taq, config: { publico: { marca: { colores: { primario: '#000000' } }, contacto: { whatsapp: '573000000001' } } } }, ex);
+      const otro = PUB.construirPublico({ ...taq, id: '11111111-1111-4111-8111-111111111111', slug: 'otro', nombre: 'Otro', config: {} }, ex);
+      const to = JSON.stringify(otro);
+      const completo = v.marca.colores.primario === '#C1272D' && v.marca.logo === 'Recursos/logo/logo.png' && v.contacto.whatsapp === '573125249438'
+        && v.pago.llave_publica === 'pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz' && igual(v.ubicacion, { lat: 7.8997382, lng: -72.4968525 })
+        && v.textos.tagline.startsWith('Del comal directo a tu mesa');
+      const mezcla = parcial.marca.colores.primario === '#000000' && parcial.marca.colores.oscuro === '#1C1210'
+        && parcial.contacto.whatsapp === '573000000001' && parcial.contacto.telefono === '+57 312 524 9438';
+      const sinFuga = !/Taqueiros|C1272D|573125249438|pub_test_Bkf|pub_prod_Iwa|Cúcuta/i.test(to) && otro.pago.llave_publica === null;
+      const aviso = logs.some((l) => /\[Publico\] Taqueiros usa \d+ valores de respaldo/.test(l));
+      return es(completo && mezcla && sinFuga && aviso, JSON.stringify({ completo, mezcla, sinFuga, aviso }));
+    });
+    await T('Taqueiros por la API (con o sin SQL 12): marca, textos, contacto y llaves de siempre, y el modo lo decide el servidor', async () => {
+      R.invalidarCache();
+      const r = await invocar(M.restaurante, { host: HOST_TAQUEIROS, ruta: '/api/restaurante' });
+      const c = r.cuerpo;
+      return es(r.status === 200 && c.slug === 'taqueiros' && c.nombre === 'Los Taqueiros' && c.moneda === 'COP'
+        && c.marca.colores.primario === '#C1272D' && c.marca.colores.oscuro === '#1C1210' && c.marca.emoji === '\u{1F32E}'
+        && c.textos.eslogan === 'Tacos · Birria · Antojitos' && c.contacto.whatsapp === '573125249438' && c.contacto.ciudad === 'Cúcuta'
+        && igual(c.ubicacion, { lat: 7.8997382, lng: -72.4968525 }) && c.domicilio.ofrece === true && c.domicilio.tarifas.length === 5
+        && ['test', 'produccion', null].includes(c.pago.modo) && (c.pago.llave_publica === null || /^pub_(test|prod)_/.test(c.pago.llave_publica))
+        && (real || (c.pago.modo === 'test' && (c.pago.llave_publica === null || c.pago.llave_publica === 'pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz')))
+        && !/prv_|integrity|eventos/i.test(JSON.stringify(c)), JSON.stringify(c).slice(0, 300));
+    });
+
+    await T('un restaurante suspendido sigue mostrando su marca y su menu; solo cambia el servicio', async () => {
+      await parchear('restaurantes', `id=eq.${B.id}`, { estado: 'suspendido' }); R.invalidarCache();
+      try {
+        return await conConfig(B, configCompleta('b'), async () => {
+          const r = await publico(hB);
+          return es(r.status === 200 && r.cuerpo.servicio.sirve === false && r.cuerpo.servicio.motivo === 'servicio_suspendido' && r.cuerpo.marca.logo === 'Recursos/b/logo.png', JSON.stringify(r.cuerpo.servicio));
+        });
+      } finally { await parchear('restaurantes', `id=eq.${B.id}`, { estado: 'activo' }); R.invalidarCache(); }
+    });
+    await T('un host desconocido da 404 con el mismo cuerpo, sin ningun dato', async () => {
+      const x = await publico('no-existe-' + sfx + '.mr-prueba.test'), y = await invocar(MAN, { host: 'no-existe-' + sfx + '.mr-prueba.test', ruta: '/manifest.json' });
+      return es(x.status === 404 && y.status === 404 && JSON.stringify(x.cuerpo) === JSON.stringify(y.cuerpo) && igual(x.cuerpo, { error: 'No encontrado' }), JSON.stringify([x.status, y.status, x.cuerpo]));
+    });
+    await conInvariante('/api/restaurante', [A.id, B.id, C.id, D.id], async () => {
+      await publico(hA); await publico(hB); await publico(hD);
+    });
+
+    // ---- manifest de la PWA --------------------------------------------------------------------------------------
+    const manifest = (host, metodo = 'GET') => invocar(MAN, { host, metodo, ruta: '/manifest.json' });
+    const cuerpoManifest = (r) => (typeof r.cuerpo === 'string' ? JSON.parse(r.cuerpo) : r.cuerpo);
+    await T('manifest: cada restaurante tiene el suyo (nombre, colores e iconos) y el tipo de contenido correcto', async () => {
+      const cfgA = configCompleta('a'); cfgA.publico.pwa = { nombre: 'Mi Panel A', nombre_corto: 'Panel A' };
+      return conConfig(A, cfgA, () => conConfig(B, configCompleta('b'), async () => {
+        const a = await manifest(hA), b = await manifest(hB);
+        const ma = cuerpoManifest(a), mb = cuerpoManifest(b);
+        return es(a.status === 200 && /^application\/manifest\+json/.test(a.cab['Content-Type'] || '') && a.cab['Cache-Control'] === 'no-store'
+          && ma.name === 'Mi Panel A' && ma.short_name === 'Panel A' && mb.name === `Panel ${B.nombre}` && mb.short_name === 'Comandas'
+          && ma.theme_color === '#112233' && ma.background_color === '#0A0B0C' && mb.theme_color === '#112233'
+          && ma.icons[0].src === '/Recursos/a/i192.png' && mb.icons[0].src === '/Recursos/b/i192.png'
+          && ma.start_url === '/panel.html' && ma.scope === '/panel.html' && ma.display === 'standalone'
+          && ma.description === `Panel de comandas de ${A.nombre}: pedidos en tiempo real.`, JSON.stringify([ma, mb]).slice(0, 400));
+      }));
+    });
+    await T('manifest: un dato hostil (color con CSS, icono javascript:, nombre con saltos) no pasa', async () => {
+      const cfg = configCompleta('a');
+      cfg.publico.marca = { logo: 'javascript:alert(1)', icono_192: 'data:text/html,x', icono_512: 'https://evil.example/i.png', colores: { primario: 'red;x', oscuro: 'url(x)' } };
+      cfg.publico.pwa = { nombre: `Panel\n${bidi}Falso`, nombre_corto: 'y'.repeat(50) };
+      return conConfig(A, cfg, async () => {
+        const m = cuerpoManifest(await manifest(hA));
+        return es(m.name === 'Panel Falso' && m.short_name.length === 12 && m.theme_color === '#444444' && m.background_color === '#1A1A1A' && igual(m.icons, [])
+          && !JSON.stringify(m).includes(bidi), JSON.stringify(m).slice(0, 300));
+      });
+    });
+    await T('manifest: Taqueiros queda IDENTICO al manifest.json de siempre (con o sin SQL 12)', async () => {
+      const antiguo = {
+        name: 'Panel Taqueiros', short_name: 'Comandas', description: 'Panel de comandas de Los Taqueiros: pedidos en tiempo real.',
+        start_url: '/panel.html', scope: '/panel.html', display: 'standalone', orientation: 'any', background_color: '#1C1210', theme_color: '#C1272D',
+        lang: 'es-CO', categories: ['business', 'food'],
+        icons: [{ src: '/Recursos/logo/icono-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/Recursos/logo/icono-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }]
+      };
+      R.invalidarCache();
+      const r = await manifest(HOST_TAQUEIROS);
+      return es(r.status === 200 && JSON.stringify(cuerpoManifest(r)) === JSON.stringify(antiguo), String(r.cuerpo).slice(0, 400));
+    });
+    await T('manifest: un restaurante sin datos (D) tiene uno neutro, sin nada de Taqueiros; solo GET', async () => {
+      const r = await manifest(hD); const p = await manifest(hD, 'POST');
+      const m = cuerpoManifest(r);
+      return es(r.status === 200 && m.name === `Panel ${D.nombre}` && m.theme_color === '#444444' && igual(m.icons, []) && !/Taqueiros|C1272D|Recursos/i.test(JSON.stringify(m)) && p.status === 405, JSON.stringify(m).slice(0, 300));
     });
 
     /* =====================================================================
@@ -1142,6 +1373,44 @@ export async function correrEscenarios(opts) {
     } else {
       await T('keep-alive: 401 sin secreto (el barrido de huerfanos no se corre contra la base real)', async () => es((await invocar(M.keepAlive, { host: 'cron.example' })).status === 401, ''));
     }
+
+    // ---- el numero de pedido es el del restaurante (no el id global) y el enlace de seguimiento es el token ----
+    const pad3 = (n) => String(n).padStart(3, '0');
+    const columnaToken = await (async () => { try { await leer('pedidos', 'select=token_seguimiento&limit=1'); return true; } catch (e) { return false; } })();
+    await T('la comanda de WhatsApp y la alerta de "sin atender" llevan el NUMERO del restaurante, no el id de la tabla', async () => {
+      const pa = await nuevoPedidoPendiente(hB, B, 20000);
+      const filaB = await pedidoDe(B, pa.referencia);
+      callmebot.length = 0;
+      await webhook(evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('b', 'eventos-test') }));
+      const comanda = callmebot.filter((c) => c.text.includes(pa.referencia));
+      const refS = `TAQ-AL-${sfx}-NUM`;
+      const sembrado = await sembrarSinAtender(B, refS);
+      callmebot.length = 0;
+      await conCron(M.alertas);
+      const alerta = callmebot.filter((c) => c.text.includes(refS));
+      const difieren = Number(filaB.numero) !== Number(filaB.id) && Number(sembrado.numero) !== Number(sembrado.id);
+      return es(Number(pa.numero) === Number(filaB.numero) && comanda.length === 1
+        && comanda[0].text.includes(`Pedido #${pad3(filaB.numero)} · ${pa.referencia}`)
+        && (Number(filaB.numero) === Number(filaB.id) || !comanda[0].text.includes(`Pedido #${pad3(filaB.id)} `))
+        && alerta.length === 1 && alerta[0].text.includes(`PEDIDO #${pad3(sembrado.numero)} SIN ATENDER`)
+        && (Number(sembrado.numero) === Number(sembrado.id) || !alerta[0].text.includes(`PEDIDO #${pad3(sembrado.id)} SIN ATENDER`))
+        && (real || difieren), JSON.stringify({ numero: filaB.numero, id: filaB.id, sn: sembrado.numero, si: sembrado.id, t: comanda[0] && comanda[0].text.slice(0, 80) }));
+    });
+    await T('crear-pedido devuelve el token de seguimiento (el de la base) cuando existe el SQL 12; sin el, null y el navegador usa la referencia', async () => {
+      const c = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 1, precio: 10000 }]);
+      const fila = await pedidoDe(A, c.cuerpo.referencia);
+      if (!columnaToken) return es(c.status === 200 && c.cuerpo.tokenSeguimiento === null && c.cuerpo.numero === fila.numero, JSON.stringify(c.cuerpo));
+      return es(c.status === 200 && /^[0-9a-f]{32}$/.test(c.cuerpo.tokenSeguimiento) && c.cuerpo.tokenSeguimiento === fila.token_seguimiento
+        && c.cuerpo.numero === fila.numero && fila.enlace_por_referencia === false, JSON.stringify(c.cuerpo));
+    });
+    await T('el token de seguimiento nunca viaja en la comanda de WhatsApp ni en el log', async () => {
+      if (!columnaToken) return true;
+      const c = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 1, precio: 10000 }]);
+      callmebot.length = 0;
+      await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: c.cuerpo.total * 100, secreto: secretoDe('a', 'eventos-test') }));
+      const t = c.cuerpo.tokenSeguimiento;
+      return es(callmebot.length === 1 && !callmebot[0].text.includes(t) && !logs.some((l) => l.includes(t)), callmebot.length);
+    });
 
     /* =====================================================================
        8. REEMBOLSO (solo el dueno o el servidor)
