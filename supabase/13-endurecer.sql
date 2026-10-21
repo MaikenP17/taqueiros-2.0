@@ -723,8 +723,9 @@ begin
   -- llave primaria (23505), que Postgres evalua despues del NOT NULL; sin restaurante_id falla antes (23502).
   v_item := 'configuracion';
   insert into _mr13_inserts values ('configuracion', pg_temp.mr13_probar(
-    'insert into public.configuracion (restaurante_id, id, horarios) values (' || v_rid || ', 1, ''{}''::jsonb)',
-    'insert into public.configuracion (id, horarios) values (1, ''{}''::jsonb)',
+    -- (el horario se copia de la fila de Taqueiros: asi la prueba tambien vale despues del SQL 15, que valida el horario)
+    'insert into public.configuracion (restaurante_id, id, horarios) values (' || v_rid || ', 1, (select c.horarios from public.configuracion c where c.restaurante_id = ' || v_rid || '))',
+    'insert into public.configuracion (id, horarios) values (1, (select c.horarios from public.configuracion c where c.restaurante_id = ' || v_rid || '))',
     '23505'));
 
   v_item := 'salud_notificaciones';
