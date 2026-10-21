@@ -159,8 +159,12 @@
     return "$" + Number(n || 0).toLocaleString("es-CO");
   }
 
+  /* El numero que ve la cocina es el del restaurante (pedidos.numero, su contador propio); el id
+     es el de la tabla compartida por todos los restaurantes y no sirve para el cliente. Con un solo
+     restaurante coinciden. Si por algun motivo la fila no trae 'numero', se usa el id. */
   function numeroPedido(p) {
-    return "#" + String(p.id).padStart(3, "0");
+    const n = p.numero != null ? p.numero : p.id;
+    return "#" + String(n).padStart(3, "0");
   }
 
   function telefonoBonito(t) {

@@ -60,15 +60,24 @@
    a un menu lateral (panel.html); el nombre y el logo del restaurante
    salen de marca.js. Mismo criterio: nada de eso se cachea aqui (el
    HTML y marca.js van a la red); el cambio de version fuerza la
-   reinstalacion del worker para que el panel instalado tome el cambio. */
-const VERSION = "v8";
+   reinstalacion del worker para que el panel instalado tome el cambio.
+
+   v9: multi-restaurante. El manifest ya no es un archivo estatico sino un
+   endpoint por restaurante (/manifest.json -> /api/manifest, segun el
+   dominio), y el logo tampoco es siempre el mismo. Por eso el worker ya NO
+   precachea nada: ni el manifest (cambia por restaurante) ni un logo
+   concreto. Seguia pasando por la red todo lo que es dato: /api/ (incluido
+   /api/restaurante y /api/menu), supabase.co, las paginas y el manifest.
+   El cache de este worker es, ademas, por origen: un dominio nunca ve el de
+   otro. Lo unico que se guarda es lo que se pide bajo /Recursos/ y las fuentes
+   (archivos estaticos que no dicen nada del estado del negocio). Subir la
+   version borra las caches viejas, que traian el manifest y el logo de
+   Taqueiros precacheados. */
+const VERSION = "v9";
 const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
 
-/* Solo recursos que no revelan datos ni cambian con el negocio */
-const CASCARON = [
-  "/Recursos/logo/logo.png",
-  "/manifest.json"
-];
+/* Nada se precachea (ver v9): solo se guarda lo que se va pidiendo de los recursos estaticos. */
+const CASCARON = [];
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil(
@@ -110,9 +119,11 @@ self.addEventListener("fetch", (evento) => {
   //    atrapado detras de una version cacheada.
   if (req.mode === "navigate") return;
 
-  // 3) Datos y APIs: SIEMPRE red, jamas cache.
+  // 3) Datos y APIs: SIEMPRE red, jamas cache. El manifest es por restaurante (lo arma el
+  //    servidor segun el dominio): tambien siempre red.
   if (url.hostname.endsWith("supabase.co")
       || url.pathname.startsWith("/api/")
+      || url.pathname === "/manifest.json"
       || url.pathname.endsWith(".html")) {
     return;
   }

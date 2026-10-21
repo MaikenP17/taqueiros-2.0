@@ -19,9 +19,10 @@
    pone este mismo archivo. El resto del JS lee window.TAQUEIROS_MARCA.
 
    LO QUE NO CUBRE
-   manifest.json, sw.js e index.html son archivos estaticos que el
-   navegador lee sin ejecutar JS: si se cambia de restaurante, esos
-   se editan aparte.
+   OJO: el panel sigue con su marca escrita aqui (se pasa a los datos de
+   /api/restaurante en el paso del panel). Lo que YA no es estatico: el manifest
+   (/manifest.json -> /api/manifest, por restaurante), index.html y pedido.html
+   (restaurante-publico.js). sw.js no lleva marca ni cachea nada del negocio.
 
    VERSIONADO
    El service worker no intercepta este archivo (va a la red). Si

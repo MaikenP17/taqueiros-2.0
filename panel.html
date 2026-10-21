@@ -933,8 +933,16 @@ let sonidoActivo = localStorage.getItem(SONIDO_KEY) !== "off";
 function formatoCOP(n){
   return "$" + Number(n || 0).toLocaleString("es-CO");
 }
+/* El numero que ven la cocina y el cliente es el del restaurante (pedidos.numero, su contador propio);
+   el id es el de la tabla compartida por todos los restaurantes y solo sirve para operar (cambiar el
+   estado, imprimir). Con un solo restaurante coinciden. Si la fila no trae 'numero', se usa el id. */
 function numeroPedido(p){
-  return "#" + String(p.id).padStart(3, "0");
+  const n = p.numero != null ? p.numero : p.id;
+  return "#" + String(n).padStart(3, "0");
+}
+/* Para los avisos que solo conocen el id (los cronometros): busca el pedido en el tablero. */
+function pedidoPorId(id){
+  return pedidos.find(x => x.id === id) || { id: id };
 }
 function horaCorta(iso){
   const d = new Date(iso);
@@ -2089,10 +2097,10 @@ function actualizarCronometros(){
       nivelAvisado.set(id, nivel);
       if(nivel === 1){
         sonar();
-        avisar("\u23F1 Pedido " + numeroPedido({id:id}) + " lleva " + minutos + " min sin atender");
+        avisar("\u23F1 Pedido " + numeroPedido(pedidoPorId(id)) + " lleva " + minutos + " min sin atender");
       }else{
         sonarInsistente();
-        avisar("\u26A0\uFE0F Pedido " + numeroPedido({id:id}) + " lleva " + minutos + " min SIN ATENDER", true);
+        avisar("\u26A0\uFE0F Pedido " + numeroPedido(pedidoPorId(id)) + " lleva " + minutos + " min SIN ATENDER", true);
       }
     }else if(nivel === 2){
       // Mientras siga sin atenderse, se insiste una vez por minuto

@@ -553,7 +553,8 @@ function pintarPedido(p){
 
   return '<article class="pedido" data-id="' + p.id + '">' +
     '<div class="ped-cab">' +
-      '<span class="num">#' + String(p.id).padStart(3,"0") + '</span>' +
+      // numero del restaurante (pedidos.numero), no el id de la tabla compartida; sin 'numero' se usa el id
+      '<span class="num">#' + String(p.numero != null ? p.numero : p.id).padStart(3,"0") + '</span>' +
       '<div class="info">' +
         '<div class="cliente">' + escapar(p.cliente_nombre) + '</div>' +
         '<div class="cuando">' + fechaHora(p.creado_en) + '</div>' +

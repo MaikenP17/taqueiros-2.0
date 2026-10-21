@@ -61,6 +61,27 @@ test("numero con ceros, telefono con espacios, hora de Colombia", () => {
   assert.match(d.fecha, /6:30 p\. m\./);   // 23:30 UTC = 6:30 p. m. en Bogota
 });
 
+/* NUMERO DE PEDIDO: el que ve la cocina es pedidos.numero (contador del restaurante), no el id de
+   la tabla (secuencia compartida por todos los restaurantes). */
+test("el numero del ticket es pedidos.numero y no el id de la tabla compartida", () => {
+  assert.equal(T.preparar({ ...base, id: 4521, numero: 7 }).numero, "#007");
+  assert.equal(T.preparar({ ...base, id: 4521, numero: 1203 }).numero, "#1203");
+  assert.equal(T.preparar({ ...base, id: 3, numero: 125 }).numero, "#125");
+});
+
+test("sin 'numero' en la fila (no deberia pasar) se usa el id, para no imprimir #undefined", () => {
+  assert.equal(T.preparar({ ...base, id: 12 }).numero, "#012");
+  assert.equal(T.preparar({ ...base, id: 12, numero: null }).numero, "#012");
+});
+
+test("con un solo restaurante (numero = id) el ticket sale IDENTICO al de antes: mismos datos, misma linea de continuacion", () => {
+  const antes = T.preparar(base);                           // la fila de antes: solo id
+  const ahora = T.preparar({ ...base, numero: base.id });   // la fila de ahora: id y numero iguales
+  assert.deepEqual(ahora, antes);
+  const reimp = { reimpresion: true, numeroReimpresion: 2, impresoEn: "2026-10-11T23:35:00Z" };
+  assert.deepEqual(T.preparar({ ...base, numero: base.id }, reimp), T.preparar(base, reimp));
+});
+
 test("la cantidad nunca es negativa ni decimal, y el nombre se limpia", () => {
   const d = T.preparar({ ...base, items: [{ nombre: "Taco 🌮", cantidad: -3 }, { nombre: "X", cantidad: 2.9 }] });
   assert.deepEqual(d.items.map(i => i.cantidad), [0, 2]);

@@ -202,8 +202,10 @@ let relojBase = Date.now() - 20 * 60e3;
 function pedido(id, extra) {
   relojBase += 1000;
   const t = new Date(relojBase).toISOString();
+  // 'numero' = el del restaurante (pedidos.numero). Con un solo restaurante coincide con el id; un escenario
+  // propio (21) prueba el caso en que difieren.
   return {
-    id, referencia: "TAQ-" + id, estado: "nuevo", estado_pago: "aprobado",
+    id, numero: id, referencia: "TAQ-" + id, estado: "nuevo", estado_pago: "aprobado",
     cliente_nombre: "Cliente " + id, cliente_telefono: "3001234567", cliente_email: null,
     tipo_pedido: "domicilio", direccion: "Calle 1 # 2-3", barrio: "Centro", indicaciones: null,
     items: [{ id: "t", nombre: "Tacos al pastor", cantidad: 2, precio: 12000 }],
@@ -1018,6 +1020,31 @@ async function escenario(nombre, fn) {
         comprobar(await p.eval("document.getElementById('avisoWhatsappDetalle').hidden"), "un clic fuera lo cierra");
         await p.eval("pintarSaludNotificaciones({ ultimo_ok: true, fallos_seguidos: 0 }); true");
       }
+    });
+
+    /* ------------------------------------------------------------ */
+    await escenario("21. Numero de pedido: se ve pedidos.numero (no el id) en el tablero, el ticket, la reimpresion y los avisos", async () => {
+      // dos restaurantes comparten la tabla: el id es 4521 pero para esta cocina es su pedido #7
+      const raro = pedido(4521, { numero: 7, cliente_nombre: "Numero Distinto" });
+      await admin.reset([]);
+      const p = await abrirPanel("A", true);
+      await admin.evento(raro);
+      await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 10000, "ticket impreso");
+      const tablero = await p.eval("document.querySelector('.pedido .pedido-num').textContent");
+      comprobar(tablero === "#007", "el tablero muestra #007 (el numero), no #4521: " + tablero);
+      const t1 = (await p.impresos())[0].texto;
+      comprobar(/#007/.test(t1) && !/#4521/.test(t1) && !/#021/.test(t1), "el ticket impreso lleva #007 y no el id");
+      await sleep(PAUSA_TICKETS_MS);
+      await p.eval("document.querySelector('[data-reimprimir=\"4521\"]').click(); true");
+      await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 10000, "reimpresion");
+      const t2 = (await p.impresos())[1].texto;
+      comprobar(/#007/.test(t2) && /REIMPRESI/.test(t2) && !/#4521/.test(t2), "la reimpresion tambien lleva #007");
+      comprobar(await p.eval("numeroPedido({ id: 4521, numero: 7 })") === "#007" && await p.eval("numeroPedido({ id: 12 })") === "#012", "numeroPedido(): usa numero y, sin el, el id");
+      comprobar(await p.eval("numeroPedido(pedidoPorId(4521))") === "#007", "los avisos del cronometro buscan el numero del pedido en el tablero");
+      // el aviso de pedido nuevo (barra de avisos) usa el numero
+      await p.eval("avisar(\"Nuevo pedido \" + numeroPedido(pedidos[0])); true");
+      comprobar(!(await p.eval("document.body.innerText")).includes("#4521"), "en ningun lugar del panel aparece el id #4521");
+      comprobar(p.errores.length === 0, "sin errores de JavaScript: " + p.errores.join(" | "));
     });
 
     /* ------------------------------------------------------------ */

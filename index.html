@@ -3,11 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Los Taqueiros | Tacos, Birria y Antojitos en Cúcuta</title>
-<meta name="description" content="Los Taqueiros — tacos, birria, dorilocos y antojitos mexicanos en Cúcuta. Pide en línea y recibe tu pedido por WhatsApp.">
-
-<!-- Logo real extraído de https://los-taqueiros.ola.click/products -->
-<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
+<title>Pedidos en línea</title>
+<!-- El título, la descripción y el ícono de la pestaña los pone restaurante-publico.js con los
+     datos del restaurante de este dominio (/api/restaurante): aquí no hay nada de ningún restaurante. -->
+<meta name="description" content="">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,21 +17,43 @@
 
 <style>
   :root{
-    /* Paleta extraída del logo real de Los Taqueiros (fondo crema + rojo) */
-    --rojo: #C1272D;
-    --rojo-oscuro: #8A1B1F;
-    --rojo-brillo: #E14A42;
-    --crema: #F7ECD6;
-    --crema-suave: #FFF8EA;
-    --carbon: #1C1210;
-    --carbon-2: #241714;
-    --mostaza: #E3A008;
-    --verde: #5C7A3B;
-    --texto-claro: #F7ECD6;
-    --texto-secundario: #D9C9A8; /* contraste legible sobre fondo oscuro (reemplaza el gris ilegible del sitio original) */
+    /* Paleta NEUTRA: es lo unico que se ve si el restaurante no llega. La marca de cada restaurante
+       (restaurantes.config.publico.marca.colores) la pone restaurante-publico.js sobre estas variables.
+       Los nombres vienen del diseno original y se conservan (rojo = color primario, crema = claro,
+       carbon = oscuro, mostaza = acento, verde = positivo). */
+    --rojo: #3B5B8C;
+    --rojo-oscuro: #2A4266;
+    --rojo-brillo: #5B84C4;
+    --crema: #F2F2F2;
+    --crema-suave: #FAFAFA;
+    --carbon: #16181D;
+    --carbon-2: #1F2229;
+    --mostaza: #D4A72C;
+    --verde: #4F8A5B;
+    --texto-secundario: #C4C7CF;
+    --texto-claro: #F2F2F2;
+    --rojo-rgb: 59,91,140;
+    --rojo-oscuro-rgb: 42,66,102;
+    --crema-rgb: 242,242,242;
+    --carbon-rgb: 22,24,29;
+    --carbon-2-rgb: 31,34,41;
+    --mostaza-rgb: 212,167,44;
+    --verde-rgb: 79,138,91;
     --sombra: 0 20px 50px rgba(0,0,0,.45);
     --radio: 18px;
   }
+
+  /* ---------- CARGA DEL RESTAURANTE / SIN RESTAURANTE (neutra) ---------- */
+  #rp-estado{position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+    background:var(--carbon); color:var(--texto-claro); padding:1.5rem; text-align:center;}
+  #rp-estado .rp-spin{width:38px; height:38px; border-radius:50%; border:4px solid rgba(var(--crema-rgb),.2);
+    border-top-color:var(--rojo); animation:rp-giro .9s linear infinite;}
+  @keyframes rp-giro{to{transform:rotate(360deg);}}
+  #rp-estado .rp-caja{max-width:420px;}
+  #rp-estado .rp-ic{font-size:3rem; margin-bottom:1rem;}
+  #rp-estado h1{font-size:1.5rem; margin-bottom:.7rem; color:var(--crema-suave);}
+  #rp-estado p{color:var(--texto-secundario); line-height:1.6; margin-bottom:1.2rem;}
+  #rp-estado button{background:var(--rojo); color:var(--crema-suave); padding:.8rem 1.6rem; border-radius:999px; font-weight:700; font-size:1rem;}
 
   *{box-sizing:border-box; margin:0; padding:0;}
   html{scroll-behavior:smooth;}
@@ -65,9 +86,9 @@
     position:sticky; top:0; z-index:200;
     display:flex; align-items:center; justify-content:space-between;
     padding:.7rem 1.5rem;
-    background:rgba(28,18,16,.88);
+    background:rgba(var(--carbon-rgb),.88);
     backdrop-filter:blur(10px);
-    border-bottom:1px solid rgba(247,236,214,.08);
+    border-bottom:1px solid rgba(var(--crema-rgb),.08);
   }
   .brand{display:flex; align-items:center; gap:.7rem;}
   .brand img{height:44px; width:44px; object-fit:contain; border-radius:12px; background:var(--crema); padding:4px;}
@@ -110,15 +131,15 @@
     min-height:88vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
     text-align:center; padding:6rem 1.5rem 4rem;
     background:
-      radial-gradient(circle at 20% 15%, rgba(193,39,45,.35), transparent 55%),
-      radial-gradient(circle at 85% 80%, rgba(227,160,8,.18), transparent 50%),
+      radial-gradient(circle at 20% 15%, rgba(var(--rojo-rgb),.35), transparent 55%),
+      radial-gradient(circle at 85% 80%, rgba(var(--mostaza-rgb),.18), transparent 50%),
       linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
     overflow:hidden;
   }
   .hero::before{
     content:"";
     position:absolute; inset:-10%;
-    background-image:repeating-linear-gradient(45deg, rgba(247,236,214,.03) 0 2px, transparent 2px 26px);
+    background-image:repeating-linear-gradient(45deg, rgba(var(--crema-rgb),.03) 0 2px, transparent 2px 26px);
     animation:drift 30s linear infinite;
   }
   @keyframes drift{from{transform:translate(0,0);}to{transform:translate(60px,60px);}}
@@ -130,8 +151,8 @@
   }
   .hero-logo-frame{
     position:relative; z-index:1;
-    background:linear-gradient(160deg, rgba(139,27,31,.55), rgba(36,23,20,.55));
-    border:1px solid rgba(247,236,214,.12);
+    background:linear-gradient(160deg, rgba(var(--rojo-oscuro-rgb),.55), rgba(var(--carbon-2-rgb),.55));
+    border:1px solid rgba(var(--crema-rgb),.12);
     border-radius:24px; padding:1.6rem 2.4rem;
     box-shadow:var(--sombra);
   }
@@ -147,9 +168,9 @@
     letter-spacing:.02em; transition:transform .2s ease, box-shadow .2s ease;
     display:inline-flex; align-items:center; gap:.5rem;
   }
-  .btn-primary{background:var(--rojo); color:var(--crema-suave); box-shadow:0 12px 30px rgba(193,39,45,.4);}
-  .btn-primary:hover{transform:translateY(-3px) scale(1.02); box-shadow:0 16px 36px rgba(193,39,45,.55);}
-  .btn-secondary{background:transparent; color:var(--crema-suave); border:2px solid rgba(247,236,214,.35);}
+  .btn-primary{background:var(--rojo); color:var(--crema-suave); box-shadow:0 12px 30px rgba(var(--rojo-rgb),.4);}
+  .btn-primary:hover{transform:translateY(-3px) scale(1.02); box-shadow:0 16px 36px rgba(var(--rojo-rgb),.55);}
+  .btn-secondary{background:transparent; color:var(--crema-suave); border:2px solid rgba(var(--crema-rgb),.35);}
   .btn-secondary:hover{border-color:var(--crema-suave); transform:translateY(-3px);}
 
   .hero-scroll{
@@ -167,8 +188,8 @@
     position:absolute; z-index:2; top:1rem; right:1rem;
     display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
     min-height:44px; padding:.5rem 1.1rem; border-radius:999px;
-    background:rgba(28,18,16,.55); color:var(--crema-suave);
-    border:2px solid rgba(247,236,214,.35);
+    background:rgba(var(--carbon-rgb),.55); color:var(--crema-suave);
+    border:2px solid rgba(var(--crema-rgb),.35);
     font-weight:800; font-size:.9rem; letter-spacing:.02em; white-space:nowrap;
     transition:border-color .2s ease, transform .2s ease;
   }
@@ -180,16 +201,16 @@
   .cat-nav{
     position:sticky; top:64px; z-index:150;
     display:flex; gap:.6rem; overflow-x:auto;
-    padding:.9rem 1.2rem; background:rgba(28,18,16,.95); backdrop-filter:blur(8px);
-    border-bottom:1px solid rgba(247,236,214,.08);
+    padding:.9rem 1.2rem; background:rgba(var(--carbon-rgb),.95); backdrop-filter:blur(8px);
+    border-bottom:1px solid rgba(var(--crema-rgb),.08);
     scrollbar-width:none;
   }
   .cat-nav::-webkit-scrollbar{display:none;}
   .cat-nav button{
     flex:0 0 auto; padding:.55rem 1.2rem; border-radius:999px;
-    background:rgba(247,236,214,.06); color:var(--texto-secundario);
+    background:rgba(var(--crema-rgb),.06); color:var(--texto-secundario);
     font-weight:700; font-size:.85rem; letter-spacing:.03em; white-space:nowrap;
-    border:1px solid rgba(247,236,214,.1); transition:all .2s ease;
+    border:1px solid rgba(var(--crema-rgb),.1); transition:all .2s ease;
   }
   .cat-nav button.active, .cat-nav button:hover{
     background:var(--rojo); color:var(--crema-suave); border-color:var(--rojo);
@@ -201,7 +222,7 @@
   .category-head{display:flex; align-items:baseline; gap:1rem; margin-bottom:1.6rem;}
   .category-head h2{font-size:clamp(1.8rem,4vw,2.6rem); color:var(--crema-suave);}
   .category-head .count{color:var(--texto-secundario); font-size:.9rem; font-weight:600;}
-  .category-head::after{content:""; flex:1; height:2px; background:linear-gradient(90deg, rgba(193,39,45,.6), transparent);}
+  .category-head::after{content:""; flex:1; height:2px; background:linear-gradient(90deg, rgba(var(--rojo-rgb),.6), transparent);}
 
   .grid{display:grid; grid-template-columns:repeat(3, 1fr); gap:1.6rem;}
   @media (max-width:980px){.grid{grid-template-columns:repeat(2,1fr);}}
@@ -296,7 +317,7 @@
 
   .menu-aviso{
     max-width:1200px; margin:0 auto 1rem; padding:.8rem 1rem;
-    background:rgba(227,160,8,.14); border:1px solid rgba(227,160,8,.4);
+    background:rgba(var(--mostaza-rgb),.14); border:1px solid rgba(var(--mostaza-rgb),.4);
     border-radius:12px; color:var(--mostaza);
     font-size:.85rem; font-weight:700; text-align:center; line-height:1.5;
   }
@@ -305,7 +326,7 @@
   .floating-bar{
     position:fixed; left:50%; bottom:1.4rem; transform:translate(-50%, 140%);
     z-index:300; display:flex; align-items:center; gap:1rem;
-    background:var(--carbon); border:1px solid rgba(247,236,214,.15);
+    background:var(--carbon); border:1px solid rgba(var(--crema-rgb),.15);
     padding:.9rem 1rem .9rem 1.3rem; border-radius:999px; box-shadow:var(--sombra);
     width:calc(100% - 2.4rem); max-width:420px;
     transition:transform .35s ease;
@@ -387,7 +408,7 @@
     width:100%; background:var(--rojo); color:var(--crema-suave); padding:1rem; border-radius:999px;
     font-weight:800; font-size:1rem; display:flex; align-items:center; justify-content:center; gap:.6rem;
     transition:transform .2s ease, box-shadow .2s ease, background .2s ease;
-    box-shadow:0 10px 26px rgba(193,39,45,.35);
+    box-shadow:0 10px 26px rgba(var(--rojo-rgb),.35);
   }
   .pay-btn:hover:not(:disabled){transform:translateY(-2px); background:var(--rojo-brillo);}
   .pay-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
@@ -450,7 +471,7 @@
   .rechazo-motivo strong{display:block; font-weight:800; margin-bottom:.2rem;}
   .rechazo-tranquilo{
     text-align:center; font-size:.85rem; font-weight:700; color:var(--verde);
-    background:rgba(92,122,59,.1); border-radius:10px; padding:.6rem;
+    background:rgba(var(--verde-rgb),.1); border-radius:10px; padding:.6rem;
     margin-bottom:.4rem;
   }
 
@@ -461,7 +482,7 @@
   }
   .confirmar-aviso{
     margin:.9rem 0; padding:.8rem .9rem; border-radius:12px;
-    background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4);
+    background:rgba(var(--mostaza-rgb),.13); border:1px solid rgba(var(--mostaza-rgb),.4);
     color:#8a6205; font-size:.85rem; font-weight:700; line-height:1.5; text-align:center;
   }
   .confirmar-dato{
@@ -482,7 +503,7 @@
   /* Aviso cuando el restaurante esta cerrado */
   .aviso-cerrado{
     margin-top:.7rem; padding:.75rem .85rem; border-radius:12px;
-    background:rgba(227,160,8,.14); border:1px solid rgba(227,160,8,.45);
+    background:rgba(var(--mostaza-rgb),.14); border:1px solid rgba(var(--mostaza-rgb),.45);
     color:#8a6205; font-size:.83rem; font-weight:700; line-height:1.5;
     text-align:center;
   }
@@ -541,12 +562,12 @@
 
   .domicilio-info{
     margin-top:.6rem; padding:.75rem .85rem; border-radius:12px;
-    background:rgba(92,122,59,.12); border:1px solid rgba(92,122,59,.35);
+    background:rgba(var(--verde-rgb),.12); border:1px solid rgba(var(--verde-rgb),.35);
     font-size:.88rem; font-weight:700; color:#3f5a24;
     display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap;
   }
   .domicilio-info.fuera{
-    background:rgba(227,160,8,.14); border-color:rgba(227,160,8,.45); color:#8a6205;
+    background:rgba(var(--mostaza-rgb),.14); border-color:rgba(var(--mostaza-rgb),.45); color:#8a6205;
     display:block; line-height:1.5; font-weight:600;
   }
   .domicilio-info.vacio{
@@ -649,7 +670,7 @@
   .modal-close{
     position:absolute; top:.9rem; right:.9rem; z-index:2;
     width:38px; height:38px; border-radius:50%;
-    background:rgba(28,18,16,.65); color:var(--crema-suave);
+    background:rgba(var(--carbon-rgb),.65); color:var(--crema-suave);
     font-size:1.5rem; line-height:1; display:flex; align-items:center; justify-content:center;
   }
   .modal-img{width:100%; aspect-ratio:4/3; background:#e9dcbb;}
@@ -663,7 +684,7 @@
   /* ---------- FOOTER ---------- */
   footer{
     position:relative; z-index:1; background:#150d0b; padding:3.5rem 1.5rem 2rem;
-    border-top:1px solid rgba(247,236,214,.08);
+    border-top:1px solid rgba(var(--crema-rgb),.08);
   }
   .footer-grid{
     max-width:1100px; margin:0 auto; display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:2.5rem;
@@ -679,7 +700,7 @@
   footer a:hover{color:var(--rojo-brillo);}
   .socials{display:flex; gap:.8rem; margin-top:1rem;}
   .socials a{
-    width:38px; height:38px; border-radius:50%; background:rgba(247,236,214,.08);
+    width:38px; height:38px; border-radius:50%; background:rgba(var(--crema-rgb),.08);
     display:flex; align-items:center; justify-content:center; font-size:1rem;
     transition:background .2s ease, transform .2s ease;
   }
@@ -695,13 +716,17 @@
 </head>
 <body>
 
+<!-- Pantalla de carga. Si el restaurante no llega (dominio desconocido, servidor caído) se convierte en
+     un mensaje neutro; si llega, restaurante-publico.js la quita. -->
+<div id="rp-estado" role="status"><div class="rp-spin" aria-label="Cargando"></div></div>
+
 <div class="noise-bg"></div>
 
 <!-- ================= HEADER ================= -->
 <header>
   <div class="brand">
-    <img src="Recursos/logo/logo.png" alt="Logo Los Taqueiros">
-    <span class="name">LOS <span>TAQUEIROS</span></span>
+    <img data-rp-logo data-rp-alt="logo" alt="">
+    <span class="name" id="marcaNombre"></span>
   </div>
   <button class="cart-btn" id="openCartBtn" aria-label="Abrir carrito">
     🛒 Carrito
@@ -719,13 +744,13 @@
           aria-haspopup="dialog" aria-label="Mi pedido: buscar el estado de mi pedido">
     <span aria-hidden="true">🔎</span> Mi pedido
   </button>
-  <div class="hero-eyebrow">Tacos · Birria · Antojitos</div>
-  <div class="hero-logo-frame">
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+  <div class="hero-eyebrow" id="heroEslogan"></div>
+  <div class="hero-logo-frame" id="heroLogoMarco">
+    <img data-rp-logo alt="">
   </div>
-  <p class="tagline">Del comal directo a tu mesa: tacos jugosos, birria con consomé y dorilocos bien cargados. Pide en dos clics y recíbelo por WhatsApp.</p>
+  <p class="tagline" id="heroTagline"></p>
   <div class="hero-ctas">
-    <a href="#menu" class="btn-primary">Ver el menú 🌮</a>
+    <a href="#menu" class="btn-primary" id="ctaMenu">Ver el menú</a>
     <a href="#footer" class="btn-secondary">Ubicación y horarios</a>
   </div>
   <div class="hero-scroll"><span></span>Desliza</div>
@@ -768,7 +793,7 @@
   <div class="drawer-items" id="drawerItems"></div>
   <div class="drawer-footer">
     <label class="note-label" for="orderNote">Nota para tu pedido (opcional)</label>
-    <textarea class="note-input" id="orderNote" placeholder="Ej: sin cebolla, extra picante, tocarle el timbre..." rows="2"></textarea>
+    <textarea class="note-input" id="orderNote" placeholder="" rows="2"></textarea>
     <div class="drawer-desglose" id="drawerDesglose"></div>
     <div class="drawer-total">
       <span>Total</span>
@@ -931,7 +956,7 @@
   <div class="product-modal" id="confirmModal" role="dialog" aria-modal="true" aria-label="Pedido confirmado">
     <div class="modal-body">
       <div class="confirm-check">✓</div>
-      <h3 style="text-align:center;">¡Pedido confirmado! 🌮</h3>
+      <h3 style="text-align:center;" id="confirmTitulo">¡Pedido confirmado!</h3>
       <p class="confirm-recibido">El restaurante ya recibió tu orden y la está preparando. No tienes que hacer nada más.</p>
       <p class="confirm-ref" id="confirmRef"></p>
       <div class="confirm-summary" id="confirmSummary"></div>
@@ -986,24 +1011,15 @@
   <div class="footer-grid">
     <div>
       <div class="footer-brand">
-        <img src="Recursos/logo/logo.png" alt="Logo Los Taqueiros">
-        <span>LOS TAQUEIROS</span>
+        <img data-rp-logo data-rp-alt="logo" alt="">
+        <span id="footerNombre"></span>
       </div>
-      <p>Tacos, birria y antojitos mexicanos hechos con receta propia, en el corazón de Cúcuta. Pide en línea y te lo llevamos hasta la puerta.</p>
-      <div class="socials">
-        <a href="https://instagram.com/lostaqueiros.co" target="_blank" rel="noopener" aria-label="Instagram">📷</a>
-        <a href="https://tiktok.com/@lostaqueiros_cuc" target="_blank" rel="noopener" aria-label="TikTok">🎵</a>
-        <a href="https://wa.me/573125249438" target="_blank" rel="noopener" aria-label="WhatsApp">💬</a>
-      </div>
+      <p id="footerDescripcion"></p>
+      <div class="socials" id="footerSocials"></div>
     </div>
     <div>
       <h4>Contacto</h4>
-      <ul>
-        <li>📍 Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta, Norte de Santander</li>
-        <li>📞 +57 312 524 9438</li>
-        <li>📸 @lostaqueiros.co</li>
-        <li>🛵 Domicilio gratis · 🥡 Para llevar · 🍽️ En el local</li>
-      </ul>
+      <ul id="footerContacto"></ul>
     </div>
     <div>
       <h4>Horarios</h4>
@@ -1011,7 +1027,7 @@
     </div>
   </div>
   <button type="button" class="buscar-pedido-link" id="abrirBuscarPedido" aria-haspopup="dialog">🔎 ¿Buscas tu pedido?</button>
-  <p class="copy">© <span id="year"></span> Los Taqueiros — Cúcuta, Colombia. Hecho con antojo 🌶️</p>
+  <p class="copy">© <span id="year"></span></p>
 </footer>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1021,6 +1037,9 @@
 
 <!-- Direccion y llave publishable de Supabase (una sola copia) -->
 <script src="supabase-publico.js?v=1"></script>
+
+<!-- Datos del restaurante de este dominio (nombre, logo, colores, textos, WhatsApp, domicilio, pago) -->
+<script src="restaurante-publico.js?v=1"></script>
 
 <script>
 /* =========================================================
@@ -1038,6 +1057,10 @@
    ({id, name, desc, price, img}) para que el carrito, el modal y el
    mensaje de WhatsApp sigan funcionando sin cambios.
 ========================================================= */
+/* Datos del restaurante de este dominio (RP.cargar, ver restaurante-publico.js). Es null hasta que
+   llegan: nada de lo que sigue conoce a ningún restaurante en particular. */
+let R = null;
+
 let CATEGORIES = [];
 let productosAgotados = new Set();
 let categoriasInactivas = new Set();
@@ -1045,8 +1068,11 @@ let categoriasInactivas = new Set();
 /* Copia local del ultimo menu que se recibio bien. Es la ultima red
    de seguridad si Supabase y el servidor fallan a la vez: el cliente
    ve el menu de su visita anterior en lugar de una pagina vacia.
-   No es una copia escrita en el codigo, es lo ultimo que se sirvio. */
-const MENU_CACHE_KEY = "taqueiros-menu-v1";
+   No es una copia escrita en el codigo, es lo ultimo que se sirvio.
+   Se guarda con el id del restaurante (RP.guardar) y solo se muestra si es de ESTE
+   restaurante: el almacenamiento del navegador es por dominio, pero asi un mismo dominio que
+   sirviera a dos restaurantes (un preview con ?r=) tampoco mostraria el menu del otro. */
+const MENU_CACHE_KEY = "menu-v2";
 
 /* El nombre, la descripcion y las categorias los escribe el dueno desde
    el panel, asi que NUNCA se pegan como HTML crudo: un nombre como
@@ -1094,7 +1120,7 @@ async function cargarMenu(opciones){
        cache incluye la query string. Solo se usa cuando hace falta ver
        los precios al instante; las visitas normales siguen usando el
        cache, que es lo que evita miles de consultas a Supabase. */
-    const url = forzar ? ("/api/menu?t=" + Date.now()) : "/api/menu";
+    const url = RP.api(forzar ? ("/api/menu?t=" + Date.now()) : "/api/menu");
     const resp = await fetch(url, { cache: "no-store" });
     if(!resp.ok) throw new Error("HTTP " + resp.status);
     datos = await resp.json();
@@ -1102,18 +1128,16 @@ async function cargarMenu(opciones){
     desdeServidor = !datos.deRespaldo;
 
     // Se guarda como respaldo para la proxima vez
-    try{ localStorage.setItem(MENU_CACHE_KEY, JSON.stringify(datos)); }catch(e){}
+    RP.guardar(MENU_CACHE_KEY, datos);
   }catch(err){
     console.warn("[Menu] No se pudo cargar del servidor:", err.message);
 
-    try{
-      const guardado = localStorage.getItem(MENU_CACHE_KEY);
-      if(guardado){
-        datos = JSON.parse(guardado);
-        console.warn("[Menu] Usando la copia guardada de la visita anterior");
-        avisarMenuDesactualizado();
-      }
-    }catch(e){ /* sin copia */ }
+    const guardado = RP.leer(MENU_CACHE_KEY);
+    if(guardado && Array.isArray(guardado.categorias) && Array.isArray(guardado.productos)){
+      datos = guardado;
+      console.warn("[Menu] Usando la copia guardada de la visita anterior");
+      avisarMenuDesactualizado();
+    }
   }
 
   if(!datos){
@@ -1150,7 +1174,7 @@ async function cargarMenu(opciones){
    cachearse 5 minutos sin que un agotado tarde 5 minutos en irse. */
 async function refrescarDisponibilidad(){
   try{
-    const resp = await fetch("/api/disponibilidad", { cache: "no-store" });
+    const resp = await fetch(RP.api("/api/disponibilidad"), { cache: "no-store" });
     if(!resp.ok) return;
     const datos = await resp.json();
     if(!datos.ok || !Array.isArray(datos.agotados)) return;
@@ -1346,34 +1370,71 @@ function avisarMenuDesactualizado(){
 }
 
 function mostrarMenuNoDisponible(){
-  document.getElementById("menu").innerHTML =
-    '<div class="menu-caido">' +
-      '<div class="ic">\u{1F32E}</div>' +
-      '<h3>No pudimos cargar el menú</h3>' +
-      '<p>Estamos teniendo un problema técnico. Escríbenos por WhatsApp y te tomamos el pedido de una vez.</p>' +
-      '<a class="btn-primary" href="https://wa.me/' + WHATSAPP_NUMBER + '" target="_blank" rel="noopener">Pedir por WhatsApp</a>' +
-      '<button class="btn-secondary" onclick="location.reload()" style="margin-top:.7rem;">Reintentar</button>' +
-    '</div>';
-  document.getElementById("catNav").innerHTML = "";
+  const menu = document.getElementById("menu");
+  menu.textContent = "";
+
+  const caja = document.createElement("div");
+  caja.className = "menu-caido";
+  const ic = document.createElement("div");
+  ic.className = "ic";
+  ic.textContent = RP.emoji(R);
+  const h3 = document.createElement("h3");
+  h3.textContent = "No pudimos cargar el menú";
+  const p = document.createElement("p");
+  p.textContent = R.contacto.whatsapp
+    ? "Estamos teniendo un problema técnico. Escríbenos por WhatsApp y te tomamos el pedido de una vez."
+    : "Estamos teniendo un problema técnico. Intenta de nuevo en unos minutos.";
+  caja.appendChild(ic); caja.appendChild(h3); caja.appendChild(p);
+
+  const url = RP.whatsappUrl(R);
+  if(url){
+    const a = document.createElement("a");
+    a.className = "btn-primary";
+    a.setAttribute("href", url);
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener");
+    a.textContent = "Pedir por WhatsApp";
+    caja.appendChild(a);
+  }
+  const otra = document.createElement("button");
+  otra.className = "btn-secondary";
+  otra.style.marginTop = ".7rem";
+  otra.textContent = "Reintentar";
+  otra.addEventListener("click", () => location.reload());
+  caja.appendChild(otra);
+
+  menu.appendChild(caja);
+  document.getElementById("catNav").textContent = "";
 }
 
-/* Número de WhatsApp real de Los Taqueiros (extraído de la página oficial) */
-const WHATSAPP_NUMBER = "573125249438";
+/* El WhatsApp del restaurante sale de R.contacto.whatsapp (ya validado). 'textoCodificado' ya viene
+   con encodeURIComponent. Sin número no hace nada (los botones ni se muestran). */
+function abrirWhatsApp(textoCodificado){
+  const n = R && R.contacto.whatsapp;
+  if(!n) return;
+  window.open("https://wa.me/" + n + "?text=" + textoCodificado, "_blank", "noopener,noreferrer");
+}
 
 /* =========================================================
    ESTADO DEL CARRITO
 ========================================================= */
-const CART_KEY = "taqueiros-cart-v1";
-let cart = loadCart();
+const CART_KEY = "carrito-v2";
+let cart = {};     // se carga en arrancar(), cuando ya se sabe de que restaurante es
 
+/* El carrito se guarda con el id del restaurante: uno de otro restaurante se descarta. */
 function loadCart(){
-  try{
-    const raw = localStorage.getItem(CART_KEY);
-    return raw ? JSON.parse(raw) : {};
-  }catch(e){ return {}; }
+  const v = RP.leer(CART_KEY);
+  const limpio = {};
+  if(v && typeof v === "object" && !Array.isArray(v)){
+    Object.keys(v).forEach(id => {
+      const q = v[id];
+      if(Number.isInteger(q) && q > 0 && q <= 999) limpio[id] = q;
+    });
+  }
+  return limpio;
 }
 function saveCart(){
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  RP.guardar(CART_KEY, cart);
 }
 
 function formatCOP(n){
@@ -1562,7 +1623,7 @@ function updateCartUI(bump){
 function renderDrawerItems(){
   const ids = Object.keys(cart);
   if(ids.length === 0){
-    drawerItems.innerHTML = `<div class="drawer-empty"><div class="emoji">🌮</div>Tu carrito está vacío.<br>¡Agrega algo rico del menú!</div>`;
+    drawerItems.innerHTML = `<div class="drawer-empty"><div class="emoji">${esc(RP.emoji(R))}</div>Tu carrito está vacío.<br>¡Agrega algo rico del menú!</div>`;
     return;
   }
   drawerItems.innerHTML = "";
@@ -1689,7 +1750,7 @@ function buildWhatsAppMessage(){
   const note = document.getElementById("orderNote").value.trim();
 
   const parts = [
-    "Pedido Los Taqueiros:",
+    "Pedido " + R.nombre + ":",
     "",
     ...lines
   ];
@@ -1703,8 +1764,7 @@ function buildWhatsAppMessage(){
 
 whatsappBtn.addEventListener("click", () => {
   if(cartCount() === 0) return;
-  const text = buildWhatsAppMessage();
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+  abrirWhatsApp(buildWhatsAppMessage());
 });
 
 /* =========================================================
@@ -1712,55 +1772,45 @@ whatsappBtn.addEventListener("click", () => {
 ========================================================= */
 
 /* ---- CONFIGURACIÓN ----
-   Modo actual: PRUEBAS (sandbox). No se cobra dinero real.
-   >>> PARA PASAR A PRODUCCIÓN: cambia el valor de esta constante
-   >>> de "pruebas" a "produccion" y despliega de nuevo. Nada más
-   >>> hay que tocar aquí; las llaves correctas se eligen solas. */
-const WOMPI_MODE = "pruebas"; // <-- CAMBIAR A "produccion" CUANDO QUIERAS COBRAR DE VERDAD
+   Aquí ya no hay nada escrito: el modo de cobro (pruebas o producción) y la llave PÚBLICA de
+   Wompi los manda el servidor en /api/restaurante (R.pago) y se asignan en arrancar().
+   PARA PASAR A PRODUCCIÓN un restaurante se cambia su modo en la base (otros.wompi_modo, ver
+   docs/multirestaurante.md): esta página no decide nada y no hay que editarla ni desplegarla. */
+let WOMPI_PUBLIC_KEY = "";
+let WOMPI_REDIRECT_URL = "";          // el origen actual (nunca un dominio escrito)
+let WOMPI_TRANSACTION_API = "";
+let MODO_COBRO = "pruebas";           // "pruebas" | "produccion": lo que dijo el servidor
 
-const WOMPI_PUBLIC_KEY = WOMPI_MODE === "produccion"
-  ? "pub_prod_IwaQLknNwAMDaR6P5dhD4oCPWtF8UfNW"
-  : "pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz";
-
-const WOMPI_REDIRECT_URL = "https://taqueiros-2-0.vercel.app/?pago=exitoso";
-
-const WOMPI_TRANSACTION_API = WOMPI_MODE === "produccion"
-  ? "https://production.wompi.co/v1/transactions/"
-  : "https://sandbox.wompi.co/v1/transactions/";
-
-const PENDING_ORDER_KEY = "taqueiros-pending-order-v1";
+const PENDING_ORDER_KEY = "pedido-pendiente-v2";
 
 /* =========================================================
    DOMICILIO CON MAPA (Leaflet + OpenStreetMap)
 
-   IMPORTANTE: estos valores deben coincidir con los de
-   api/_domicilio.js, que es donde REALMENTE se calcula lo que se
-   cobra. Lo de aquí es solo para mostrárselo al cliente.
+   Lo que se calcula aquí es solo para mostrárselo al cliente: lo que
+   REALMENTE se cobra lo recalcula el servidor (api/_domicilio.js) con
+   las mismas tarifas y el mismo origen. Tanto el origen como las
+   tarifas y el factor de recorrido vienen de /api/restaurante (R.ubicacion
+   y R.domicilio), o sea, de la base: no hay nada escrito en esta página.
 ========================================================= */
 
-/* ---- COORDENADAS DEL RESTAURANTE ----
-   Cl 1AN #3E-7, Barrio La Ceiba, Cúcuta.
+/* ---- COORDENADAS DEL RESTAURANTE (R.ubicacion) ---- */
+let RESTAURANTE = null;
 
-   Coordenadas confirmadas por el dueño desde Google Maps.
-   Si cambian, actualízalas aquí Y en api/_domicilio.js: deben ser
-   IDÉNTICAS en los dos archivos. */
-const RESTAURANTE = { lat: 7.8997382, lng: -72.4968525 };
-
-/* ---- TARIFAS POR DISTANCIA ----
+/* ---- TARIFAS POR DISTANCIA (R.domicilio.tarifas) ----
    'hasta' = límite del rango en km. precio null = fuera de cobertura. */
-const TARIFAS_DOMICILIO = [
-  { hasta: 2,   precio: 5000  },  // 0 - 2 km
-  { hasta: 4,   precio: 7000  },  // 2 - 4 km
-  { hasta: 6,   precio: 9000  },  // 4 - 6 km
-  { hasta: 8,   precio: 12000 },  // 6 - 8 km
-  { hasta: 999, precio: null  }   // +8 km -> "Consultar por WhatsApp"
-];
+let TARIFAS_DOMICILIO = [];
 
-/* Haversine da la línea recta; una moto recorre más por las calles. */
-const FACTOR_RECORRIDO = 1.3;
+/* Haversine da la línea recta; una moto recorre más por las calles. (R.domicilio.factor) */
+let FACTOR_RECORRIDO = 1.3;
 
-/* Colores de las zonas dibujadas en el mapa */
-const COLORES_ZONA = ["#5C7A3B", "#8FA83F", "#E3A008", "#E07B39"];
+/* Colores de las zonas dibujadas en el mapa (R.marca.coloresZonas, o estos neutros) */
+const COLORES_ZONA_NEUTROS = ["#4F8A5B", "#8FA83F", "#D4A72C", "#E07B39"];
+let COLORES_ZONA = COLORES_ZONA_NEUTROS;
+
+/* Valor actual de una variable CSS de la marca (para los trazos del mapa, que no leen variables). */
+function colorMarca(variable){
+  return getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+}
 
 let mapa = null;
 let pinCliente = null;
@@ -1785,6 +1835,13 @@ function calcularDomicilio(lat, lng){
     precio: tramo && tramo.precio != null ? tramo.precio : 0,
     fueraDeCobertura: !tramo || tramo.precio == null
   };
+}
+
+/* Leaflet trata un texto como HTML: un nombre se le pasa como nodo de texto. */
+function textoComoNodo(t){
+  const s = document.createElement("span");
+  s.textContent = t;
+  return s;
 }
 
 /* El mapa se crea una sola vez, la primera vez que se elige domicilio. */
@@ -1818,13 +1875,13 @@ function iniciarMapa(){
 
   const iconoLocal = L.divIcon({
     className: "",
-    html: '<div style="background:#C1272D;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid #F7ECD6;box-shadow:0 3px 10px rgba(0,0,0,.4);">\u{1F32E}</div>',
+    html: '<div style="background:var(--rojo);width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid var(--crema);box-shadow:0 3px 10px rgba(0,0,0,.4);">' + esc(RP.emoji(R)) + '</div>',
     iconSize: [38, 38],
     iconAnchor: [19, 19]
   });
   L.marker([RESTAURANTE.lat, RESTAURANTE.lng], { icon: iconoLocal, interactive: false })
     .addTo(mapa)
-    .bindTooltip("Los Taqueiros", { direction:"top" });
+    .bindTooltip(textoComoNodo(R.nombre), { direction:"top" });
 
   mapa.on("click", (e) => fijarUbicacion(e.latlng.lat, e.latlng.lng));
 
@@ -1838,7 +1895,7 @@ function fijarUbicacion(lat, lng){
 
   const iconoCliente = L.divIcon({
     className: "",
-    html: '<div style="background:#1C1210;width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid #E3A008;box-shadow:0 3px 10px rgba(0,0,0,.4);"><span style="transform:rotate(45deg);font-size:15px;">\u{1F4CD}</span></div>',
+    html: '<div style="background:var(--carbon);width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid var(--mostaza);box-shadow:0 3px 10px rgba(0,0,0,.4);"><span style="transform:rotate(45deg);font-size:15px;">\u{1F4CD}</span></div>',
     iconSize: [34, 34],
     iconAnchor: [17, 34]
   });
@@ -1857,7 +1914,7 @@ function fijarUbicacion(lat, lng){
   if(lineaRuta){
     lineaRuta.setLatLngs(puntos);
   }else{
-    lineaRuta = L.polyline(puntos, { color:"#C1272D", weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapa);
+    lineaRuta = L.polyline(puntos, { color:colorMarca("--rojo"), weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapa);
   }
 
   mapa.fitBounds(L.latLngBounds(puntos).pad(0.35));
@@ -1963,7 +2020,7 @@ payOnlineBtn.addEventListener("click", () => {
   if(cartCount() === 0) return;
   if(!restauranteAbierto){
     alert((estadoServidor && estadoServidor.mensaje)
-      || "Estamos cerrados en este momento. Escr\u00edbenos por WhatsApp para programar tu pedido.");
+      || ("Estamos cerrados en este momento." + (R.contacto.whatsapp ? " Escr\u00edbenos por WhatsApp para programar tu pedido." : "")));
     return;
   }
   openPaymentForm();
@@ -2137,19 +2194,19 @@ function dibujarMapaConfirmacion(){
 
   const iconoLocal = L.divIcon({
     className:"",
-    html:'<div style="background:#C1272D;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid #F7ECD6;">\u{1F32E}</div>',
+    html:'<div style="background:var(--rojo);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;border:2px solid var(--crema);">' + esc(RP.emoji(R)) + '</div>',
     iconSize:[30,30], iconAnchor:[15,15]
   });
   const iconoCliente = L.divIcon({
     className:"",
-    html:'<div style="background:#1C1210;width:40px;height:40px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid #E3A008;box-shadow:0 4px 12px rgba(0,0,0,.5);"><span style="transform:rotate(45deg);font-size:18px;">\u{1F4CD}</span></div>',
+    html:'<div style="background:var(--carbon);width:40px;height:40px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:3px solid var(--mostaza);box-shadow:0 4px 12px rgba(0,0,0,.5);"><span style="transform:rotate(45deg);font-size:18px;">\u{1F4CD}</span></div>',
     iconSize:[40,40], iconAnchor:[20,40]
   });
 
   L.marker([RESTAURANTE.lat, RESTAURANTE.lng], { icon:iconoLocal, interactive:false }).addTo(mapaConfirmacion);
   L.marker([ubicacionCliente.lat, ubicacionCliente.lng], { icon:iconoCliente, interactive:false }).addTo(mapaConfirmacion);
   L.polyline([[RESTAURANTE.lat, RESTAURANTE.lng], [ubicacionCliente.lat, ubicacionCliente.lng]],
-    { color:"#C1272D", weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapaConfirmacion);
+    { color:colorMarca("--rojo"), weight:3, dashArray:"6 8", opacity:.8 }).addTo(mapaConfirmacion);
 
   mapaConfirmacion.fitBounds(
     L.latLngBounds([[RESTAURANTE.lat, RESTAURANTE.lng],[ubicacionCliente.lat, ubicacionCliente.lng]]).pad(0.30)
@@ -2183,6 +2240,10 @@ document.getElementById("btnConfirmarPagar").addEventListener("click", async () 
 
 /* ---- Arma el pedido, pide la firma al backend y abre el widget ---- */
 async function iniciarPagoWompi(){
+  if(!R.pago.disponible || !servicioActivo){
+    alert(servicioActivo ? "El pago en línea no está disponible por ahora." : MENSAJE_SERVICIO_SUSPENDIDO);
+    return;
+  }
   const cliente = {
     nombre: document.getElementById("pf-nombre").value.trim(),
     telefono: document.getElementById("pf-telefono").value.trim(),
@@ -2216,10 +2277,11 @@ async function iniciarPagoWompi(){
        El servidor tambien calcula el total con sus propios precios
        y devuelve la firma, para que nadie pueda manipular el monto
        desde el navegador. */
-    const resp = await fetch("/api/crear-pedido", {
+    const resp = await fetch(RP.api("/api/crear-pedido"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cliente, items, modo: WOMPI_MODE })
+      // El modo lo decide el servidor (R.pago.modo): se manda lo mismo que dijo, nunca uno elegido aquí.
+      body: JSON.stringify({ cliente, items, modo: MODO_COBRO })
     });
     if(!resp.ok){
       const detalle = await resp.json().catch(() => ({}));
@@ -2234,6 +2296,16 @@ async function iniciarPagoWompi(){
         closePaymentForm();
         alert(aplicarCambiosDelMenu(detalle.agotados, detalle.preciosCambiados, detalle.desconocidos));
         openDrawer();     // el carrito, ya con los valores corregidos
+        return;
+      }
+
+      // Servicio suspendido (la mensualidad del restaurante): el menú se ve, pero no se puede pedir
+      if(detalle.motivo === "servicio_suspendido"){
+        servicioActivo = false;
+        aplicarEstadoRestaurante();
+        renderStatusBanner();
+        closePaymentForm();
+        alert(detalle.error || MENSAJE_SERVICIO_SUSPENDIDO);
         return;
       }
 
@@ -2254,6 +2326,9 @@ async function iniciarPagoWompi(){
     // banco redirige fuera de la pagina (PSE) y el cliente vuelve.
     const pedido = {
       referencia,
+      numero: datos.numero,
+      // Enlace de seguimiento: el token (no adivinable) si el servidor lo mandó; si no, la referencia.
+      enlace: (typeof datos.tokenSeguimiento === "string" && datos.tokenSeguimiento) ? datos.tokenSeguimiento : referencia,
       cliente,
       total,
       subtotal: datos.subtotal,
@@ -2265,7 +2340,7 @@ async function iniciarPagoWompi(){
         return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
       })
     };
-    localStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(pedido));
+    RP.guardar(PENDING_ORDER_KEY, pedido);
 
     closePaymentForm();
     abrirWidgetWompi(pedido, firma);
@@ -2294,8 +2369,8 @@ function abrirWidgetWompi(pedido, firma){
     },
     shippingAddress: pedido.cliente.tipoPedido === "domicilio" ? {
       addressLine1: pedido.cliente.direccion,
-      city: "Cúcuta",
-      region: "Norte de Santander",
+      city: R.contacto.ciudad || "",
+      region: R.contacto.region || "",
       country: "CO",
       phoneNumber: pedido.cliente.telefono,
       name: pedido.cliente.nombre
@@ -2324,6 +2399,7 @@ function manejarResultadoPago(transaction, pedido){
 /* ---- Modal de confirmación ---- */
 const confirmOverlay = document.getElementById("confirmOverlay");
 function mostrarConfirmacion(pedido){
+  document.getElementById("confirmTitulo").textContent = "¡Pedido confirmado! " + RP.emoji(R);
   document.getElementById("confirmRef").textContent = "Referencia: " + pedido.referencia;
   document.getElementById("confirmSummary").innerHTML = pedido.items.map(it =>
     `<div class="line"><span>${esc(it.cantidad)}x ${esc(it.nombre)}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
@@ -2334,19 +2410,24 @@ function mostrarConfirmacion(pedido){
   if(pedido.costoDomicilio > 0){
     document.getElementById("confirmSummary").innerHTML +=
       '<div class="line" style="border-top:1px solid rgba(0,0,0,.1); margin-top:.4rem; padding-top:.4rem;">' +
-      '<span>\u{1F6F5} Domicilio (' + pedido.distanciaKm + ' km)</span>' +
+      '<span>\u{1F6F5} Domicilio (' + esc(pedido.distanciaKm) + ' km)</span>' +
       '<span>' + formatCOP(pedido.costoDomicilio) + '</span></div>';
   }else if(pedido.fueraDeCobertura){
     document.getElementById("confirmSummary").innerHTML +=
       '<div class="line" style="border-top:1px solid rgba(0,0,0,.1); margin-top:.4rem; padding-top:.4rem;">' +
-      '<span>\u{1F6F5} Domicilio (' + pedido.distanciaKm + ' km)</span>' +
+      '<span>\u{1F6F5} Domicilio (' + esc(pedido.distanciaKm) + ' km)</span>' +
       '<span>A convenir por WhatsApp</span></div>';
   }
 
   // Enlace de seguimiento: se guarda para poder volver desde el menú
-  const urlSeguimiento = "pedido.html?ref=" + encodeURIComponent(pedido.referencia);
+  const urlSeguimiento = urlSeguimientoDe(pedido.enlace || pedido.referencia);
   document.getElementById("confirmSeguirBtn").href = urlSeguimiento;
-  guardarSeguimiento(pedido.referencia);
+  guardarSeguimiento(pedido.referencia, pedido.enlace || pedido.referencia);
+
+  // Sin el módulo de seguimiento no se ofrece el enlace
+  document.querySelector(".link-guardar").style.display = R.modulos.seguimiento ? "" : "none";
+  document.getElementById("confirmSeguirBtn").style.display = R.modulos.seguimiento ? "" : "none";
+  document.querySelector(".confirm-copia").style.display = R.contacto.whatsapp ? "" : "none";
 
   // Link completo visible y copiable, por si cierra la pestana
   const urlCompleta = location.origin + "/" + urlSeguimiento;
@@ -2384,7 +2465,7 @@ function mostrarConfirmacion(pedido){
     renderQtyControls();
     updateCartUI(false);
     document.getElementById("orderNote").value = "";
-    localStorage.removeItem(PENDING_ORDER_KEY);
+    RP.borrar(PENDING_ORDER_KEY);
     confirmOverlay.classList.remove("open");
     document.body.style.overflow = "";
     closeDrawer();
@@ -2400,7 +2481,7 @@ function enviarPedidoPagadoPorWhatsApp(pedido){
   const lineas = pedido.items.map(it => `✅ ${it.cantidad}x ${it.nombre} — ${formatCOP(it.precio*it.cantidad)}`);
 
   const partes = [
-    "🌮 *PEDIDO PAGADO EN LÍNEA*",
+    RP.emoji(R) + " *PEDIDO PAGADO EN LÍNEA*",
     `Ref: ${pedido.referencia}`,
     "",
     `👤 ${c.nombre}`,
@@ -2414,37 +2495,36 @@ function enviarPedidoPagadoPorWhatsApp(pedido){
   }
   partes.push(`🛵 ${tipoTexto}`, "", ...lineas, "", `💰 *Total pagado: ${formatCOP(pedido.total)}*`, "💳 Pago confirmado vía Wompi");
 
-  const text = encodeURIComponent(partes.join("\n"));
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+  abrirWhatsApp(encodeURIComponent(partes.join("\n")));
 }
 
 /* ---- Seguimiento del pedido: banner "tienes un pedido en curso" ---- */
-const SEGUIMIENTO_KEY = "taqueiros-seguimiento-v1";
+const SEGUIMIENTO_KEY = "seguimiento-v2";
 
-function guardarSeguimiento(referencia){
-  try{
-    localStorage.setItem(SEGUIMIENTO_KEY, JSON.stringify({
-      referencia,
-      guardadoEn: Date.now()
-    }));
-  }catch(e){ /* modo incógnito o almacenamiento lleno */ }
+/* Enlace de la página de seguimiento. 'clave' es el token del pedido (no adivinable) o, en un
+   pedido sin token, su referencia. */
+function urlSeguimientoDe(clave){
+  return RP.api("pedido.html?ref=" + encodeURIComponent(clave));
+}
+
+function guardarSeguimiento(referencia, enlace){
+  RP.guardar(SEGUIMIENTO_KEY, { referencia, enlace: enlace || referencia, guardadoEn: Date.now() });
 }
 
 function mostrarBannerSeguimiento(){
-  let dato = null;
-  try{ dato = JSON.parse(localStorage.getItem(SEGUIMIENTO_KEY) || "null"); }
-  catch(e){ return; }
-  if(!dato || !dato.referencia) return;
+  if(!R.modulos.seguimiento) return;
+  const dato = RP.leer(SEGUIMIENTO_KEY);
+  if(!dato || typeof dato.referencia !== "string" || !dato.referencia) return;
 
   // Después de 6 horas se asume que el pedido ya se entregó
   const SEIS_HORAS = 6 * 60 * 60 * 1000;
-  if(Date.now() - (dato.guardadoEn || 0) > SEIS_HORAS){
-    try{ localStorage.removeItem(SEGUIMIENTO_KEY); }catch(e){}
+  if(Date.now() - (Number(dato.guardadoEn) || 0) > SEIS_HORAS){
+    RP.borrar(SEGUIMIENTO_KEY);
     return;
   }
 
   const banner = document.getElementById("bannerPedido");
-  banner.href = "pedido.html?ref=" + encodeURIComponent(dato.referencia);
+  banner.href = urlSeguimientoDe(typeof dato.enlace === "string" && dato.enlace ? dato.enlace : dato.referencia);
   document.getElementById("bannerPedidoRef").textContent = dato.referencia;
   setTimeout(() => banner.classList.add("show"), 1200);
 }
@@ -2520,6 +2600,7 @@ function mostrarPagoRechazado(transaction){
     '<p style="text-align:center; font-size:.82rem; color:#8a7a63;">Tu pedido sigue guardado en el carrito.</p>';
 
   document.getElementById("statusBotones").hidden = false;
+  document.getElementById("btnRechazoWhatsapp").style.display = R.contacto.whatsapp ? "" : "none";
   statusOverlay.classList.add("open");
   document.body.style.overflow = "hidden";
 }
@@ -2535,8 +2616,7 @@ document.getElementById("btnReintentarPago").addEventListener("click", async () 
 document.getElementById("btnRechazoWhatsapp").addEventListener("click", () => {
   statusOverlay.classList.remove("open");
   document.body.style.overflow = "";
-  const text = buildWhatsAppMessage();
-  window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${text}`, "_blank", "noopener,noreferrer");
+  abrirWhatsApp(buildWhatsAppMessage());
 });
 
 /* ---- Modal genérico de estado (pendiente / rechazado) ---- */
@@ -2566,15 +2646,16 @@ statusOverlay.addEventListener("click", (e) => {
 
 /* ---- Si el banco redirigió fuera de la página (PSE) y el cliente
    vuelve con ?id=..., consultamos el estado real de la transacción. ---- */
-(function comprobarRegresoDePago(){
+function comprobarRegresoDePago(){
   const params = new URLSearchParams(window.location.search);
   const transactionId = params.get("id");
-  if(!transactionId) return;
+  if(!transactionId || !/^[A-Za-z0-9_-]{1,80}$/.test(transactionId)) return;
 
-  const pedidoGuardado = JSON.parse(localStorage.getItem(PENDING_ORDER_KEY) || "null");
-  if(!pedidoGuardado) return;
+  // El resumen guardado solo vale si es de ESTE restaurante (RP.leer lo comprueba)
+  const pedidoGuardado = RP.leer(PENDING_ORDER_KEY);
+  if(!pedidoGuardado || !Array.isArray(pedidoGuardado.items)) return;
 
-  fetch(WOMPI_TRANSACTION_API + transactionId)
+  fetch(WOMPI_TRANSACTION_API + encodeURIComponent(transactionId))
     .then(r => r.json())
     .then(json => {
       if(json && json.data) manejarResultadoPago(json.data, pedidoGuardado);
@@ -2583,7 +2664,7 @@ statusOverlay.addEventListener("click", (e) => {
     .finally(() => {
       window.history.replaceState({}, document.title, window.location.pathname);
     });
-})();
+}
 
 /* =========================================================
    BUSCAR MI PEDIDO
@@ -2664,7 +2745,8 @@ buscarPedidoForm.addEventListener("submit", async (e) => {
         "apikey": SUPABASE_KEY_PUBLICA,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ telefono: telefono, total_pagado: total })
+      // p_restaurante: la búsqueda se acota al restaurante de este dominio (R.id)
+      body: JSON.stringify({ telefono: telefono, total_pagado: total, p_restaurante: R.id })
     });
     if(!resp.ok) throw new Error("HTTP " + resp.status);
     const pedidos = await resp.json();
@@ -2675,14 +2757,30 @@ buscarPedidoForm.addEventListener("submit", async (e) => {
       return;
     }
 
-    contenedor.innerHTML = pedidos.map(p => {
+    // Todo va con textContent y el enlace con un atributo ya validado: nada de lo que viene de la base es HTML.
+    pedidos.forEach(p => {
       const hora = new Date(p.creado_en).toLocaleTimeString("es-CO", { hour:"2-digit", minute:"2-digit", hour12:true });
-      return '<a class="resultado-pedido" href="pedido.html?ref=' + encodeURIComponent(p.referencia) + '">' +
-        '<div class="info">' +
-          '<div class="num">Pedido #' + String(p.numero).padStart(3,"0") + ' · ' + formatCOP(p.total) + '</div>' +
-          '<div class="est">' + (ESTADO_LEGIBLE[p.estado] || p.estado) + ' · ' + hora + '</div>' +
-        '</div><span class="flecha">Ver ›</span></a>';
-    }).join("");
+      const enlace = document.createElement("a");
+      enlace.className = "resultado-pedido";
+      // el token (no adivinable) abre el seguimiento; los pedidos viejos solo tienen su referencia
+      enlace.setAttribute("href", urlSeguimientoDe(String(p.token_seguimiento || p.referencia)));
+      const info = document.createElement("div");
+      info.className = "info";
+      const num = document.createElement("div");
+      num.className = "num";
+      num.textContent = "Pedido #" + String(p.numero).padStart(3,"0") + " · " + formatCOP(p.total);
+      const est = document.createElement("div");
+      est.className = "est";
+      est.textContent = (ESTADO_LEGIBLE[p.estado] || String(p.estado)) + " · " + hora;
+      info.appendChild(num);
+      info.appendChild(est);
+      const flecha = document.createElement("span");
+      flecha.className = "flecha";
+      flecha.textContent = "Ver ›";
+      enlace.appendChild(info);
+      enlace.appendChild(flecha);
+      contenedor.appendChild(enlace);
+    });
 
   }catch(err){
     console.error(err);
@@ -2736,22 +2834,28 @@ function observarSecciones(){
    el panel y se guarda en la base de datos. Esta pagina lo consulta
    en /api/estado al cargar y cada 5 minutos.
 
-   Si la consulta falla, se usa el horario local de respaldo (el
-   arreglo SCHEDULE de mas abajo) para no dejar la pagina muda.
+   Si la consulta falla no se inventa ningun horario: se deja pedir y
+   el servidor valida el horario al crear el pedido.
 ========================================================= */
 let restauranteAbierto = true;   // hasta que el servidor diga lo contrario
 let estadoServidor = null;
+let servicioActivo = true;       // false si el restaurante tiene el servicio suspendido (R.servicio y /api/estado)
+
+/* Lo mismo que responde el servidor al intentar pedir con el servicio suspendido (api/_restaurante.js). */
+const MENSAJE_SERVICIO_SUSPENDIDO = "Este restaurante no está recibiendo pedidos en este momento.";
 
 async function consultarEstadoRestaurante(){
   try{
-    const resp = await fetch("/api/estado", { cache: "no-store" });
+    const resp = await fetch(RP.api("/api/estado"), { cache: "no-store" });
     if(!resp.ok) throw new Error("HTTP " + resp.status);
     estadoServidor = await resp.json();
     restauranteAbierto = estadoServidor.abierto !== false;
+    if(estadoServidor.servicio) servicioActivo = estadoServidor.servicio.sirve !== false;
   }catch(err){
     console.warn("No se pudo consultar el estado del restaurante:", err.message);
     estadoServidor = null;
-    restauranteAbierto = isOpenNow();   // respaldo local
+    // Sin respuesta no se inventa un horario: se deja pedir y el servidor valida el horario al crear el pedido.
+    restauranteAbierto = true;
   }
   aplicarEstadoRestaurante();
   renderStatusBanner();
@@ -2759,56 +2863,52 @@ async function consultarEstadoRestaurante(){
 }
 
 /* Bloquea o habilita el pago en linea segun el estado.
-   El boton de WhatsApp NUNCA se toca: aunque este cerrado, el
-   cliente debe poder escribir para preguntar o programar. */
+   El boton de WhatsApp no se toca porque el restaurante este CERRADO: aunque este cerrado, el
+   cliente debe poder escribir para preguntar o programar.
+
+   Lo que este restaurante no ofrece (sin pasarela de pago, sin WhatsApp) o no puede ofrecer ahora
+   (servicio suspendido) si se esconde de verdad: el menu sigue viendose, pero no se puede pedir. */
 function aplicarEstadoRestaurante(){
   const aviso = document.getElementById("avisoCerrado");
   const cerrado = !restauranteAbierto;
+  const suspendido = !servicioActivo;
 
   payOnlineBtn.hidden = cerrado;
   const divisor = document.querySelector(".pay-divider");
   if(divisor) divisor.hidden = cerrado;
 
-  if(cerrado){
+  const hayPago = R.pago.disponible && !suspendido;
+  const hayWhatsapp = !!R.contacto.whatsapp && !suspendido;
+  payOnlineBtn.style.display = hayPago ? "" : "none";
+  whatsappBtn.style.display = hayWhatsapp ? "" : "none";
+  if(divisor) divisor.style.display = (hayPago && hayWhatsapp) ? "" : "none";
+
+  if(suspendido){
+    aviso.hidden = false;
+    aviso.textContent = MENSAJE_SERVICIO_SUSPENDIDO;
+  }else if(!hayPago && !hayWhatsapp){
+    aviso.hidden = false;
+    aviso.textContent = "Por ahora este restaurante no recibe pedidos por esta página.";
+  }else if(cerrado){
     aviso.hidden = false;
     aviso.textContent = (estadoServidor && estadoServidor.mensaje)
-      || "Estamos cerrados. Puedes escribirnos por WhatsApp para programar tu pedido.";
+      || ("Estamos cerrados." + (R.contacto.whatsapp ? " Puedes escribirnos por WhatsApp para programar tu pedido." : ""));
   }else{
     aviso.hidden = true;
   }
 
   // Si el formulario de pago estaba abierto, se cierra
-  if(cerrado && paymentFormOverlay.classList.contains("open")){
+  if((cerrado || suspendido) && paymentFormOverlay.classList.contains("open")){
     closePaymentForm();
   }
 }
 
 /* =========================================================
    HORARIOS Y ESTADO ABIERTO / CERRADO
-   Horarios reales de Los Taqueiros (índice 0 = domingo, como Date.getDay()).
+   El horario lo manda el servidor (/api/estado: el que configura el dueño en el panel).
+   Aqui no hay ningun horario de respaldo escrito: sin respuesta del servidor no se inventa nada.
    Horas en formato 24h "HH:MM".
 ========================================================= */
-const SCHEDULE = [
-  { day:"Domingo",  open:"16:30", close:"23:00" },
-  { day:"Lunes",    open:"16:30", close:"22:30" },
-  { day:"Martes",   open:"16:30", close:"22:30" },
-  { day:"Miércoles",open:"16:30", close:"22:30" },
-  { day:"Jueves",   open:"16:30", close:"22:30" },
-  { day:"Viernes",  open:"16:30", close:"23:00" },
-  { day:"Sábado",   open:"16:30", close:"23:00" }
-];
-
-function toMinutes(hhmm){
-  const [h,m] = hhmm.split(":").map(Number);
-  return h*60+m;
-}
-
-function isOpenNow(){
-  const now = new Date();
-  const today = SCHEDULE[now.getDay()];
-  const nowMin = now.getHours()*60 + now.getMinutes();
-  return nowMin >= toMinutes(today.open) && nowMin < toMinutes(today.close);
-}
 
 function formatHour(hhmm){
   const [h,m] = hhmm.split(":").map(Number);
@@ -2817,80 +2917,242 @@ function formatHour(hhmm){
   return `${h12}:${String(m).padStart(2,"0")} ${period}`;
 }
 
+/* El banner y el pie se arman con nodos de texto: el mensaje de "cerrado" y los dias del horario
+   los escribe el dueño, asi que NUNCA se pegan como HTML. */
+function pintarBanner(banner, clase, icono, titulo, resto){
+  banner.className = "status-banner " + clase;
+  banner.style.display = "";
+  banner.textContent = "";
+  banner.appendChild(document.createTextNode(icono + " "));
+  const span = document.createElement("span");
+  const fuerte = document.createElement("strong");
+  fuerte.textContent = titulo;
+  span.appendChild(fuerte);
+  if(resto) span.appendChild(document.createTextNode(" " + resto));
+  banner.appendChild(span);
+}
+
 function renderStatusBanner(){
   const banner = document.getElementById("statusBanner");
 
-  // Si el servidor ya respondio, su horario configurado manda
-  if(estadoServidor){
-    const hoy = estadoServidor.horarioHoy;
-    if(estadoServidor.abierto){
-      banner.className = "status-banner open";
-      const cierra = hoy ? formatHour(hoy.cierra) : "";
-      banner.innerHTML = "\u{1F525} <span><strong>\u00a1Estamos que ardemos!</strong> "
-        + "Ahorita s\u00ed estamos atendiendo pedidos"
-        + (cierra ? " \u2014 hoy hasta las " + cierra : "")
-        + ". \u00a1Ant\u00f3jate y pide ya! \u{1F32E}</span>";
-    }else{
-      banner.className = "status-banner closed";
-      banner.innerHTML = "\u{1F32E} <span><strong>"
-        + (estadoServidor.mensaje || "Por hoy ya cerramos la cocina.")
-        + "</strong></span>";
-    }
+  if(!servicioActivo){
+    pintarBanner(banner, "closed", RP.t("banner_cerrado_icono"), MENSAJE_SERVICIO_SUSPENDIDO, "");
     return;
   }
 
-  const today = SCHEDULE[new Date().getDay()];
-  const horario = `${formatHour(today.open)} – ${formatHour(today.close)}`;
+  // Solo se pinta con lo que dijo el servidor (su horario configurado manda)
+  if(!estadoServidor){
+    banner.className = "status-banner";
+    banner.style.display = "none";
+    banner.textContent = "";
+    return;
+  }
 
-  if(isOpenNow()){
-    banner.className = "status-banner open";
-    banner.innerHTML = `🔥 <span><strong>¡Estamos que ardemos!</strong> Ahorita sí estamos atendiendo pedidos — hoy hasta las ${formatHour(today.close)}. ¡Antójate y pide ya! 🌮</span>`;
+  const hoy = estadoServidor.horarioHoy;
+  if(estadoServidor.abierto){
+    const cierra = hoy && hoy.cierra ? formatHour(String(hoy.cierra)) : "";
+    pintarBanner(banner, "open", RP.t("banner_abierto_icono"), RP.t("banner_abierto_titulo"),
+      RP.t("banner_abierto_texto", { cierre: cierra ? " — hoy hasta las " + cierra : "" }));
   }else{
-    banner.className = "status-banner closed";
-    banner.innerHTML = `🌮 <span><strong>Por hoy ya cerramos la cocina.</strong> En este momento no estamos atendiendo, pero hoy abrimos de ${horario}. ¡Vuelve pronto! 🔥</span>`;
+    pintarBanner(banner, "closed", RP.t("banner_cerrado_icono"),
+      (typeof estadoServidor.mensaje === "string" && estadoServidor.mensaje) || RP.t("banner_cerrado_mensaje"), "");
   }
 }
 
 function renderFooterHours(){
   const list = document.getElementById("footerHours");
+  list.textContent = "";
 
-  // Horario configurado por el restaurante, si el servidor respondio
-  if(estadoServidor && Array.isArray(estadoServidor.horarios) && estadoServidor.horarios.length){
-    list.innerHTML = estadoServidor.horarios.map(h =>
-      h.activo === false
-        ? "<li>" + h.dia + ": cerrado</li>"
-        : "<li>" + h.dia + ": " + formatHour(h.abre) + " \u2013 " + formatHour(h.cierra) + "</li>"
-    ).join("");
-    return;
+  // Horario configurado por el restaurante (lo manda el servidor)
+  const horarios = estadoServidor && Array.isArray(estadoServidor.horarios) ? estadoServidor.horarios : [];
+  horarios.forEach(h => {
+    const li = document.createElement("li");
+    li.textContent = h.activo === false
+      ? String(h.dia) + ": cerrado"
+      : String(h.dia) + ": " + formatHour(String(h.abre)) + " – " + formatHour(String(h.cierra));
+    list.appendChild(li);
+  });
+  // Sin horario no se muestra la columna vacia
+  list.parentElement.style.display = horarios.length ? "" : "none";
+}
+
+/* =========================================================
+   MARCA DEL RESTAURANTE Y MODULOS
+
+   Todo lo que antes estaba escrito en el HTML (nombre, logo, textos, redes, direccion,
+   telefono, colores) se pinta aqui con los datos de /api/restaurante. Nada se inserta como HTML:
+   los textos van con textContent y los enlaces con atributos de valores ya validados
+   (restaurante-publico.js).
+========================================================= */
+function crearEnlace(href, etiqueta, contenido){
+  const a = document.createElement("a");
+  a.setAttribute("href", href);
+  a.setAttribute("target", "_blank");
+  a.setAttribute("rel", "noopener");
+  a.setAttribute("aria-label", etiqueta);
+  a.textContent = contenido;
+  return a;
+}
+
+function ocultarSiVacio(id, texto){
+  const el = document.getElementById(id);
+  el.textContent = texto || "";
+  el.style.display = texto ? "" : "none";
+}
+
+function aplicarMarca(){
+  const nombre = R.nombre;
+
+  // Pestana del navegador
+  document.title = RP.t("titulo_pagina") || nombre;
+  const meta = document.querySelector('meta[name="description"]');
+  if(meta) meta.setAttribute("content", RP.t("descripcion_pagina") || ("Pide en línea en " + nombre + "."));
+  RP.aplicarIconos(R);
+  RP.aplicarLogos(R);
+  document.getElementById("heroLogoMarco").style.display = R.marca.logo ? "" : "none";
+
+  // Cabecera (la ultima palabra del nombre va resaltada) y pie
+  const mayusculas = nombre.toLocaleUpperCase("es");
+  const partes = RP.partesNombre(mayusculas);
+  const marcaNombre = document.getElementById("marcaNombre");
+  marcaNombre.textContent = "";
+  if(partes.prefijo) marcaNombre.appendChild(document.createTextNode(partes.prefijo));
+  const resaltado = document.createElement("span");
+  resaltado.textContent = partes.resaltado;
+  marcaNombre.appendChild(resaltado);
+  document.getElementById("footerNombre").textContent = mayusculas;
+
+  // Portada
+  ocultarSiVacio("heroEslogan", RP.t("eslogan"));
+  ocultarSiVacio("heroTagline", RP.t("tagline"));
+  document.getElementById("ctaMenu").textContent = "Ver el menú " + RP.emoji(R);
+  document.getElementById("orderNote").setAttribute("placeholder", RP.t("ejemplo_nota"));
+
+  // Pie: descripcion, redes, contacto y derechos
+  ocultarSiVacio("footerDescripcion", RP.t("descripcion_pie"));
+
+  const redes = document.getElementById("footerSocials");
+  redes.textContent = "";
+  if(R.contacto.instagram) redes.appendChild(crearEnlace("https://instagram.com/" + R.contacto.instagram, "Instagram", "\u{1F4F7}"));
+  if(R.contacto.tiktok) redes.appendChild(crearEnlace("https://tiktok.com/@" + R.contacto.tiktok, "TikTok", "\u{1F3B5}"));
+  if(R.contacto.whatsapp) redes.appendChild(crearEnlace("https://wa.me/" + R.contacto.whatsapp, "WhatsApp", "\u{1F4AC}"));
+  redes.style.display = redes.firstChild ? "" : "none";
+
+  const contacto = document.getElementById("footerContacto");
+  contacto.textContent = "";
+  [
+    R.contacto.direccion ? "\u{1F4CD} " + R.contacto.direccion : "",
+    R.contacto.telefono ? "\u{1F4DE} " + R.contacto.telefono : "",
+    R.contacto.instagram ? "\u{1F4F8} @" + R.contacto.instagram : "",
+    RP.t("servicios_linea")
+  ].forEach(t => {
+    if(!t) return;
+    const li = document.createElement("li");
+    li.textContent = t;
+    contacto.appendChild(li);
+  });
+
+  // Derechos: "© <año> <nombre> — <final>" (el texto va como nodo de texto, detrás del año)
+  const pie = RP.t("pie_final");
+  const copia = document.querySelector(".copy");
+  while(copia.childNodes.length > 2) copia.removeChild(copia.lastChild);
+  copia.appendChild(document.createTextNode(" " + nombre + (pie ? " — " + pie : "")));
+
+  // Título de la ventana de "pedido confirmado" (se vuelve a poner al abrirla)
+  document.getElementById("confirmTitulo").textContent = "¡Pedido confirmado! " + RP.emoji(R);
+}
+
+/* Lo que el restaurante no tiene activo se esconde, sin inventar flujos nuevos. */
+function aplicarModulos(){
+  const conSeguimiento = R.modulos.seguimiento;
+  document.getElementById("abrirMiPedidoTop").style.display = conSeguimiento ? "" : "none";
+  document.getElementById("abrirBuscarPedido").style.display = conSeguimiento ? "" : "none";
+
+  // Sin domicilio configurado (ubicacion + tarifas) no se ofrece: solo para llevar o en el local
+  if(!R.domicilio.ofrece){
+    const radio = paymentForm.querySelector('input[name="tipoPedido"][value="domicilio"]');
+    const llevar = paymentForm.querySelector('input[name="tipoPedido"][value="llevar"]');
+    if(radio){
+      radio.checked = false;
+      radio.disabled = true;
+      radio.closest("label").style.display = "none";
+    }
+    if(llevar) llevar.checked = true;
   }
-
-  list.innerHTML = SCHEDULE.map(s => `<li>${s.day}: ${formatHour(s.open)} – ${formatHour(s.close)}</li>`).join("");
 }
 
 /* =========================================================
    INIT
+   Nada arranca hasta saber de que restaurante es esta pagina (RP.cargar). Si no llega
+   (dominio desconocido, servidor caido) se muestra un mensaje neutro, sin datos de nadie.
 ========================================================= */
-document.getElementById("year").textContent = new Date().getFullYear();
-updateCartUI(false);
-renderFooterHours();
+let arrancada = false;
 
-/* El menú ya no está escrito en este archivo: se pide al servidor.
-   Hasta que llegue, se ve el esqueleto que trae el HTML. */
-cargarMenu();
+function arrancar(datos){
+  R = datos;
+  RP.aplicarColores(R);
 
-/* La disponibilidad se refresca al volver a la pestaña: si el cliente
-   dejó la página abierta y entre tanto se agotó algo, lo ve al volver. */
-document.addEventListener("visibilitychange", () => {
-  if(document.visibilityState === "visible" && CATEGORIES.length) refrescarDisponibilidad();
-});
-renderStatusBanner();
-mostrarBannerSeguimiento();
+  // Pago y domicilio: lo que dijo el servidor
+  MODO_COBRO = R.pago.modo === "produccion" ? "produccion" : "pruebas";
+  WOMPI_PUBLIC_KEY = R.pago.llave || "";
+  WOMPI_REDIRECT_URL = location.origin + RP.api("/?pago=exitoso");
+  WOMPI_TRANSACTION_API = MODO_COBRO === "produccion"
+    ? "https://production.wompi.co/v1/transactions/"
+    : "https://sandbox.wompi.co/v1/transactions/";
+  RESTAURANTE = R.ubicacion;
+  TARIFAS_DOMICILIO = R.domicilio.tarifas;
+  FACTOR_RECORRIDO = R.domicilio.factor;
+  COLORES_ZONA = R.marca.coloresZonas.length ? R.marca.coloresZonas : COLORES_ZONA_NEUTROS;
+  servicioActivo = R.servicio.sirve;
 
-// El horario lo manda el servidor: se consulta al entrar y cada 5
-// minutos, para que la pagina se entere si cierran mientras esta abierta.
-consultarEstadoRestaurante();
-setInterval(consultarEstadoRestaurante, 5 * 60 * 1000);
-setInterval(renderStatusBanner, 60000);
+  aplicarMarca();
+  aplicarModulos();
+  cart = loadCart();
+
+  document.getElementById("year").textContent = new Date().getFullYear();
+  updateCartUI(false);
+  renderFooterHours();
+  aplicarEstadoRestaurante();
+
+  /* El menú ya no está escrito en este archivo: se pide al servidor.
+     Hasta que llegue, se ve el esqueleto que trae el HTML. */
+  cargarMenu();
+
+  if(!arrancada){
+    arrancada = true;
+
+    /* La disponibilidad se refresca al volver a la pestaña: si el cliente
+       dejó la página abierta y entre tanto se agotó algo, lo ve al volver. */
+    document.addEventListener("visibilitychange", () => {
+      if(document.visibilityState === "visible" && CATEGORIES.length) refrescarDisponibilidad();
+    });
+
+    // El horario lo manda el servidor: se consulta al entrar y cada 5
+    // minutos, para que la pagina se entere si cierran mientras esta abierta.
+    setInterval(consultarEstadoRestaurante, 5 * 60 * 1000);
+    setInterval(renderStatusBanner, 60000);
+  }
+
+  renderStatusBanner();
+  mostrarBannerSeguimiento();
+  comprobarRegresoDePago();
+  consultarEstadoRestaurante();
+
+  RP.listo();
+}
+
+function iniciarPagina(){
+  RP.cargar().then(arrancar).catch(err => {
+    console.error("[Restaurante]", err);
+    if(err && err.tipo){
+      RP.mostrarNeutral(err.tipo, iniciarPagina);
+    }else{
+      // un fallo propio de la pagina (no del servidor): se recarga completa
+      RP.mostrarNeutral("error", () => location.reload());
+    }
+  });
+}
+iniciarPagina();
 </script>
 </body>
 </html>
