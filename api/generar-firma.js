@@ -52,6 +52,14 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Se firma SOLO en el modo en que se creo el pedido: firmar un pedido de
+    // produccion en prueba permitiria pagarlo con tarjetas de prueba (el webhook
+    // tambien lo rechaza; aqui ni se firma).
+    if (pedido.wompi_ambiente && pedido.wompi_ambiente !== (modoCobro === "produccion" ? "prod" : "test")) {
+      res.status(409).json({ error: "Este pedido se creó con otro modo de cobro" });
+      return;
+    }
+
     const cadena = `${referencia}${montoEnCentavos}${moneda}${secreto}`;
     const firma = crypto.createHash("sha256").update(cadena).digest("hex");
 

@@ -52,6 +52,7 @@ export async function correrEscenarios(opts) {
   let dominiosAusente = false;    // simula que la tabla restaurante_dominios no existe
   let authEstado = 0;             // si no es 0, /auth/v1/user responde ese HTTP (simula Auth con error)
   let idsPrueba = [];             // para que /api/alertas (modo real) solo vea restaurantes de prueba
+  let retener = null;             // (url, metodo) => Promise | null: detiene una peticion a la base (para provocar carreras)
   let callmebotResponde = () => ({ status: 200, texto: 'Message queued. You will receive it in a few seconds' });
 
   const H = (extra) => {
@@ -66,6 +67,7 @@ export async function correrEscenarios(opts) {
       const q = new URL(url).searchParams;
       const r = callmebotResponde(q.get('phone'));
       callmebot.push({ phone: q.get('phone'), apikey: q.get('apikey'), text: q.get('text') || '' });
+      if (r.lanzar) throw new Error(r.lanzar);      // simula un error de red cuyo mensaje trae la URL
       return new Response(r.texto, { status: r.status });
     }
     if (url.includes('nominatim.openstreetmap.org')) {
@@ -73,6 +75,7 @@ export async function correrEscenarios(opts) {
     }
     if (url.startsWith(URL_BASE)) {
       registro.push({ url, metodo, cuerpo: o && o.body, cabeceras: (o && o.headers) || {} });
+      if (retener) { const p = retener(url, metodo); if (p) await p; }
       if (falla && falla(url)) throw new Error('red caida (simulada)');
       if (authEstado && url.includes('/auth/v1/user')) return new Response('{"msg":"fallo interno"}', { status: authEstado });
       if (dominiosAusente && url.includes('/rest/v1/restaurante_dominios')) {
@@ -273,9 +276,21 @@ export async function correrEscenarios(opts) {
   function violaciones(desde, esperados) {
     const malas = [];
     for (const r of registro.slice(desde)) {
+      // RPC: solo la limpieza global (con la llave secreta otra RPC podria saltarse el filtro)
+      const rpc = r.url.match(/\/rest\/v1\/rpc\/([a-z_]+)/);
+      if (rpc) { if (rpc[1] !== 'limpiar_pedidos_huerfanos') malas.push(`RPC ${rpc[1]} no permitida desde el servidor`); continue; }
       const m = r.url.match(/\/rest\/v1\/([a-z_]+)(\?|$)/);
       if (!m) continue;
       const tabla = m[1];
+      // Formas de esquivar el filtro que el espia no veria: OR/AND logicos y recursos embebidos (joins)
+      if (/[?&](or|and|not\.or|not\.and)=/.test(r.url) || /[?&]select=[^&]*[()]/.test(decodeURIComponent(r.url))) {
+        malas.push(`${r.metodo} ${tabla} con or/and o un select embebido`);
+      }
+      // Un PATCH nunca cambia el restaurante de una fila (la llave secreta pasa el trigger)
+      if (r.metodo === 'PATCH') {
+        let c; try { c = JSON.parse(r.cuerpo); } catch { c = null; }
+        if (c && 'restaurante_id' in c) malas.push(`PATCH ${tabla} cambia restaurante_id`);
+      }
       if (['restaurantes', 'restaurante_dominios', 'superadmins'].includes(tabla)) continue;
       if (tabla === 'pedidos' && r.metodo === 'GET' && /[?&]referencia=eq\./.test(r.url) && /[?&]limit=2(&|$)/.test(r.url) && !/restaurante_id=/.test(r.url)) continue;
       if (r.metodo === 'POST') {
@@ -377,24 +392,25 @@ export async function correrEscenarios(opts) {
       const r = await pedirMenu(hA, `/api/menu?r=${slugDe(B)}`);
       return es(r.status === 200 && igual(idsMenu(r), ['solo-a', 'taco']), idsMenu(r));
     });
-    await T('si VERCEL_ENV no esta definido, tampoco se acepta ?r= como "produccion" (solo preview/desarrollo)', async () => {
-      process.env.VERCEL_ENV = 'preview';
+    // ?r= en preview exige ademas RESTAURANTE_POR_PARAMETRO=1 (ver la prueba "PREVIEW: ?r= esta APAGADO..." mas abajo)
+    await T('PREVIEW con ?r= activado a proposito: ?r=<slug> elige el restaurante (solo preview/desarrollo)', async () => {
+      process.env.VERCEL_ENV = 'preview'; process.env.RESTAURANTE_POR_PARAMETRO = '1';
       const r = await pedirMenu(`desconocido-${sfx}.otro.test`, `/api/menu?r=${slugDe(B)}`);
-      process.env.VERCEL_ENV = 'production';
+      process.env.VERCEL_ENV = 'production'; delete process.env.RESTAURANTE_POR_PARAMETRO;
       return es(r.status === 200 && igual(idsMenu(r), ['solo-b', 'taco']), r.status);
     });
     await T('PREVIEW: con host de A y ?r=B manda el host (el parametro es el ultimo recurso)', async () => {
-      process.env.VERCEL_ENV = 'preview';
+      process.env.VERCEL_ENV = 'preview'; process.env.RESTAURANTE_POR_PARAMETRO = '1';
       const r = await pedirMenu(hA, `/api/menu?r=${slugDe(B)}`);
-      process.env.VERCEL_ENV = 'production';
+      process.env.VERCEL_ENV = 'production'; delete process.env.RESTAURANTE_POR_PARAMETRO;
       return es(r.status === 200 && igual(idsMenu(r), ['solo-a', 'taco']), idsMenu(r));
     });
     await T('PREVIEW: ?r= con un slug que no existe o con formato raro -> 404', async () => {
-      process.env.VERCEL_ENV = 'preview';
+      process.env.VERCEL_ENV = 'preview'; process.env.RESTAURANTE_POR_PARAMETRO = '1';
       const malo = `desconocido-${sfx}.otro.test`;
       const a = await pedirMenu(malo, '/api/menu?r=no-existe-' + sfx);
       const b = await pedirMenu(malo, '/api/menu?r=' + encodeURIComponent("x' or 1=1"));
-      process.env.VERCEL_ENV = 'production';
+      process.env.VERCEL_ENV = 'production'; delete process.env.RESTAURANTE_POR_PARAMETRO;
       return es(a.status === 404 && b.status === 404, `${a.status} ${b.status}`);
     });
     await T('PRODUCCION: encabezados falsos (x-forwarded-host, x-restaurante, origin...) no cambian el restaurante', async () => {
@@ -617,7 +633,7 @@ export async function correrEscenarios(opts) {
       const t = textos.join('|');
       return es(!todosLosSecretos.some((s) => s && t.includes(s)) && !/SOLO-INTERNO-A|vigente_hasta|dias_gracia|modalidad|plan|ubicacion|callmebot|wompi/i.test(t), t.slice(0, 200));
     });
-    await T('reporta el servicio suspendido (y en gracia) sin revelar fechas', async () => {
+    await T('reporta el servicio suspendido; en gracia dice "activo" (estar atrasado con la mensualidad no es publico) y sin fechas', async () => {
       await parchear('restaurantes', `id=eq.${B.id}`, { estado: 'suspendido' }); R.invalidarCache();
       const s = await invocar(M.restaurante, { host: hB, ruta: '/api/restaurante' });
       const dia = new Date(dateNowReal() - 2 * 86400000).toISOString().slice(0, 10);
@@ -625,7 +641,8 @@ export async function correrEscenarios(opts) {
       const g = await invocar(M.restaurante, { host: hB, ruta: '/api/restaurante' });
       await parchear('restaurantes', `id=eq.${B.id}`, { vigente_hasta: null }); R.invalidarCache();
       return es(s.cuerpo.servicio.estado === 'suspendido' && s.cuerpo.servicio.sirve === false && s.cuerpo.servicio.motivo === 'servicio_suspendido'
-        && g.cuerpo.servicio.estado === 'gracia' && g.cuerpo.servicio.sirve === true && !JSON.stringify(g.cuerpo).includes(dia), JSON.stringify([s.cuerpo.servicio, g.cuerpo.servicio]));
+        && g.cuerpo.servicio.estado === 'activo' && g.cuerpo.servicio.sirve === true && g.cuerpo.servicio.motivo === null
+        && !/gracia/i.test(JSON.stringify(g.cuerpo)) && !JSON.stringify(g.cuerpo).includes(dia), JSON.stringify([s.cuerpo.servicio, g.cuerpo.servicio]));
     });
     await T('solo GET (POST -> 405) y sin cache en el borde', async () => {
       const p = await invocar(M.restaurante, { metodo: 'POST', host: hA });
@@ -1035,10 +1052,10 @@ export async function correrEscenarios(opts) {
     grupo('alertas');
     const alertaMal = (clave) => invocar(M.alertas, { host: 'cron.example', ruta: '/api/alertas' + (clave ? `?clave=${clave}` : '') });
     const conCron = (m, extra = {}) => invocar(m, { host: 'cron.example', headers: { authorization: 'Bearer ' + process.env.CRON_SECRET }, ...extra });
-    const sembrarSinAtender = async (r, ref) => insertar('pedidos', {
+    const sembrarSinAtender = async (r, ref, minutos = 10) => insertar('pedidos', {
       restaurante_id: r.id, referencia: ref, estado: 'nuevo', estado_pago: 'aprobado', cliente_nombre: 'Sin Atender', cliente_telefono: '3001112233',
       tipo_pedido: 'llevar', items: [{ id: 'taco', nombre: 'Taco', cantidad: 1, precio: 1000 }], subtotal: 1000, costo_domicilio: 0, total: 1000,
-      pagado_en: new Date(dateNowReal() - 10 * 60000).toISOString(), alerta_enviada: false
+      pagado_en: new Date(dateNowReal() - minutos * 60000).toISOString(), alerta_enviada: false
     });
     await T('401 sin secreto; con Bearer o ?clave= entra', async () => {
       const a = await alertaMal(); const b = await alertaMal('incorrecta');
@@ -1420,7 +1437,291 @@ export async function correrEscenarios(opts) {
     });
 
     /* =====================================================================
-       11. NADA SECRETO SALE: ni en respuestas ni en el log
+       11. REVISION ADVERSARIA (segunda revision, independiente): cada prueba
+           corresponde a un hallazgo de docs/multirestaurante.md seccion 13
+    ===================================================================== */
+    grupo('adversaria');
+    const callmebotNormal = () => ({ status: 200, texto: 'Message queued. You will receive it in a few seconds' });
+    // A cobra en PRODUCCION mientras corre fn (con sus secretos prod); despues vuelve a test
+    async function conModoProduccion(r, n, fn) {
+      const prod = { wompi_integridad_prod: secretoDe(n, 'integridad-prod'), wompi_eventos_prod: secretoDe(n, 'eventos-prod') };
+      todosLosSecretos.push(prod.wompi_integridad_prod, prod.wompi_eventos_prod);
+      await parchear('restaurante_secretos', `restaurante_id=eq.${r.id}`, { ...prod, otros: { wompi_modo: 'produccion' } });
+      try { return await fn(); } finally {
+        await parchear('restaurante_secretos', `restaurante_id=eq.${r.id}`, { wompi_integridad_prod: null, wompi_eventos_prod: null, otros: { wompi_modo: 'test' } });
+      }
+    }
+
+    // --- H1: el ambiente del evento (prueba/produccion) debe ser el del cobro ---------------------------
+    await T('H1 webhook: un pedido de PRODUCCION no se aprueba con un evento de PRUEBA firmado con el secreto de prueba del mismo restaurante (tarjeta de prueba)', async () =>
+      conModoProduccion(A, 'a', async () => {
+        const pa = await nuevoPedidoPendiente(hA, A, 10000);
+        const p0 = await pedidoDe(A, pa.referencia);
+        callmebot.length = 0;
+        const t = await webhook(evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test'), ambiente: 'test' }));
+        const p1 = await pedidoDe(A, pa.referencia);
+        const avisos = callmebot.length;
+        const ok = await webhook(evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-prod'), ambiente: 'prod' }));
+        const p2 = await pedidoDe(A, pa.referencia);
+        return es(p0.wompi_ambiente === 'prod' && t.status === 200 && p1.estado === 'pendiente_pago' && p1.estado_pago === 'pendiente' && avisos === 0
+          && ok.status === 200 && p2.estado === 'nuevo' && p2.estado_pago === 'aprobado',
+          `${p0.wompi_ambiente} ${t.status} ${p1.estado}/${p1.estado_pago} avisos=${avisos} ${ok.status} ${p2.estado}`);
+      }));
+    await T('H1 webhook: un pedido creado en PRUEBA no se aprueba con un evento de prueba si el restaurante ya cobra en PRODUCCION', async () => {
+      const pa = await nuevoPedidoPendiente(hA, A, 10000);   // A todavia en test
+      return conModoProduccion(A, 'a', async () => {
+        const r = await webhook(evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test'), ambiente: 'test' }));
+        const p = await pedidoDe(A, pa.referencia);
+        return es(r.status === 200 && p.estado === 'pendiente_pago' && p.estado_pago === 'pendiente', `${r.status} ${p.estado}/${p.estado_pago}`);
+      });
+    });
+    await T('H1 webhook: un pedido de PRODUCCION no se aprueba con un evento de prueba aunque el restaurante haya vuelto a prueba', async () => {
+      const pa = await conModoProduccion(A, 'a', () => nuevoPedidoPendiente(hA, A, 10000));   // creado en prod; A vuelve a test
+      const r = await webhook(evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test'), ambiente: 'test' }));
+      const p = await pedidoDe(A, pa.referencia);
+      return es(p.wompi_ambiente === 'prod' && r.status === 200 && p.estado === 'pendiente_pago' && p.estado_pago === 'pendiente', `${p.wompi_ambiente} ${r.status} ${p.estado}/${p.estado_pago}`);
+    });
+    if (!real) {
+      await T('H1 Taqueiros (transitorio, modo sin fijar): un pedido creado en produccion no se aprueba con un evento de PRUEBA', async () => {
+        const prodT = (await leer('productos', `restaurante_id=eq.${TAQUEIROS_ID}&disponible=is.true&select=id,precio&limit=1`))[0];
+        process.env.WOMPI_INTEGRITY_SECRET_PROD = 'ENV-integridad-prod-' + sfx; process.env.WOMPI_EVENTS_SECRET_TEST = 'ENV-eventos-' + sfx;
+        todosLosSecretos.push(process.env.WOMPI_INTEGRITY_SECRET_PROD, process.env.WOMPI_EVENTS_SECRET_TEST);
+        try {
+          const c = await invocar(M.crear, { metodo: 'POST', host: HOST_TAQUEIROS, cuerpo: cuerpoPedido([{ id: prodT.id, cantidad: 1, precio: prodT.precio }], cliente(), 'produccion') });
+          if (c.cuerpo && c.cuerpo.referencia) creados.pedidosTaqueiros.push(c.cuerpo.referencia);
+          const r = await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: c.cuerpo.total * 100, secreto: process.env.WOMPI_EVENTS_SECRET_TEST, ambiente: 'test' }));
+          const p = await pedidoDe({ id: TAQUEIROS_ID }, c.cuerpo.referencia);
+          return es(c.status === 200 && p.wompi_ambiente === 'prod' && r.status === 200 && p.estado === 'pendiente_pago', `${c.status} ${p && p.wompi_ambiente} ${r.status} ${p && p.estado}`);
+        } finally { delete process.env.WOMPI_INTEGRITY_SECRET_PROD; delete process.env.WOMPI_EVENTS_SECRET_TEST; }
+      });
+    }
+    await T('webhook: el checksum en MAYUSCULAS (como lo manda Wompi) se acepta; uno de otro largo -> 401 (no 500)', async () => {
+      const p1 = await nuevoPedidoPendiente(hB, B, 20000), p2 = await nuevoPedidoPendiente(hB, B, 20000);
+      const e1 = evento({ referencia: p1.referencia, montoCentavos: p1.total * 100, secreto: secretoDe('b', 'eventos-test') });
+      e1.signature.checksum = e1.signature.checksum.toUpperCase();
+      const e2 = evento({ referencia: p2.referencia, montoCentavos: p2.total * 100, secreto: secretoDe('b', 'eventos-test') });
+      e2.signature.checksum = e2.signature.checksum.slice(0, 20);
+      const r1 = await webhook(e1), r2 = await webhook(e2);
+      return es(r1.status === 200 && (await pedidoDe(B, p1.referencia)).estado_pago === 'aprobado' && r2.status === 401 && (await pedidoDe(B, p2.referencia)).estado === 'pendiente_pago', `${r1.status} ${r2.status}`);
+    });
+    await T('H1 generar-firma: no firma un pedido en un modo de cobro distinto del que se creo (409, sin firma)', async () => {
+      const pa = await nuevoPedidoPendiente(hA, A, 10000);   // creado en test
+      return conModoProduccion(A, 'a', async () => {
+        const r = await invocar(M.firma, { metodo: 'POST', host: hA, cuerpo: { referencia: pa.referencia, montoEnCentavos: pa.total * 100, modo: 'produccion' } });
+        return es(r.status === 409 && !(r.cuerpo && r.cuerpo.firma), `${r.status} ${JSON.stringify(r.cuerpo)}`);
+      });
+    });
+    if (!real) {
+      await T('H1 Taqueiros (transitorio): un pedido creado en produccion no se puede volver a firmar en prueba con generar-firma', async () => {
+        const prodT = (await leer('productos', `restaurante_id=eq.${TAQUEIROS_ID}&disponible=is.true&select=id,precio&limit=1`))[0];
+        process.env.WOMPI_INTEGRITY_SECRET_TEST = 'ENV-integridad-' + sfx; process.env.WOMPI_INTEGRITY_SECRET_PROD = 'ENV-integridad-prod-' + sfx;
+        todosLosSecretos.push(process.env.WOMPI_INTEGRITY_SECRET_PROD);
+        try {
+          const c = await invocar(M.crear, { metodo: 'POST', host: HOST_TAQUEIROS, cuerpo: cuerpoPedido([{ id: prodT.id, cantidad: 1, precio: prodT.precio }], cliente(), 'produccion') });
+          if (c.cuerpo && c.cuerpo.referencia) creados.pedidosTaqueiros.push(c.cuerpo.referencia);
+          const f = await invocar(M.firma, { metodo: 'POST', host: HOST_TAQUEIROS, cuerpo: { referencia: c.cuerpo.referencia, montoEnCentavos: c.cuerpo.total * 100, modo: 'pruebas' } });
+          return es(c.status === 200 && f.status === 409 && !(f.cuerpo && f.cuerpo.firma), `${c.status} ${f.status}`);
+        } finally { delete process.env.WOMPI_INTEGRITY_SECRET_TEST; delete process.env.WOMPI_INTEGRITY_SECRET_PROD; }
+      });
+    }
+
+    // --- H2: idempotencia bajo concurrencia -----------------------------------------------------------------
+    await T('H2 webhook: tres entregas SIMULTANEAS del mismo evento aprobado avisan UNA sola vez', async () => {
+      const pa = await nuevoPedidoPendiente(hA, A, 10000);
+      const ev = evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test') });
+      callmebot.length = 0;
+      const rs = await Promise.all([webhook(ev), webhook(ev), webhook(ev)]);
+      const p = await pedidoDe(A, pa.referencia);
+      const avisos = callmebot.filter((c) => c.text.includes(pa.referencia)).length;
+      return es(rs.every((r) => r.status === 200) && avisos === 1 && p.estado_pago === 'aprobado' && rs.filter((r) => r.cuerpo.duplicated).length === 2,
+        `avisos=${avisos} ${JSON.stringify(rs.map((r) => r.cuerpo))}`);
+    });
+    await T('H2 webhook: un rechazo que leyo el pedido ANTES de la aprobacion pero escribe DESPUES no deshace el pago', async () => {
+      const pa = await nuevoPedidoPendiente(hA, A, 10000);
+      const rechazo = evento({ referencia: pa.referencia, estado: 'DECLINED', montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test') });
+      const aprobado = evento({ referencia: pa.referencia, montoCentavos: pa.total * 100, secreto: secretoDe('a', 'eventos-test') });
+      let soltar; const pausa = new Promise((r) => { soltar = r; });
+      let retenidas = 0;
+      retener = (url, metodo) => (metodo === 'PATCH' && url.includes(encodeURIComponent(pa.referencia)) && retenidas++ === 0 ? pausa : null);
+      try {
+        const enCurso = webhook(rechazo);
+        for (let i = 0; i < 200 && retenidas === 0; i++) await new Promise((r) => setTimeout(r, 5));
+        const a = await webhook(aprobado);
+        soltar(); await enCurso;
+        const p = await pedidoDe(A, pa.referencia);
+        return es(retenidas >= 1 && a.status === 200 && p.estado === 'nuevo' && p.estado_pago === 'aprobado', `${retenidas} ${a.status} ${p.estado}/${p.estado_pago}`);
+      } finally { retener = null; soltar(); }
+    });
+
+    // --- H3: monto en centavos exactos y moneda ----------------------------------------------------------
+    await T('H3 webhook: el monto se compara en CENTAVOS exactos (50 centavos menos no pasan) y la moneda debe ser COP', async () => {
+      const p1 = await nuevoPedidoPendiente(hB, B, 20000), p2 = await nuevoPedidoPendiente(hB, B, 20000);
+      const e1 = evento({ referencia: p1.referencia, montoCentavos: p1.total * 100 - 50, secreto: secretoDe('b', 'eventos-test') });
+      const e2 = evento({ referencia: p2.referencia, montoCentavos: p2.total * 100, secreto: secretoDe('b', 'eventos-test') });
+      e2.data.transaction.currency = 'USD';
+      const r1 = await webhook(e1), r2 = await webhook(e2);
+      const q1 = await pedidoDe(B, p1.referencia), q2 = await pedidoDe(B, p2.referencia);
+      return es(r1.status === 200 && q1.estado === 'pendiente_pago' && q1.estado_pago === 'error' && r2.status === 200 && q2.estado === 'pendiente_pago' && q2.estado_pago === 'error',
+        `${q1.estado}/${q1.estado_pago} ${q2.estado}/${q2.estado_pago}`);
+    });
+
+    // --- H4: ?r= en previews publicos -------------------------------------------------------------------
+    await T('H4 PREVIEW: ?r= esta APAGADO salvo RESTAURANTE_POR_PARAMETRO=1 (un preview publico con las variables de produccion no opera restaurantes reales)', async () => {
+      const malo = `desconocido-${sfx}.otro.test`;
+      delete process.env.RESTAURANTE_POR_PARAMETRO;
+      process.env.VERCEL_ENV = 'preview';
+      const sin = await pedirMenu(malo, `/api/menu?r=${slugDe(B)}`);
+      const sinCrear = await invocar(M.crear, { metodo: 'POST', host: malo, ruta: `/api/crear-pedido?r=${slugDe(B)}`, cuerpo: cuerpoPedido([{ id: 'taco', cantidad: 1, precio: 20000 }]) });
+      delete process.env.VERCEL_ENV;
+      const sinEntorno = await pedirMenu(malo, `/api/menu?r=${slugDe(B)}`);
+      process.env.VERCEL_ENV = 'preview'; process.env.RESTAURANTE_POR_PARAMETRO = '1';
+      const con = await pedirMenu(malo, `/api/menu?r=${slugDe(B)}`);
+      process.env.VERCEL_ENV = 'production';
+      const prod = await pedirMenu(malo, `/api/menu?r=${slugDe(B)}`);
+      delete process.env.RESTAURANTE_POR_PARAMETRO;
+      return es(sin.status === 404 && sinCrear.status === 404 && sinEntorno.status === 404 && con.status === 200 && igual(idsMenu(con), ['solo-b', 'taco']) && prod.status === 404,
+        `${sin.status} ${sinCrear.status} ${sinEntorno.status} ${con.status} ${prod.status}`);
+    });
+    await T('H4b la copia vieja de la resolucion (Supabase caido) tiene vida maxima: pasadas 6 h ya no se usa (503)', async () => {
+      R.invalidarCache(); await pedirMenu(hA);
+      desfase += 7 * 3600 * 1000; falla = () => true;
+      try {
+        const r = await invocar(M.restaurante, { host: hA, ruta: '/api/restaurante' });
+        return es(r.status === 503, r.status);
+      } finally { falla = null; desfase -= 7 * 3600 * 1000; R.invalidarCache(); }
+    });
+
+    // --- H5: alertas: ventana de tiempo, tiempo maximo y paralelo -------------------------------------
+    await T('H5 alertas: un pedido de hace dias no se avisa (ventana de 2 h) ni se marca: cargar el contacto despues no manda un aluvion', async () => {
+      const ref = `TAQ-AL-${sfx}-VIEJO`;
+      await sembrarSinAtender(A, ref, 3 * 24 * 60);
+      callmebot.length = 0;
+      const r = await conCron(M.alertas);
+      const p = await pedidoDe(A, ref);
+      await parchear('pedidos', `referencia=eq.${ref}&restaurante_id=eq.${A.id}`, { estado: 'entregado' });
+      return es(r.status === 200 && !callmebot.some((c) => c.text.includes(ref)) && p.alerta_enviada === false, `${r.status} ${p.alerta_enviada}`);
+    });
+    await T('H5 alertas: un CallMeBot lento en A no deja a B sin aviso y la corrida termina antes del limite de Vercel (10 s); lo que falto sale en la siguiente', async () => {
+      const refsA = [1, 2, 3, 4, 5, 6].map((i) => `TAQ-AL-${sfx}-LENTO${i}`), refB = `TAQ-AL-${sfx}-RAPIDO`;
+      for (const x of refsA) await sembrarSinAtender(A, x);
+      await sembrarSinAtender(B, refB);
+      const sa = await secretosDe(A);
+      let avance = 0;
+      callmebotResponde = (phone) => { if (phone === sa.callmebot_telefono) { desfase += 4000; avance += 4000; } return callmebotNormal(); };
+      callmebot.length = 0;
+      // Sin azar: el cron recorre en orden de creacion (A antes que B), el peor caso para B si fuera en serie
+      const azarReal = Math.random;
+      Math.random = () => 0;
+      try {
+        const t0 = Date.now();
+        const r = await conCron(M.alertas);
+        const dura = Date.now() - t0;
+        const enviadosA = callmebot.filter((c) => refsA.some((x) => c.text.includes(x))).length;
+        const marcadosA = (await Promise.all(refsA.map((x) => pedidoDe(A, x)))).filter((p) => p.alerta_enviada).length;
+        const bEnLaPrimera = callmebot.some((c) => c.text.includes(refB));
+        callmebotResponde = callmebotNormal;
+        await conCron(M.alertas);
+        const marcadosA2 = (await Promise.all(refsA.map((x) => pedidoDe(A, x)))).filter((p) => p.alerta_enviada).length;
+        return es(r.status === 200 && dura < 10000 && bEnLaPrimera && enviadosA < 6 && marcadosA === enviadosA && marcadosA2 === 6,
+          `dura=${dura}ms enviadosA=${enviadosA} marcadosA=${marcadosA} luego=${marcadosA2} B=${bEnLaPrimera}`);
+      } finally { Math.random = azarReal; callmebotResponde = callmebotNormal; desfase -= avance; }
+    });
+
+    await T('alertas: un pedido ya avisado no se vuelve a avisar en la siguiente pasada', async () => {
+      const ref = `TAQ-AL-${sfx}-UNAVEZ`;
+      await sembrarSinAtender(B, ref);
+      callmebot.length = 0;
+      await conCron(M.alertas); await conCron(M.alertas);
+      return es(callmebot.filter((c) => c.text.includes(ref)).length === 1, callmebot.filter((c) => c.text.includes(ref)).length);
+    });
+    await T('alertas: sin CRON_SECRET configurado nadie entra (ni con "Bearer undefined" ni con ?clave=undefined)', async () => {
+      const guardado = process.env.CRON_SECRET;
+      delete process.env.CRON_SECRET;
+      try {
+        const a = await invocar(M.alertas, { host: 'cron.example', headers: { authorization: 'Bearer undefined' } });
+        const b = await invocar(M.alertas, { host: 'cron.example', ruta: '/api/alertas?clave=undefined' });
+        const c = await invocar(M.keepAlive, { host: 'cron.example', headers: { authorization: 'Bearer undefined' } });
+        return es(a.status === 401 && b.status === 401 && c.status === 401, `${a.status} ${b.status} ${c.status}`);
+      } finally { process.env.CRON_SECRET = guardado; }
+    });
+
+    // --- H6: la apikey de CallMeBot no se filtra por los mensajes de error ----------------------------
+    await T('H6 notificar: la apikey de CallMeBot no queda en la salud ni en el log aunque CallMeBot la repita o el error de red traiga la URL', async () => {
+      // Una apikey con caracteres que cambian al codificarla en la URL (la URL la trae codificada)
+      const apikeyOriginal = (await secretosDe(A)).callmebot_apikey;
+      const rara = `SECRETO-a-${sfx}+clave/=`;
+      todosLosSecretos.push(rara);
+      await parchear('restaurante_secretos', `restaurante_id=eq.${A.id}`, { callmebot_apikey: rara });
+      const sa = await secretosDe(A);
+      const antesLog = logs.length;
+      await sembrarSinAtender(A, `TAQ-AL-${sfx}-ECO1`);
+      callmebotResponde = (phone) => (phone === sa.callmebot_telefono ? { status: 203, texto: `Message to: +${phone} APIKey ${sa.callmebot_apikey} is invalid` } : callmebotNormal());
+      try {
+        await conCron(M.alertas);
+        const s1 = await salud(A);
+        await sembrarSinAtender(A, `TAQ-AL-${sfx}-ECO2`);
+        callmebotResponde = (phone) => (phone === sa.callmebot_telefono
+          ? { lanzar: `fetch failed: https://api.callmebot.com/whatsapp.php?phone=${phone}&text=x&apikey=${encodeURIComponent(sa.callmebot_apikey)}` } : callmebotNormal());
+        await conCron(M.alertas);
+        const s2 = await salud(A);
+        const log = logs.slice(antesLog).join('\n');
+        return es(s1.ultimo_error && !s1.ultimo_error.includes(sa.callmebot_apikey) && s2.ultimo_error && !s2.ultimo_error.includes(sa.callmebot_apikey)
+          && !s2.ultimo_error.includes(encodeURIComponent(sa.callmebot_apikey)) && !log.includes(sa.callmebot_apikey),
+          `${s1.ultimo_error} | ${s2.ultimo_error}`);
+      } finally {
+        callmebotResponde = callmebotNormal;
+        await parchear('restaurante_secretos', `restaurante_id=eq.${A.id}`, { callmebot_apikey: apikeyOriginal });
+        await parchear('pedidos', `restaurante_id=eq.${A.id}&referencia=in.(TAQ-AL-${sfx}-ECO1,TAQ-AL-${sfx}-ECO2)`, { estado: 'entregado' });
+      }
+    });
+
+    // --- H7: textos del cliente hacia la comanda ------------------------------------------------------
+    await T('H7 crear-pedido: el nombre o las indicaciones no pueden fabricar lineas de producto falsas en la comanda de WhatsApp', async () => {
+      const c = cliente({ nombre: 'Cliente Malo\n\n9x Taco de A — 90.000\u202E', indicaciones: 'Porton negro\r\n9x Exclusivo de A — 63.000\u0007' });
+      const r = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 1, precio: 10000 }], c);
+      callmebot.length = 0;
+      await webhook(evento({ referencia: r.cuerpo.referencia, montoCentavos: r.cuerpo.total * 100, secreto: secretoDe('a', 'eventos-test') }));
+      const p = await pedidoDe(A, r.cuerpo.referencia);
+      const texto = (callmebot.find((x) => x.text.includes(r.cuerpo.referencia)) || {}).text || '';
+      const lineasProducto = texto.split('\n').filter((l) => /^\s*\d+\s*x\s/i.test(l));
+      return es(r.status === 200 && lineasProducto.length === 1 && /^1x Taco de A/.test(lineasProducto[0])
+        && !/[\r\n\u202E\u0007]/.test(p.cliente_nombre) && !/[\r\u0007]/.test(p.indicaciones) && p.indicaciones.includes('\n'),
+        JSON.stringify({ lineasProducto, nombre: p.cliente_nombre, ind: p.indicaciones }));
+    });
+    await T('H7 crear-pedido: los textos largos se recortan (nombre 120, indicaciones 400, direccion 200)', async () => {
+      const r = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 1, precio: 10000 }], cliente({ nombre: 'N'.repeat(5000), indicaciones: 'I'.repeat(5000) }));
+      const d = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 1, precio: 10000 }], { ...clienteDomicilio(P1), direccion: 'D'.repeat(5000) });
+      const p = await pedidoDe(A, r.cuerpo.referencia), q = await pedidoDe(A, d.cuerpo.referencia);
+      return es(r.status === 200 && p.cliente_nombre.length === 120 && p.indicaciones.length === 400 && d.status === 200 && q.direccion.length === 200, `${r.status} ${d.status}`);
+    });
+
+    // --- H8: cantidades y tamano del pedido -----------------------------------------------------------
+    await T('H8 crear-pedido: cantidades negativas, cero, fraccionarias, enormes o nulas se rechazan y no dejan pedido (no bajan el total)', async () => {
+      const antes = await contarPedidos(A);
+      for (const q of [-3, 0, 1.5, 51, null, 1e9, 'x']) {
+        const r = await crearPedidoEn(hA, A, [{ id: 'taco', cantidad: 5, precio: 10000 }, { id: 'solo-a', cantidad: q, precio: 7000 }]);
+        if (r.status === 200) return es(false, `cantidad ${q} -> 200 subtotal ${r.cuerpo.subtotal}`);
+      }
+      return es((await contarPedidos(A)) === antes, 'quedo un pedido');
+    });
+    await T('H8 crear-pedido: un pedido con mas de 100 lineas se rechaza (400) y no se guarda', async () => {
+      const antes = await contarPedidos(A);
+      const r = await crearPedidoEn(hA, A, Array.from({ length: 101 }, () => ({ id: 'taco', cantidad: 1, precio: 10000 })));
+      return es(r.status === 400 && (await contarPedidos(A)) === antes, `${r.status} ${JSON.stringify(r.cuerpo).slice(0, 80)}`);
+    });
+
+    // --- H9: sesion: tokens con bytes raros ---------------------------------------------------------
+    await T('H9 sesion: un token con caracteres fuera de ASCII imprimible o descomunal es "sin sesion" (401), no un 500, y no llega a la red', async () => {
+      const desde = registro.length;
+      const a = await SES.usuarioDeToken(tokenReal + '☃');
+      const b = await SES.usuarioDeToken('abc\u0000def');
+      const c = await SES.usuarioDeToken('x'.repeat(5000));
+      const r = await pedirReembolso(hA, tokenReal.slice(0, 20) + '☃' + tokenReal.slice(20), refR);
+      return es(a === null && b === null && c === null && r.status === 401 && llamadasAuth(desde).length === 0, `${a} ${b} ${c} ${r.status} red=${llamadasAuth(desde).length}`);
+    });
+
+    /* =====================================================================
+       12. NADA SECRETO SALE: ni en respuestas ni en el log
     ===================================================================== */
     grupo('secretos');
     await T('ningun secreto (Wompi, CallMeBot, llave de servicio, tokens) aparece en ninguna respuesta de la API ni en el log de la corrida', async () => {

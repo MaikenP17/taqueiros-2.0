@@ -124,6 +124,13 @@ function formatoPrecio(n) {
   return Number(n).toLocaleString("es-CO");
 }
 
+/* Los textos que escribio el CLIENTE van en una sola linea: un salto de linea
+   en el nombre o la direccion fabricaria en la comanda una linea con la forma
+   de un producto ("9x Taco - 90.000") que la cocina prepararia sin estar pagada. */
+function unaLinea(texto) {
+  return String(texto == null ? "" : texto).replace(/[\r\n]+/g, " ").trim();
+}
+
 /* Arma la comanda en texto plano, lista para leer en el celular.
    Los asteriscos son el formato de negrita de WhatsApp. */
 function construirComanda(pedido, opciones) {
@@ -137,15 +144,17 @@ function construirComanda(pedido, opciones) {
   if (op.subtitulo) lineas.push(`\u23F1 ${op.subtitulo}`);
   lineas.push("");
 
-  lineas.push(`\u{1F464} ${pedido.cliente_nombre}`);
-  lineas.push(`\u{1F4DE} ${pedido.cliente_telefono}`);
+  lineas.push(`\u{1F464} ${unaLinea(pedido.cliente_nombre)}`);
+  lineas.push(`\u{1F4DE} ${unaLinea(pedido.cliente_telefono)}`);
   lineas.push(NOMBRES_TIPO[pedido.tipo_pedido] || pedido.tipo_pedido);
 
   if (pedido.tipo_pedido === "domicilio") {
-    lineas.push(`\u{1F4CD} ${pedido.direccion}, ${pedido.barrio}`);
+    lineas.push(`\u{1F4CD} ${unaLinea(pedido.direccion)}, ${unaLinea(pedido.barrio)}`);
   }
   if (pedido.indicaciones) {
-    lineas.push(`\u{1F4DD} ${pedido.indicaciones}`);
+    // Las indicaciones pueden traer varias lineas: CADA una va marcada como nota
+    String(pedido.indicaciones).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+      .forEach((l) => lineas.push(`\u{1F4DD} ${l}`));
   }
 
   lineas.push("");
@@ -181,9 +190,12 @@ function construirComanda(pedido, opciones) {
 }
 
 /* 'contacto' = { restauranteId, telefono, apikey } del restaurante DEL PEDIDO
-   (ver contactoAlertas en _restaurante.js). */
+   (ver contactoAlertas en _restaurante.js).
+   'opciones.tiempoMaximoMs' acorta la espera a CallMeBot (por defecto 8 s): el
+   cron de alertas la usa para no pasarse del limite de tiempo de Vercel. */
 async function notificarWhatsApp(pedido, opciones, contacto) {
   const c = contacto || {};
+  const espera = Math.max(500, Math.min(8000, Number(opciones && opciones.tiempoMaximoMs) || 8000));
 
   // Defensa en profundidad: el aviso de un restaurante solo puede salir por
   // el contacto de ese mismo restaurante.
@@ -208,7 +220,7 @@ async function notificarWhatsApp(pedido, opciones, contacto) {
   // Timeout corto: el webhook no puede quedarse colgado esperando a
   // un servicio de terceros. El pedido ya esta guardado.
   const control = new AbortController();
-  const alarma = setTimeout(() => control.abort(), 8000);
+  const alarma = setTimeout(() => control.abort(), espera);
 
   let ok = false;
   let detalleError = null;
@@ -242,10 +254,19 @@ async function notificarWhatsApp(pedido, opciones, contacto) {
     }
   } catch (err) {
     detalleError = err.name === "AbortError"
-      ? "CallMeBot no respondio en 8 segundos"
+      ? `CallMeBot no respondio en ${Math.round(espera / 1000)} segundos`
       : err.message;
   } finally {
     clearTimeout(alarma);
+  }
+
+  // La apikey nunca sale en el detalle (va al log y a salud_notificaciones, que
+  // lee el panel): CallMeBot puede repetirla en su respuesta y un error de red
+  // puede traer la URL completa.
+  if (detalleError) {
+    for (const v of [String(apikey), encodeURIComponent(apikey)]) {
+      detalleError = detalleError.split(v).join("***");
+    }
   }
 
   if (ok) {

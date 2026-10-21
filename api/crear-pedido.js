@@ -34,8 +34,21 @@ const {
 
 const TIPOS_VALIDOS = ["domicilio", "llevar", "local"];
 
-function limpiar(texto, maximo) {
-  return String(texto == null ? "" : texto).trim().slice(0, maximo);
+/* Un carrito real no pasa de unas decenas de lineas (el menu entero cabe). */
+const MAX_LINEAS = 100;
+
+/* Caracteres que nadie escribe en un formulario y que sirven para disfrazar
+   texto en la comanda: controles (salvo tab y salto de linea, que se tratan
+   aparte), ancho cero y controles de direccion (bidi). */
+const INVISIBLES = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
+
+/* 'conSaltos': solo las indicaciones conservan saltos de linea (el ticket las
+   imprime como notas). En el resto un salto fabricaria lineas falsas en la
+   comanda ("9x Taco - 90.000" dentro del nombre). */
+function limpiar(texto, maximo, conSaltos) {
+  let t = String(texto == null ? "" : texto).replace(/\r\n?/g, "\n").replace(INVISIBLES, " ");
+  t = conSaltos ? t.replace(/\t/g, " ").replace(/\n{3,}/g, "\n\n") : t.replace(/[\t\n]+/g, " ");
+  return t.trim().slice(0, maximo);
 }
 
 module.exports = async (req, res) => {
@@ -98,7 +111,7 @@ module.exports = async (req, res) => {
 
     const direccion = limpiar(cliente.direccion, 200);
     const barrio = limpiar(cliente.barrio, 120);
-    const indicaciones = limpiar(cliente.indicaciones, 400);
+    const indicaciones = limpiar(cliente.indicaciones, 400, true);
 
     if (tipoPedido === "domicilio" && (!direccion || !barrio)) {
       res.status(400).json({ error: "Un domicilio necesita dirección y barrio" });
@@ -114,6 +127,10 @@ module.exports = async (req, res) => {
        El navegador solo manda ids y cantidades. Los precios que se
        usan aqui son los de la base, nunca los que llegaron en la
        peticion. */
+    if (Array.isArray(items) && items.length > MAX_LINEAS) {
+      res.status(400).json({ error: "El pedido tiene demasiados productos" });
+      return;
+    }
     const revision = await validarItems(restaurante.id, items);
 
     if (!revision.ok) {

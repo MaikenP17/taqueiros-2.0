@@ -14,11 +14,14 @@ const { exigirRestaurante, restauranteActivo } = require("./_restaurante.js");
      zona_horaria
      modulos       que partes del producto tiene activas (pasarela, seguimiento...)
      config        SOLO config.publico (colores, logo, WhatsApp de contacto, etc.)
-     servicio      { estado: activo|gracia|suspendido, sirve, motivo }
+     servicio      { estado: activo|suspendido, sirve, motivo }
 
    NO devuelve nunca: plan, modalidad de pago, fecha de vigencia ni dias de gracia
    (datos comerciales), el resto de config (puede traer configuracion interna),
    nada de restaurante_secretos (llaves de Wompi, CallMeBot), ni miembros.
+   Tampoco si el restaurante esta en periodo de GRACIA: eso le diria a cualquier
+   visitante (o a la competencia) que esta atrasado con la mensualidad. En gracia
+   sigue recibiendo pedidos, asi que aqui dice "activo".
 
    Sin cache en el borde: es por host y el estado del servicio cambia; la
    resolucion del host ya se guarda 30 s en memoria (ver _restaurante.js).
@@ -45,9 +48,9 @@ module.exports = async (req, res) => {
     modulos: restaurante.modulos || {},
     config: publico,
     servicio: {
-      estado: servicio.estado,
+      estado: servicio.sirve ? "activo" : "suspendido",
       sirve: servicio.sirve,
-      motivo: servicio.sirve ? (servicio.estado === "gracia" ? "en_gracia" : null) : "servicio_suspendido"
+      motivo: servicio.sirve ? null : "servicio_suspendido"
     }
   });
 };

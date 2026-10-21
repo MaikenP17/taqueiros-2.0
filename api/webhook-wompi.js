@@ -135,6 +135,25 @@ module.exports = async (req, res) => {
     const estadoWompi = transaccion.status;
     console.log("[Wompi] Evento verificado:", referencia, estadoWompi, transaccion.id);
 
+    // ---- 2. El ambiente del evento debe ser el del cobro -------
+    // Un evento de PRUEBA (tarjetas de prueba de Wompi, firmado con el secreto
+    // de prueba del restaurante) solo vale para un pedido que se creo en prueba
+    // y en un restaurante que no cobra en produccion. Sin esto, un pedido real
+    // firmado en prueba (Taqueiros acepta todavia el modo del navegador, o un
+    // pedido viejo de cuando el restaurante estaba en prueba) entraria a cocina
+    // pagado con una tarjeta de prueba. Se responde 200: el evento es legitimo
+    // (la firma es buena) y no tiene sentido que Wompi lo reintente.
+    const ambienteEvento = environment === "prod" ? "prod" : "test";
+    const modoFijado = ((secretos && secretos.otros) || {}).wompi_modo;
+    const ambienteFijado = modoFijado === "produccion" ? "prod" : modoFijado === "test" ? "test" : null;
+    if ((ambienteFijado && ambienteFijado !== ambienteEvento)
+        || (pedido.wompi_ambiente && pedido.wompi_ambiente !== ambienteEvento)) {
+      console.error("[Wompi] Evento de ambiente", ambienteEvento, "para un pedido de", pedido.wompi_ambiente,
+        "(restaurante en", ambienteFijado || "modo sin fijar", "): se ignora. Referencia:", referencia);
+      res.status(200).json({ received: true, ignored: "ambiente" });
+      return;
+    }
+
     // ---- 3. Duplicado: ya estaba procesado -------------------
     if (pedido.estado_pago === "aprobado") {
       console.log("[Wompi] Evento duplicado ignorado, el pedido ya estaba aprobado:", referencia);
@@ -142,31 +161,38 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Todas las escrituras de aqui en adelante son CONDICIONALES: solo cambian un
+    // pedido que en ese instante NO este aprobado. Dos eventos que llegan a la vez
+    // (o un rechazo que leyo el pedido antes de una aprobacion y escribe despues)
+    // no pueden deshacer un pago ni mandar la comanda dos veces.
+    const SIN_APROBAR = "estado_pago=neq.aprobado";
+
     // ---- 4. Rechazos: se registran, no crean comanda ---------
     if (estadoWompi !== "APPROVED") {
       await actualizarPedidoPorReferencia(rid, referencia, {
         estado_pago: ESTADO_PAGO[estadoWompi] || "error",
         wompi_transaction_id: transaccion.id,
         wompi_metodo_pago: transaccion.payment_method_type || null
-      });
+      }, SIN_APROBAR);
       console.log("[Wompi] Pago no aprobado, el pedido no entra a cocina:", referencia, estadoWompi);
       res.status(200).json({ received: true });
       return;
     }
 
-    // ---- 5. Verificar que el monto coincida ------------------
-    const pagadoEnPesos = Math.round(Number(transaccion.amount_in_cents) / 100);
-    if (pagadoEnPesos !== Number(pedido.total)) {
+    // ---- 5. Verificar que el monto (en centavos exactos) y la moneda coincidan
+    const centavosPagados = Number(transaccion.amount_in_cents);
+    const monedaOk = transaccion.currency == null || transaccion.currency === "COP";
+    if (centavosPagados !== Number(pedido.total) * 100 || !monedaOk) {
       console.error(
         "[Wompi] ALERTA: el monto pagado no coincide con el pedido.",
         "Referencia:", referencia,
-        "Pagado:", pagadoEnPesos,
+        "Pagado (centavos):", centavosPagados, transaccion.currency,
         "Esperado:", pedido.total
       );
       await actualizarPedidoPorReferencia(rid, referencia, {
         estado_pago: "error",
         wompi_transaction_id: transaccion.id
-      });
+      }, SIN_APROBAR);
       res.status(200).json({ received: true, warning: "monto no coincide" });
       return;
     }
@@ -178,7 +204,14 @@ module.exports = async (req, res) => {
       wompi_transaction_id: transaccion.id,
       wompi_metodo_pago: transaccion.payment_method_type || null,
       pagado_en: new Date().toISOString()
-    });
+    }, SIN_APROBAR);
+
+    if (!actualizado) {
+      // Otro evento lo aprobo entre la lectura y esta escritura: ya se aviso
+      console.log("[Wompi] Evento duplicado (simultaneo) ignorado, el pedido ya estaba aprobado:", referencia);
+      res.status(200).json({ received: true, duplicated: true });
+      return;
+    }
 
     console.log("[Wompi] PEDIDO CONFIRMADO Y EN COCINA:", referencia, "total:", pedido.total);
 
@@ -187,7 +220,7 @@ module.exports = async (req, res) => {
     // esta guardado y visible en el panel, que es el canal principal.
     try {
       // El aviso sale SOLO por el contacto de este restaurante
-      const aviso = await notificarWhatsApp(actualizado || pedido, undefined, contactoAlertas(restaurante, secretos));
+      const aviso = await notificarWhatsApp(actualizado, undefined, contactoAlertas(restaurante, secretos));
 
       // Queda registrado en el propio pedido si se logro avisar, para
       // poder revisar despues de cuales no se entero el restaurante.

@@ -23,7 +23,9 @@
      * El token NO se rechaza "por su forma": un JWT real tiene letras,
        digitos, '-', '_' y puntos, y su largo cambia segun los claims.
        Solo se descartan los que no pueden ser un token (vacio, con
-       espacios en blanco, descomunal) para no mandarlos a la red.
+       espacios en blanco, descomunal, o con caracteres fuera del ASCII
+       imprimible, que fetch ni siquiera acepta en una cabecera y harian
+       responder 500 en vez de 401) para no mandarlos a la red.
 
    RESULTADO de usuarioDeToken / usuarioDeSolicitud
      { id }  -> sesion valida (id en minusculas)
@@ -54,7 +56,7 @@ function llaveDeProyecto() {
 /* Quien es el dueno de un JWT de sesion: { id } o null si no es valido. */
 async function usuarioDeToken(token) {
   const t = String(token || "").trim();
-  if (!t || t.length > LARGO_MAXIMO_TOKEN || /\s/.test(t)) return null;
+  if (!t || t.length > LARGO_MAXIMO_TOKEN || /\s/.test(t) || /[^\x21-\x7E]/.test(t)) return null;
 
   const url = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!url) throw new Error("Falta SUPABASE_URL en las variables de entorno");

@@ -126,11 +126,16 @@ async function buscarPedidoPorReferenciaGlobal(referencia) {
   return filas.length ? filas[0] : null;
 }
 
-/* Actualiza un pedido identificado por su referencia, dentro de su restaurante. */
-async function actualizarPedidoPorReferencia(rid, referencia, cambios) {
+/* Actualiza un pedido identificado por su referencia, dentro de su restaurante.
+   'condicion' (opcional) es un filtro FIJO de PostgREST escrito por quien llama
+   (p. ej. "estado_pago=neq.aprobado"): el cambio solo se aplica si la fila lo
+   cumple EN ESE INSTANTE, y si no, devuelve null. Nunca armarlo con datos de la
+   peticion. */
+async function actualizarPedidoPorReferencia(rid, referencia, cambios, condicion) {
   const q = encodeURIComponent(referencia);
+  const extra = condicion ? `&${condicion}` : "";
   const filas = await pedir("update",
-    `pedidos?referencia=eq.${q}&${filtroRestaurante(rid)}`, {
+    `pedidos?referencia=eq.${q}&${filtroRestaurante(rid)}${extra}`, {
       metodo: "PATCH",
       cabeceras: { "Prefer": "return=representation" },
       cuerpo: cambios

@@ -31,12 +31,27 @@ const { restauranteActivo, leerSecretos, contactoAlertas } = require("./_restaur
      - marca alerta_enviada solo en sus pedidos.
    Un restaurante sin contacto configurado se salta (y sus pedidos NO se
    marcan como avisados). El fallo de un restaurante no detiene a los demas.
+
+   CON MUCHOS RESTAURANTES
+     * Solo se avisan pedidos pagados en las ultimas VENTANA_MINUTOS: si a un
+       restaurante se le carga el contacto despues (sus pedidos nunca se
+       marcaron), no le llega un aluvion de pedidos viejos.
+     * Se revisan EN_PARALELO restaurantes a la vez (uno lento no frena a los
+       demas) y la corrida no empieza envios pasado TIEMPO_MAXIMO_MS (Vercel
+       Hobby corta la funcion a los 10 s); cada envio se acorta a lo que quede.
+       Lo que no alcanza queda sin marcar y sale en la siguiente pasada; cada
+       pasada empieza por un restaurante al azar para que nadie quede siempre
+       de ultimo.
 ============================================================= */
 
 const MINUTOS_LIMITE = 5;
+const VENTANA_MINUTOS = 120;
+const TIEMPO_MAXIMO_MS = 8000;
+const MINIMO_PARA_ENVIAR_MS = 1500;
+const EN_PARALELO = 4;
 
 /* Los pedidos sin atender de UN restaurante, avisados a SU contacto. */
-async function alertarRestaurante(restaurante, limite) {
+async function alertarRestaurante(restaurante, limite, desde, fin) {
   const rid = restaurante.id;
   const contacto = contactoAlertas(restaurante, await leerSecretos(restaurante));
 
@@ -45,21 +60,24 @@ async function alertarRestaurante(restaurante, limite) {
     return { revisados: 0, alertados: 0 };
   }
 
-  // Pedidos pagados, sin atender, con mas de 5 minutos y sin avisar
+  // Pedidos pagados, sin atender, con mas de 5 minutos (y menos de la ventana) y sin avisar
   const pendientes = await consultarPedidos(
     rid,
-    `estado=eq.nuevo&alerta_enviada=is.false&pagado_en=lt.${encodeURIComponent(limite)}&select=*&order=pagado_en.asc&limit=10`
+    `estado=eq.nuevo&alerta_enviada=is.false&pagado_en=lt.${encodeURIComponent(limite)}&pagado_en=gt.${encodeURIComponent(desde)}&select=*&order=pagado_en.asc&limit=10`
   );
 
   let alertados = 0;
 
   for (const pedido of pendientes) {
+    const restante = fin - Date.now();
+    if (restante < MINIMO_PARA_ENVIAR_MS) break;   // lo que falta sale en la siguiente pasada
     const espera = Math.floor((Date.now() - new Date(pedido.pagado_en).getTime()) / 60000);
 
     try {
       await notificarWhatsApp(pedido, {
         encabezado: `⚠️ *PEDIDO #${String(pedido.id).padStart(3, "0")} SIN ATENDER*`,
-        subtitulo: `${espera} minutos esperando`
+        subtitulo: `${espera} minutos esperando`,
+        tiempoMaximoMs: restante - 500
       }, contacto);
 
       // Se marca DESPUES de enviar, para que un fallo de envio
@@ -81,25 +99,39 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const limite = new Date(Date.now() - MINUTOS_LIMITE * 60 * 1000).toISOString();
-    const restaurantes = (await listarRestaurantes()).filter((r) => restauranteActivo(r).sirve);
+    const inicio = Date.now();
+    const fin = inicio + TIEMPO_MAXIMO_MS;
+    const limite = new Date(inicio - MINUTOS_LIMITE * 60 * 1000).toISOString();
+    const desde = new Date(inicio - VENTANA_MINUTOS * 60 * 1000).toISOString();
+    const lista = (await listarRestaurantes()).filter((r) => restauranteActivo(r).sirve);
+
+    // Cada pasada empieza por un restaurante al azar (nadie queda siempre de ultimo)
+    const giro = Math.floor(Math.random() * lista.length);
+    const restaurantes = lista.slice(giro).concat(lista.slice(0, giro));
 
     let revisados = 0;
     let alertados = 0;
+    let sinRevisar = 0;
+    let siguiente = 0;
 
-    for (const restaurante of restaurantes) {
-      try {
-        const r = await alertarRestaurante(restaurante, limite);
-        revisados += r.revisados;
-        alertados += r.alertados;
-      } catch (err) {
-        // Un restaurante con problemas no deja sin aviso a los demas
-        console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);
+    async function trabajador() {
+      while (siguiente < restaurantes.length) {
+        const restaurante = restaurantes[siguiente++];
+        if (fin - Date.now() < MINIMO_PARA_ENVIAR_MS) { sinRevisar++; continue; }
+        try {
+          const r = await alertarRestaurante(restaurante, limite, desde, fin);
+          revisados += r.revisados;
+          alertados += r.alertados;
+        } catch (err) {
+          // Un restaurante con problemas no deja sin aviso a los demas
+          console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(EN_PARALELO, restaurantes.length) }, trabajador));
 
-    console.log(`[Alertas] Restaurantes ${restaurantes.length}, revisados ${revisados}, alertados ${alertados}`);
-    res.status(200).json({ restaurantes: restaurantes.length, revisados, alertados });
+    console.log(`[Alertas] Restaurantes ${restaurantes.length}, revisados ${revisados}, alertados ${alertados}, sin revisar por tiempo ${sinRevisar}`);
+    res.status(200).json({ restaurantes: restaurantes.length, revisados, alertados, sinRevisar });
   } catch (err) {
     console.error("[Alertas] Error:", err);
     res.status(500).json({ error: "Error revisando pedidos" });

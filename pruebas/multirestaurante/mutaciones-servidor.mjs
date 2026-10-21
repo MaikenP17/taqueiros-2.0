@@ -56,7 +56,7 @@ m('listarRestaurantes: sin orden estable', '_supabase.js', '&order=creado_en.asc
 // Resolucion del restaurante
 m('la cache por host se comparte entre hosts', '_restaurante.js', 'conCache("host:" + host,', 'conCache("host:",');
 m('la cache por slug se comparte entre slugs', '_restaurante.js', 'conCache("slug:" + slug,', 'conCache("slug:",');
-m('?r= tambien funciona en produccion', '_restaurante.js', 'if (entorno.VERCEL_ENV !== "production") {', 'if (true) {');
+m('?r= tambien funciona en produccion (y sin el interruptor)', '_restaurante.js', 'if (entorno.VERCEL_ENV !== "production" && entorno.RESTAURANTE_POR_PARAMETRO === "1") {', 'if (true) {');
 m('el restaurante se elige con x-forwarded-host', '_restaurante.js', 'const h = req && req.headers ? req.headers.host : null;',
   'const h = req && req.headers ? (req.headers["x-forwarded-host"] || req.headers.host) : null;');
 m('el restaurante se elige con un host dentro del cuerpo', '_restaurante.js', 'const host = hostDe(req);',
@@ -115,8 +115,66 @@ m('webhook: una referencia desconocida responde 200', 'webhook-wompi.js', 'conso
 m('webhook: las actualizaciones van al restaurante equivocado', 'webhook-wompi.js', 'const rid = pedido.restaurante_id;', `const rid = "${TAQ}";`);
 m('webhook: el aviso sale sin contacto del restaurante', 'webhook-wompi.js', 'contactoAlertas(restaurante, secretos)', 'contactoAlertas(restaurante, {})');
 m('webhook: el aviso sale por el contacto de Taqueiros', 'webhook-wompi.js', 'contactoAlertas(restaurante, secretos)', `contactoAlertas({ id: "${TAQ}" }, secretos)`);
-m('webhook: no detecta eventos duplicados', 'webhook-wompi.js', 'if (pedido.estado_pago === "aprobado") {', 'if (false) {');
-m('webhook: no verifica el monto', 'webhook-wompi.js', 'if (pagadoEnPesos !== Number(pedido.total)) {', 'if (false) {');
+m('webhook: no detecta eventos duplicados', 'webhook-wompi.js', 'if (pedido.estado_pago === "aprobado") {', 'if (false) {',
+  { equivalente: 'desde H2 todas las escrituras del webhook son condicionales (estado_pago=neq.aprobado): un duplicado no cambia nada ni avisa; quitar las dos capas si se detecta' });
+m('webhook: no detecta duplicados en NINGUNA de las dos capas', 'webhook-wompi.js', 'if (pedido.estado_pago === "aprobado") {', 'if (false) {',
+  { tambien: ['webhook-wompi.js', 'if (!actualizado) {', 'if (false) {'] });
+m('webhook: no verifica el monto', 'webhook-wompi.js', 'if (centavosPagados !== Number(pedido.total) * 100 || !monedaOk) {', 'if (false) {');
+// Revision adversaria (docs/multirestaurante.md seccion 13)
+m('H1 webhook: no compara el ambiente del evento con el del pedido ni con el del restaurante', 'webhook-wompi.js',
+  'if ((ambienteFijado && ambienteFijado !== ambienteEvento)\n        || (pedido.wompi_ambiente && pedido.wompi_ambiente !== ambienteEvento)) {', 'if (false) {');
+m('H1 webhook: solo compara con el modo del restaurante (no con el del pedido)', 'webhook-wompi.js',
+  '\n        || (pedido.wompi_ambiente && pedido.wompi_ambiente !== ambienteEvento)) {', ') {');
+m('H1 webhook: solo compara con el pedido (no con el modo fijado del restaurante)', 'webhook-wompi.js',
+  'if ((ambienteFijado && ambienteFijado !== ambienteEvento)\n        ||', 'if (false\n        ||');
+m('H1 generar-firma: firma en un modo distinto del pedido', 'generar-firma.js',
+  'if (pedido.wompi_ambiente && pedido.wompi_ambiente !== (modoCobro === "produccion" ? "prod" : "test")) {', 'if (false) {');
+m('H2 webhook: la aprobacion no es condicional (dos eventos simultaneos avisan dos veces)', 'webhook-wompi.js',
+  '      pagado_en: new Date().toISOString()\n    }, SIN_APROBAR);', '      pagado_en: new Date().toISOString()\n    });');
+m('H2 webhook: un rechazo tardio puede pisar una aprobacion', 'webhook-wompi.js',
+  '      wompi_metodo_pago: transaccion.payment_method_type || null\n      }, SIN_APROBAR);', '      wompi_metodo_pago: transaccion.payment_method_type || null\n      });');
+m('H2 webhook: si la aprobacion condicional no cambio nada igual se avisa', 'webhook-wompi.js', 'if (!actualizado) {', 'if (false) {');
+m('H2 _supabase: actualizarPedidoPorReferencia ignora la condicion', '_supabase.js', 'const extra = condicion ? `&${condicion}` : "";', 'const extra = "";');
+m('H3 webhook: el monto se redondea a pesos (vuelve el redondeo)', 'webhook-wompi.js',
+  'if (centavosPagados !== Number(pedido.total) * 100 || !monedaOk) {', 'if (Math.round(centavosPagados / 100) !== Number(pedido.total) || !monedaOk) {');
+m('H3 webhook: no se mira la moneda', 'webhook-wompi.js', 'const monedaOk = transaccion.currency == null || transaccion.currency === "COP";', 'const monedaOk = true;');
+m('H4 ?r= en preview sin el interruptor RESTAURANTE_POR_PARAMETRO', '_restaurante.js',
+  'if (entorno.VERCEL_ENV !== "production" && entorno.RESTAURANTE_POR_PARAMETRO === "1") {', 'if (entorno.VERCEL_ENV !== "production") {');
+m('H4 ?r= con el interruptor tambien en produccion', '_restaurante.js',
+  'if (entorno.VERCEL_ENV !== "production" && entorno.RESTAURANTE_POR_PARAMETRO === "1") {', 'if (entorno.RESTAURANTE_POR_PARAMETRO === "1") {');
+m('H4b la copia vieja de la resolucion no vence nunca', '_restaurante.js', 'if (hit && hit.restaurante && hit.vence > ahora) {', 'if (hit && hit.restaurante) {');
+m('H5 alertas: sin ventana de tiempo (aluvion de pedidos viejos)', 'alertas.js', '&pagado_en=gt.${encodeURIComponent(desde)}', '');
+m('H5 alertas: sin tiempo maximo por restaurante', 'alertas.js', 'if (restante < MINIMO_PARA_ENVIAR_MS) break;', '');
+m('H5 alertas: de a un restaurante a la vez (uno lento frena a los demas)', 'alertas.js', 'Math.min(EN_PARALELO, restaurantes.length)', 'Math.min(1, restaurantes.length)');
+m('H6 notificar: la apikey queda en el detalle del error', '_notificar.js', 'detalleError = detalleError.split(v).join("***");', '');
+m('H6 notificar: solo se tacha la apikey sin codificar', '_notificar.js', 'for (const v of [String(apikey), encodeURIComponent(apikey)]) {', 'for (const v of [String(apikey)]) {');
+m('H7 crear-pedido: el nombre conserva saltos de linea', 'crear-pedido.js', ': t.replace(/[\\t\\n]+/g, " ");', ': t;');
+m('H7 crear-pedido: no se quitan los caracteres invisibles', 'crear-pedido.js', '.replace(INVISIBLES, " ")', '');
+m('H7 crear-pedido: las indicaciones pierden sus saltos de linea (el ticket ya no las ve como notas)', 'crear-pedido.js', 'limpiar(cliente.indicaciones, 400, true)', 'limpiar(cliente.indicaciones, 400)');
+m('H7 crear-pedido: no se recortan los textos largos', 'crear-pedido.js', 'return t.trim().slice(0, maximo);', 'return t.trim();');
+m('H7 notificar: cada linea de las indicaciones ya no va marcada como nota', '_notificar.js', '.forEach((l) => lineas.push(`\\u{1F4DD} ${l}`));', '.forEach((l) => lineas.push(l));');
+m('H7 notificar: el nombre puede traer saltos de linea a la comanda (y el pedido se crea sin limpiar)', '_notificar.js',
+  'lineas.push(`\\u{1F464} ${unaLinea(pedido.cliente_nombre)}`);', 'lineas.push(`\\u{1F464} ${pedido.cliente_nombre}`);',
+  { tambien: ['crear-pedido.js', ': t.replace(/[\\t\\n]+/g, " ");', ': t;'] });
+m('H8 crear-pedido: sin tope de lineas', 'crear-pedido.js', 'if (Array.isArray(items) && items.length > MAX_LINEAS) {', 'if (false) {');
+m('H8 precios: se aceptan cantidades negativas o cero (bajan el total)', '_precios.js', 'if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {', 'if (!Number.isInteger(cantidad) || cantidad > 50) {');
+m('H8 precios: se aceptan cantidades fraccionarias', '_precios.js', 'if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {', 'if (!Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 50) {');
+m('H8 precios: sin maximo por linea', '_precios.js', 'if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) {', 'if (!Number.isInteger(cantidad) || cantidad < 1) {');
+m('H9 sesion: tokens con caracteres fuera de ASCII imprimible llegan a fetch (500)', '_sesion.js', ' || /[^\\x21-\\x7E]/.test(t)) return null;', ') return null;');
+m('H9 sesion: sin largo maximo del token', '_sesion.js', 'if (!t || t.length > LARGO_MAXIMO_TOKEN ||', 'if (!t ||');
+m('restaurante: vuelve a decir que el restaurante esta en gracia', 'restaurante.js', 'estado: servicio.sirve ? "activo" : "suspendido",', 'estado: servicio.estado,');
+// Mutaciones propias de la revision sobre lo que ya existia
+m('webhook: la firma se compara sin exigir el mismo largo (timingSafeEqual lanza: 500 en vez de 401)', 'webhook-wompi.js', 'return a.length === b.length && crypto.timingSafeEqual(a, b);', 'return crypto.timingSafeEqual(a, b);');
+m('webhook: la comparacion de la firma distingue mayusculas (Wompi manda el checksum en MAYUSCULAS: se rechazarian todos los pagos)', 'webhook-wompi.js', 'const a = Buffer.from(calculado.toUpperCase());\n  const b = Buffer.from(recibido.toUpperCase());', 'const a = Buffer.from(calculado);\n  const b = Buffer.from(recibido);');
+m('webhook: el restaurante del pedido no se relee (se usa uno inexistente) -> sin secreto', 'webhook-wompi.js', 'const restaurante = await buscarRestaurantePorId(pedido.restaurante_id);', 'const restaurante = null;');
+m('sesion: Bearer se busca en cualquier parte de la cabecera (sin ^)', '_sesion.js', 'const m = /^Bearer\\s+(.+)$/i.exec(cabecera);', 'const m = /Bearer\\s+(.+)$/i.exec(cabecera);',
+  { equivalente: 'lo que se extrae igual tiene que ser una sesion valida para Supabase Auth; "Basic x Bearer <token>" solo prueba un token que el atacante ya tenia' });
+m('sesion: un 200 de Auth con un id que no es UUID se acepta', '_sesion.js', 'return u && typeof u.id === "string" && UUID.test(u.id) ? { id: u.id.toLowerCase() } : null;', 'return u && typeof u.id === "string" ? { id: u.id.toLowerCase() } : null;',
+  { equivalente: 'solo Supabase Auth (de confianza) produce esa respuesta y esSuperadmin vuelve a validar el UUID; ademas reembolso.js solo lo usa con eq. y PostgREST lo trata como literal' });
+m('reembolso: un error de la sesion se toma como "sin sesion" (401) en vez de 500', 'reembolso.js', 'const usuario = await usuarioDeSolicitud(req);', 'const usuario = await usuarioDeSolicitud(req).catch(() => null);');
+m('resolucion: el subdominio acepta dos niveles (a.b.DOMINIO_BASE -> slug "a.b" -> se recorta a "b")', '_restaurante.js', 'const etiqueta = host.slice(0, host.length - base.length - 1);', 'const etiqueta = host.slice(0, host.length - base.length - 1).split(".").pop();');
+m('alertas: el cron entra sin CRON_SECRET (comparando con "undefined")', '_cron.js', 'if (!secreto) return false;', '');
+m('alertas: los pedidos ya avisados se vuelven a avisar', 'alertas.js', 'estado=eq.nuevo&alerta_enviada=is.false&', 'estado=eq.nuevo&');
 m('notificar: no verifica que el contacto sea del restaurante del pedido', '_notificar.js',
   'if (!pedido || !pedido.restaurante_id || !c.restauranteId || pedido.restaurante_id !== c.restauranteId) {', 'if (false) {');
 m('notificar: la salud se registra en Taqueiros', '_notificar.js', 'registrarSaludNotificacion(pedido.restaurante_id, ok, detalleError)', `registrarSaludNotificacion("${TAQ}", ok, detalleError)`);
@@ -125,7 +183,7 @@ m('alertas: el contacto es siempre el mismo (el primero)', 'alertas.js', 'contac
   'contactoAlertas({ id: restaurante.id }, { callmebot_telefono: "573000000000", callmebot_apikey: "x" })');
 m('alertas: avisa aunque no haya contacto (y marca como avisado)', 'alertas.js', 'if (!contacto.telefono || !contacto.apikey) {', 'if (false) {');
 m('alertas: consulta los pedidos de Taqueiros', 'alertas.js', 'const rid = restaurante.id;', `const rid = "${TAQ}";`);
-m('alertas: un restaurante que falla detiene a los demas', 'alertas.js', '      } catch (err) {\n        // Un restaurante con problemas no deja sin aviso a los demas\n        console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);\n      }', '      } finally {\n      }');
+m('alertas: un restaurante que falla detiene a los demas', 'alertas.js', '        } catch (err) {\n          // Un restaurante con problemas no deja sin aviso a los demas\n          console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);\n        }', '        } finally {\n        }');
 m('restaurante: devuelve toda la config (incluye lo interno)', 'restaurante.js', 'config: publico,', 'config: cfg,');
 m('restaurante: expone el plan', 'restaurante.js', 'modulos: restaurante.modulos || {},', 'modulos: restaurante.modulos || {},\n    plan: restaurante.plan,');
 m('restaurante: expone la vigencia', 'restaurante.js', 'zona_horaria: restaurante.zona_horaria,', 'zona_horaria: restaurante.zona_horaria,\n    vigente_hasta: restaurante.vigente_hasta,');
@@ -145,7 +203,7 @@ m('sesion: un error de Auth (5xx) se toma como "sin sesion"', '_sesion.js', 'if 
 m('sesion: la llave del proyecto rechazada se toma como "sin sesion"', '_sesion.js', 'if (resp.status === 401 && /api key/i.test(texto)) {', 'if (false) {');
 m('sesion: se acepta cualquier token no vacio sin preguntarle a Auth', '_sesion.js', 'const resp = await fetch(`${url}/auth/v1/user`, {', 'if (t) return { id: "00000000-0000-4000-8000-0000000000ff" };\n  const resp = await fetch(`${url}/auth/v1/user`, {');
 m('sesion: un 200 de Auth sin id de usuario se acepta', '_sesion.js', 'return u && typeof u.id === "string" && UUID.test(u.id) ? { id: u.id.toLowerCase() } : null;', 'return { id: "00000000-0000-4000-8000-0000000000ff" };');
-m('sesion: se aceptan tokens con espacios internos (llegan a la red)', '_sesion.js', ' || /\\s/.test(t)) return null;', ') return null;');
+m('sesion: se aceptan tokens con espacios internos (llegan a la red)', '_sesion.js', ' || /\\s/.test(t) || /[^\\x21-\\x7E]/.test(t)) return null;', ') return null;');
 m('reembolso: no exige que el pedido este cancelado y cobrado (ninguna de las dos capas)', 'reembolso.js',
   'if (pedido.estado !== "cancelado" || pedido.estado_pago !== "aprobado") {', 'if (false) {',
   { tambien: ['_supabase.js', '&estado=eq.cancelado&estado_pago=eq.aprobado&reembolsado_en=is.null`', '&reembolsado_en=is.null`'] });

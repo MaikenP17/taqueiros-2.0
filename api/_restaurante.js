@@ -13,8 +13,12 @@
      2. Un subdominio bajo DOMINIO_BASE (variable de entorno) cuyo UNICO
         segmento anterior sea el slug de un restaurante.
         Ej: DOMINIO_BASE=midominio.com  ->  lostaqueiros.midominio.com.
-     3. SOLO si VERCEL_ENV no es 'production' (previews y desarrollo local):
-        el parametro ?r=<slug>, para poder probar sin dominios.
+     3. SOLO si VERCEL_ENV no es 'production' (previews y desarrollo local)
+        Y ADEMAS RESTAURANTE_POR_PARAMETRO=1: el parametro ?r=<slug>, para
+        poder probar sin dominios. Los previews de Vercel son publicos por
+        defecto y usan las mismas variables (la misma base y la llave secreta)
+        que produccion: sin ese interruptor explicito, cualquiera con la URL
+        de un preview elegiria cualquier restaurante real.
 
    POR QUE ES SEGURO
      * Host lo pone la infraestructura (Vercel enruta por el dominio al que
@@ -196,8 +200,9 @@ async function resolverRestaurante(req, env) {
     }
   }
 
-  // 3) ?r=<slug>: solo fuera de produccion (previews y local)
-  if (entorno.VERCEL_ENV !== "production") {
+  // 3) ?r=<slug>: solo fuera de produccion (previews y local) y si se activo a
+  //    proposito (ver arriba: los previews son publicos y comparten la base)
+  if (entorno.VERCEL_ENV !== "production" && entorno.RESTAURANTE_POR_PARAMETRO === "1") {
     const slug = String(parametrosDe(req).get("r") || "").trim().toLowerCase();
     if (slug && slug.length >= 2 && slug.length <= 40 && SLUG.test(slug)) {
       const r = await porSlug(slug);
