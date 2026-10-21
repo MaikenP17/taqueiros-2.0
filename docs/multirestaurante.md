@@ -9,14 +9,16 @@ restaurantes**, con aislamiento estricto de datos. Este documento describe la ba
 > qué restaurante es cada petición, filtra siempre por él, usa sus propios secretos y respeta su estado de
 > servicio (más `supabase/11-dominios.sql`). La **sección 14** es el paso después: el **frontend público**
 > (`index.html`, `pedido.html`, manifest, número de pedido) lee los datos de cada restaurante en vez de llevar los de
-> Taqueiros escritos (más `supabase/12-config-publica.sql`). El panel y la administración siguen pendientes. Los valores por
-> defecto transitorios de la base (sección 7) siguen puestos hasta que también se adapte el panel.
+> Taqueiros escritos (más `supabase/12-config-publica.sql`). La **sección 15** es el paso después: las páginas **privadas** del
+> personal (`panel.html`, `menu-admin.html`, `historial.html`, el pie del ticket, `sw.js`) trabajan solo con el restaurante de su
+> dominio, con la membresía verificada y con la marca del restaurante (sin SQL nuevo). Siguen pendientes la interfaz de administración
+> (formulario de configuración, superadmin) y retirar los valores por defecto transitorios de la base (sección 7).
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
 8. Qué se probó y qué no · 9. Riesgos · 10. Revisión de seguridad del SQL 10 · 11. Fallo `pg_statistic` ·
 12. Servidor multi-restaurante (SQL 11 + api/) · 13. Revisión adversaria del servidor ·
-**14. Frontend público multi-restaurante (SQL 12)**
+14. Frontend público multi-restaurante (SQL 12) · **15. Paneles del personal por restaurante**
 
 ---
 
@@ -393,8 +395,9 @@ los clientes.
 * Alta de miembros y de restaurantes desde un endpoint del servidor (hoy se hace con la llave secreta o SQL).
 * ~~`crear-pedido`, webhook y alertas aún no son multi-restaurante~~ **Hecho** (sección 12): el servidor ya filtra
   por restaurante en todos sus endpoints. ~~Las páginas públicas~~ **Hecho** (sección 14: marca, textos, tarifas, llave de
-  pago, manifest y número de pedido). Lo que sigue pendiente es el **panel y la administración** (14.11) y retirar los
-  valores por defecto transitorios; **no des de alta restaurantes reales hasta que el panel los use**.
+  pago, manifest y número de pedido). ~~El panel~~ **Hecho** (sección 15: panel, menú, historial, ticket y `sw.js` por restaurante, con
+  membresía verificada). Lo que sigue pendiente es la **administración** (formulario de configuración, superadmin, 15.11) y retirar los
+  valores por defecto transitorios y la regla del bucket.
 
 ---
 
@@ -944,10 +947,11 @@ WhatsApp real.
    `config.publico.wompi`). `panel.html`, `menu-admin.html`, `historial.html` y `marca.js` siguen con la marca escrita (14.11).
 2. ~~**`numero` vs `id`.**~~ **Resuelto en la sección 14.7**: WhatsApp, alertas, ticket, tablero, historial y seguimiento
    muestran `numero`.
-3. **Valores por defecto transitorios siguen puestos** (`restaurante_id` y la regla del bucket). `menu-admin.html` inserta
-   sin `restaurante_id`: cae en Taqueiros. El front debe mandarlo; después se retira el defecto (y entonces cualquier
-   inserción que lo olvide falla en vez de caer en Taqueiros).
-4. **El panel usa `restaurante_actual()`** (la primera membresía): un usuario con dos restaurantes necesita un selector.
+3. **Valores por defecto transitorios siguen puestos** (`restaurante_id` y la regla del bucket). ~~`menu-admin.html` inserta
+   sin `restaurante_id`~~ **Resuelto en la sección 15**: ahora lo manda siempre. Falta retirar el defecto (y entonces cualquier
+   inserción que lo olvide falla en vez de caer en Taqueiros): 2B-4, ver 15.11.
+4. ~~**El panel usa `restaurante_actual()`** (la primera membresía): un usuario con dos restaurantes necesita un selector.~~ **Resuelto en
+   la sección 15**: el panel manda `p_restaurante` y filtra por `restaurante_id`; cada dominio abre su restaurante, sin selector.
 5. **Realtime y `DELETE`** (riesgo 5 de la sección 9) sigue igual.
 6. **Dominios:** cada dominio nuevo hay que agregarlo en Vercel **y** en `restaurante_dominios`; un preview de Vercel
    (`...vercel.app` distinto) no está registrado y solo sirve con `?r=`, que además exige `RESTAURANTE_POR_PARAMETRO=1`
@@ -1442,11 +1446,10 @@ simulado) y un pago sandbox de punta a punta; la impresora física; que `taqueir
 
 ### 14.11 Riesgos y pendientes para el paso siguiente (panel y administración)
 
-1. `panel.html`, `menu-admin.html`, `historial.html`, `marca.js` y el pie del ticket siguen con la marca de Taqueiros escrita
-   (`LOS TAQUEIROS · PEDIDO WEB`, logo, título). Hay que pasarlos a `restaurante-publico.js`/`/api/restaurante`. El panel debería
-   mostrar además el aviso de **gracia** (no es público, ver H10) desde un endpoint con sesión.
-2. `menu-admin.html` inserta sin `restaurante_id` (cae en Taqueiros por el defecto transitorio) y sube las fotos a la raíz del
-   bucket: sigue igual hasta ese paso; después se retiran el defecto y la regla del bucket.
+1. ~~`panel.html`, `menu-admin.html`, `historial.html`, `marca.js` y el pie del ticket siguen con la marca de Taqueiros escrita.~~
+   **Resuelto en la sección 15.** Queda pendiente, para 2B-4, el aviso de **gracia** en el panel (no es público, ver H10): ver 15.11.
+2. ~~`menu-admin.html` inserta sin `restaurante_id` y sube las fotos a la raíz del bucket.~~ **Resuelto en la sección 15**: manda
+   `restaurante_id` y sube a `{restaurante_id}/`. Falta retirar el defecto transitorio y la regla de la raíz del bucket (2B-4).
 3. El dueño ya puede escribir `config.publico` desde su panel (la política de `restaurantes` se lo permite): el panel de
    administración necesita un formulario con las mismas validaciones (colores, URLs, textos). Las del servidor y el navegador
    descartan lo inválido, pero el formulario debería avisar.
@@ -1457,7 +1460,280 @@ simulado) y un pago sandbox de punta a punta; la impresora física; que `taqueir
 6. P1 (13.4): el interruptor de producción pasó del navegador al servidor; mientras `otros.wompi_modo` no esté fijado para
    Taqueiros, `crear-pedido` todavía acepta el modo que mande el navegador (la página ya no lo elige). Fijarlo y retirar ese
    respaldo cuando se cobre de verdad.
-7. `TAQUEIROS_SUPABASE` (nombre del objeto global) y las tipografías siguen siendo de Taqueiros; renombrar con el panel.
+7. ~~`TAQUEIROS_SUPABASE` (nombre del objeto global) y las tipografías siguen siendo de Taqueiros~~ **Resuelto en la sección 15**
+   (`SUPABASE_PUBLICO`; tipografías por restaurante con lista permitida).
 8. **Límite de funciones de Vercel:** `api/manifest.js` es la función número **11** (las que no empiezan con `_`: alertas,
    crear-pedido, disponibilidad, estado, generar-firma, keep-alive, manifest, menu, reembolso, restaurante, webhook-wompi). El plan
    Hobby permite 12 por despliegue: la siguiente que se agregue obliga a juntar endpoints o a cambiar de plan.
+
+---
+
+## 15. Paneles del personal por restaurante (panel, menú, historial, ticket)
+
+Hasta la sección 14 el **servidor** y las **páginas públicas** ya eran por restaurante, pero las páginas **privadas** del
+personal (`panel.html`, `menu-admin.html`, `historial.html`, `marca.js`, el pie del ticket y `sw.js`) seguían con la marca de
+Taqueiros escrita y asumían un solo restaurante: el panel tomaba "la primera membresía" del usuario, `menu-admin` insertaba sin
+`restaurante_id` (caía en Taqueiros por el defecto transitorio) y subía las fotos a la raíz del bucket. Esta sección es ese
+trabajo. **No cambia el servidor revisado (webhook, crear-pedido, reembolso, sesión, alertas), ni las URL de servicios externos
+(webhook de Wompi, cron), ni la base de datos**: no hay SQL nuevo. **Taqueiros se ve y funciona igual** (se comprueba, ver 15.10).
+
+### 15.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `panel-restaurante.js` (nuevo; **reemplaza a `marca.js`**, que se borra) | Una sola copia para las tres páginas: pide `/api/restaurante` (el servidor decide el restaurante por el **Host**), pinta la marca (nombre, logo, favicon, colores, tipografías de una lista, color de la barra del navegador), comprueba la **membresía** del usuario en ese restaurante antes de pedir un solo dato, muestra el rol, vuelve a comprobarla de vez en cuando y migra las preferencias del equipo. |
+| `panel.html`, `menu-admin.html`, `historial.html` | Sin ninguna marca escrita (paleta neutra por defecto + telón de carga, igual que `index.html`/`pedido.html`). Toda consulta, escritura, canal de Realtime y llamada a función SQL lleva el restaurante **explícito** (15.4). Las fotos nuevas van a `{restaurante_id}/`. |
+| `ticket-comanda.js` | El pie ya no está escrito: es el nombre del restaurante en mayúsculas + `" · PEDIDO WEB"` (15.6). El diseño y la impresión no cambian (7 de 7 tickets idénticos). |
+| `supabase-publico.js` y todas las páginas | `window.TAQUEIROS_SUPABASE` → `window.SUPABASE_PUBLICO` (neutro). Todas piden `supabase-publico.js?v=2`. Los scripts de `supabase/` leen ese archivo con una expresión sobre `url:`/`publishableKey:`, que no cambia. |
+| `api/_publico.js`, `restaurante-publico.js` | Campo opcional `marca.tipografia` `{titulos, cuerpo}` con **lista permitida de nombres** (15.5). |
+| `sw.js` v10 | Cache con nombre neutro (`panel-estatico-v10`); borra las caches `taqueiros-panel-*` y `panel-estatico-*` anteriores. Sigue sin guardar nada de ningún restaurante (15.7). |
+| `pruebas/multirestaurante/panel.mjs` (nuevo) y `realtime-falso.mjs`, `mutaciones-panel.mjs` | Pruebas de navegador con dos restaurantes (15.10). |
+
+### 15.2 Inventario: lo que estaba escrito a mano en las páginas privadas y de dónde sale ahora
+
+| Valor | Antes | Ahora |
+|---|---|---|
+| Nombre (título de la pestaña, barra, menú lateral, `alt` del logo) | `marca.js` (`"Los Taqueiros"`), `<title>` y `alt` de `menu-admin.html` e `historial.html` | `restaurantes.nombre` → `[data-marca-nombre]` (con `textContent`) y `document.title = "<página> \| <nombre>"` |
+| Logo | `Recursos/logo/logo.png` en 6 sitios + `marca.js` | `config.publico.marca.logo` → `[data-marca-logo]` (el `alt` es el nombre, salvo `data-marca-decorativo`) |
+| Favicon e ícono de pantalla de inicio | `marca.js` y `<link rel="icon">` | el logo (ruta validada); mientras llega, un ícono provisional vacío evita que Chrome pida `/favicon.ico` |
+| `theme-color` (`#C1272D`) | cabecera de las 3 páginas | `marca.colores.primario` |
+| Colores (12 en `:root` ×3) y ~60 `rgba(...)` con los colores de la marca | CSS de las 3 páginas | `marca.colores.*` → variables CSS (`--rojo`… y sus `-rgb` para las transparencias). Paleta neutra por defecto |
+| Texto secundario (`#B9A88C`) | CSS | `marca.colores.texto_tenue` (en estas páginas el "secundario" es el tenue; si falta, `texto_secundario`) |
+| Tercer nivel de superficie `--carbon-3` (`#2E1D19`) | CSS | derivado de `oscuro` y `oscuro_2` (un paso más allá de `oscuro_2` en la misma dirección: con la paleta de Taqueiros da exactamente `#2E1D19`) |
+| Tipografías (Anton, Libre Franklin; el `<link>` de Google Fonts ×3) | HTML y CSS | `marca.tipografia` (lista permitida); por defecto las mismas de siempre. `Fredoka` se cargaba pero **ninguna** página privada la usaba: ya no se carga |
+| Pie del ticket `LOS TAQUEIROS · PEDIDO WEB` | `ticket-comanda.js` | `nombre.toUpperCase() + " · PEDIDO WEB"` (`TicketComanda.fijarRestaurante(nombre)`) |
+| Emoji 🌮 del aviso "Nuevo pedido" | `panel.html` | `marca.emoji` (neutro 🍽️) |
+| Ejemplos de búsqueda del historial (`3125249438` = el WhatsApp de Taqueiros, `TAQ-...`) | `historial.html` | textos neutros ("Ej: 3001234567", "Código de referencia"). Es el único cambio visible para el personal de Taqueiros |
+| `window.TAQUEIROS_SUPABASE` | `supabase-publico.js` y todas las páginas | `window.SUPABASE_PUBLICO` |
+| Claves de `localStorage` `taqueiros-*` (imprimir, sonido, vistos, impresos, depurar, tamaño y hoja del ticket) | panel y ticket | `panel-*-v2:<id del restaurante>` (y `panel-ticket-*-v1` por equipo); las anteriores se **migran** una vez (15.7) |
+| Nombre de la cache del service worker | `sw.js` | `panel-estatico-v10` |
+| `configuracion`/`salud_notificaciones` por `id = 1` | panel | por `restaurante_id` |
+| "La primera membresía" (`limites_jornada()`, `resumen_jornada`, `buscar_historial`, `jornadas_con_pedidos` sin parámetro) | panel e historial | siempre `p_restaurante` = el del dominio |
+
+Lo que **queda a propósito** (no es marca; ver 15.11): la zona horaria `America/Bogota` y el prefijo `+57` de los enlaces `tel:`, algunos
+grises/azules de estado (`#6b8fa8`, `#7a6a5c`, `#ffb4ab`, `#150d0b`…) que no son colores de marca, los datos inventados del ticket de
+prueba (nombres de productos de ejemplo) y los nombres históricos de las claves del navegador, que la librería nombra **solo** para migrarlas.
+
+### 15.3 Cómo se resuelve el restaurante y cómo se verifica la membresía (y por qué es seguro)
+
+1. Al cargar, la página muestra un **telón** y pide `/api/restaurante` (el servidor lo decide por el `Host`, 12.2; el navegador nunca elige).
+   Dominio desconocido → mensaje neutro "Este sitio no está disponible", **sin una sola petición a Supabase** (probado). Servidor caído → mensaje
+   neutro con "Reintentar" y **reintento automático cada 8 s** (la cocina no puede quedarse en una pantalla de error).
+2. Con el restaurante conocido se pinta la marca y se levanta el telón. Solo entonces se mira la sesión (`getSession`, local).
+3. Al iniciar sesión (o al restaurar una guardada) se consulta `miembros` con **la sesión del usuario**:
+   `user_id = <él>`, `restaurante_id = <el del dominio>`, `activo = true`. Hay tres resultados:
+   * **miembro activo** (`dueno`, `cajero` o `cocina`): entra; el rol aparece en el menú lateral ("Tu rol: Dueño"). **No cambia lo que cada
+     rol puede hacer**: eso sigue siendo RLS (cocina, por ejemplo, ve pedidos pero RLS no le entrega menú ni configuración);
+   * **no es miembro** (sin fila, membresía inactiva, o es de otro restaurante): "Tu usuario no tiene acceso a este restaurante.", se cierra
+     la sesión **solo en ese navegador** (`signOut({scope:"local"})`: el cierre global habría cerrado también la sesión de la cocina de su propio
+     restaurante en otros equipos) y no se pide ningún dato (probado: la sesión rechazada solo hizo la consulta de `miembros`);
+   * **no se pudo saber** (red, 5xx): **no** es un rechazo ni cierra la sesión: se muestra "No pudimos verificar tu acceso…" y se reintenta solo.
+     (Un 503/520 de GET lo reintenta el propio `supabase-js` antes de llegar a la página.)
+4. Con el panel abierto, la membresía se vuelve a comprobar cada 10 minutos y al volver a la pestaña si pasaron más de 5: si se la quitaron,
+   se borra todo de la pantalla y vuelve al inicio de sesión con el mensaje.
+5. Un usuario miembro de **dos restaurantes** entra a cada uno por su dominio (cada dominio es un origen con su propia sesión); no hay selector.
+
+**Por qué es seguro.** La comprobación del navegador **no es lo que protege los datos**: eso lo hace RLS en cada consulta (políticas del SQL 10).
+Sirve para (a) no mostrar el panel de un restaurante a quien no es de ahí y (b) que quien es de dos restaurantes vea solo el del dominio. Esto
+último es lo delicado: RLS le **deja ver los dos**, así que la separación la hace el `restaurante_id` explícito de cada consulta (15.4). La prueba
+`4b` lo demuestra: con la sesión de ese usuario y **sin filtro** la base le entrega los pedidos de los dos restaurantes, y aun así el tablero, el
+historial, el resumen, el menú, la configuración, la salud del WhatsApp y los canales de Realtime de cada dominio muestran solo lo suyo. Quien edite
+el navegador para saltarse la comprobación no gana nada: RLS sigue mandando. Superadmin que **no** es miembro: hoy tampoco entra (la interfaz de
+superadmin es otro paso, 15.11).
+
+### 15.4 Filtro por restaurante en todo el frontend privado
+
+| Página | Qué | Cómo recibe el restaurante |
+|---|---|---|
+| panel | `limites_jornada` | `p_restaurante` (antes: la primera membresía) |
+| panel | lectura de `pedidos` (tablero), sonda `impreso_en` | `.eq("restaurante_id", RID)` |
+| panel | cambio de estado de un pedido | `.eq("id", id).eq("restaurante_id", RID)` |
+| panel | `configuracion` (leer, interruptor Abierto/Cerrado, horario) y `salud_notificaciones` | `.eq("restaurante_id", RID)` (antes `id = 1`) |
+| panel | Realtime: `pedidos`, `salud_notificaciones`, `configuracion` | `filter: "restaurante_id=eq.<RID>"` en cada suscripción **y** el manejador descarta lo que no sea de su restaurante (un pedido sin `restaurante_id` también) |
+| panel | `reclamar_impresion(p_id)`, `registrar_reimpresion(p_id)` | deducen el restaurante **del pedido** y exigen membresía con rol dueño/cajero/cocina; el panel solo les pasa ids de su propia lista y `esImprimible` rechaza lo que no sea de su restaurante |
+| historial | `jornadas_con_pedidos`, `resumen_jornada`, `buscar_historial` | `p_restaurante` |
+| menu-admin | leer categorías y productos | `.eq("restaurante_id", RID)` |
+| menu-admin | alta de categoría y de producto | `restaurante_id: RID` en el cuerpo |
+| menu-admin | agotar, editar (rápido y formulario), renombrar, ocultar, borrar, **deshacer un alta a medias** | `.eq("id", …).eq("restaurante_id", RID)` (los ids de producto/categoría se repiten entre restaurantes) |
+| menu-admin | foto nueva | se sube a `{restaurante_id}/p-<hex>.<ext>`; la lectura de las existentes sigue donde están; solo se intenta borrar una foto de la raíz o de la carpeta propia |
+
+**Funciones SQL revisadas (una por una)** y si necesitan un cambio en la base para 2B-4: **ninguna lo necesita**.
+
+| Función | Cómo recibe/deduce el restaurante | Veredicto |
+|---|---|---|
+| `limites_jornada(fecha, p_restaurante)` | parámetro; sin él, `restaurante_actual()` (primera membresía) | el panel ya manda el parámetro. `config_jornada` (DEFINER) devuelve vacío si no eres miembro |
+| `resumen_jornada(fecha, p_restaurante)`, `buscar_historial(…, p_restaurante)`, `jornadas_con_pedidos(limite, p_restaurante)` | parámetro; mismo respaldo | el historial ya manda el parámetro |
+| `reclamar_impresion(p_id)`, `registrar_reimpresion(p_id)` | el restaurante **del pedido** (invoker + RLS + membresía con rol) | seguras tal cual. Un usuario de dos restaurantes **podría** reclamar con ellas un pedido del otro si le pasara el id; el panel no lo hace (lista filtrada + `esImprimible`), y no es un hueco de seguridad (es su propio restaurante). Si algún día se quiere que la base lo impida por dominio, bastaría un parámetro opcional `p_restaurante` |
+| `validar_producto` / `validar_categoria` (triggers) | el `restaurante_id` de la fila | ya exigen categoría del mismo restaurante y ruta de foto `{restaurante_id}/…` (la raíz solo para Taqueiros: regla transitoria que **sigue puesta**) |
+| `puede_gestionar_fotos(ruta)` (Storage) | primera carpeta de la ruta = restaurante del que eres **dueño** | probado: el dueño de A escribe en `A/…`, no en la raíz ni en `B/…` |
+
+El valor por defecto transitorio de `restaurante_id`, la regla de la raíz del bucket y `?clave=` del cron **no se retiraron** (2B-4).
+
+### 15.5 Tipografías
+
+`restaurantes.config.publico.marca.tipografia = { "titulos": "Bebas Neue", "cuerpo": "Open Sans" }`. Ambos son **nombres** de esta lista
+(`api/_publico.js` `FUENTES_PERMITIDAS` y `restaurante-publico.js` `RP.FUENTES`; una prueba compara las dos listas):
+Anton, Bebas Neue, Oswald, Montserrat, Poppins, Playfair Display, Fredoka, Lora, Merriweather, Libre Franklin, Open Sans, Nunito, Lato, DM Sans,
+Work Sans, Source Sans 3. **Por defecto** (sin elegir) son las de siempre: `titulos = Anton`, `cuerpo = Libre Franklin`. Nunca se usa una URL ni un
+nombre libre de la configuración: la dirección de Google Fonts se arma en el navegador solo con la entrada de la lista (con los pesos que esa fuente
+sí tiene) y se aplica con `--fuente-titulos` / `--fuente-cuerpo`. Un valor fuera de la lista (un nombre libre, `https://…`, `Anton;} body{display:none}`) se
+ignora y quedan las de siempre; el servidor solo emite el campo si hay una elegida válida (para Taqueiros la respuesta es la de antes, sin el campo).
+El ticket de la termica **no** usa estas fuentes (Arial, a propósito).
+
+### 15.6 Ticket de comanda: qué cambió y la prueba de que la impresión no cambió
+
+* `TicketComanda.fijarRestaurante(nombre)` (el panel lo llama una vez) y `preparar()` calcula `pie = textoPie(nombre)`: el nombre pasa por `limpiarTexto`
+  (como todo lo que viene de la base: sin emojis, controles ni marcas de dirección), se pasa a mayúsculas y se le agrega `" · PEDIDO WEB"`. Sin nombre,
+  el pie es solo `PEDIDO WEB` (nunca el de otro restaurante). `opciones.restaurante` manda para una sola impresión.
+* Para "Los Taqueiros" el pie es **exactamente** `LOS TAQUEIROS · PEDIDO WEB` (mismos caracteres, `U+00B7`).
+* Las claves del tamaño y del modo de hoja pasan a `panel-ticket-tamano-v1` / `panel-ticket-hoja-v1` (se migran los valores guardados).
+* **Prueba:** `node pruebas/impresion/comparar-tickets.mjs` (ahora compara contra `1c35320`, el commit anterior a este paso) imprime los mismos 7 tickets
+  (normal, 12 productos con notas largas, nombres y direcciones largos, ñ y tildes, HTML hostil, reimpresión, prueba) con el panel de antes y el de ahora
+  y compara el HTML **letra por letra**: **7 de 7 idénticos** (solo se normalizan las horas). Además: 5 pruebas unitarias nuevas del pie (nombre normal, sin
+  nombre, texto hostil, `opciones.restaurante`, claves neutras) y el escenario `9` del navegador (el ticket de A lleva el pie de A y el de B el de B;
+  reimpresión y ticket de prueba, igual).
+
+### 15.7 Preferencias del navegador y service worker
+
+* Las preferencias del panel llevan el id del restaurante: `panel-imprimir-v2:<id>`, `panel-sonido-v2:<id>`, `panel-vistos-v2:<id>`,
+  `panel-impresos-local-v2:<id>`, `panel-depurar-conexion-v2:<id>`; el tamaño del ticket y el modo de hoja son del **equipo**
+  (`panel-ticket-tamano-v1`, `panel-ticket-hoja-v1`). El bloqueo entre pestañas también (`impresion-local:<id>`).
+* **Migración:** la primera vez que se abre el panel nuevo en un equipo, cada valor de las claves `taqueiros-*` se copia a la clave nueva si esta
+  no existe (la anterior queda como estaba) y se borra la clave de la sesión propia que ya no se usa. Así el equipo de la cocina **conserva la
+  impresión activada**, el sonido, el tamaño y el modo de hoja al actualizar. No se migra si la dirección trae `?r=` (un preview no hereda las
+  preferencias de otro restaurante). Los nombres antiguos solo aparecen en `panel-restaurante.js` (8 claves), y una prueba lo exige.
+* `sw.js` v10: no precachea nada; panel, `/api/`, `/manifest.json`, Supabase y las páginas van **siempre por la red**; solo guarda archivos
+  estáticos de `/Recursos/` y fuentes, en una cache **por origen** (cada restaurante tiene el suyo): no puede servir datos de un restaurante a otro.
+  Al activarse borra las caches viejas (`taqueiros-panel-*` y `panel-estatico-*`).
+* En la primera visita tras el despliegue el panel se **recarga una vez** (el worker nuevo toma el control; comportamiento de siempre).
+
+### 15.8 Seguridad de lo que llega de la base
+
+Nombre, rol y marca entran con `textContent` o con atributos validados; los colores deben ser `#RRGGBB` exactos (el servidor y el navegador lo
+revisan) y se aplican con `setProperty`; las imágenes son rutas del sitio o `http(s)` del origen de Supabase del proyecto (nada de `javascript:` ni
+`data:`); las tipografías, nombres de una lista. `panel-restaurante.js` no usa `innerHTML`, `insertAdjacentHTML`, `document.write` ni `eval` (la prueba
+`12` lo exige) y ningún dato del restaurante se pega con `innerHTML` en las tres páginas. Se arregló además que el **horario** (que sale de la base y
+se escribía dentro de atributos) aceptaba cualquier cadena: ahora solo entra `HH:MM`. Lo que ya existía y se conserva: los datos de los **pedidos** y del
+**menú** (clientes, productos, notas) se insertan con `innerHTML` pero **pasando antes por `escapar()`** (escapa `& < > " '`), y el ticket usa
+`textContent`; las pruebas con datos hostiles (e2e de la impresión, escenario 14 de `e2e.js`) siguen pasando.
+
+### 15.9 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. **Este paso no trae SQL nuevo** y no toca la base. No pegues ninguna llave en el chat.
+
+**1. Antes de desplegar (una vez, solo lectura):** comprueba que todo el personal de Taqueiros esté en `miembros` (el panel nuevo exige ser miembro
+**activo**; el SQL 10 pasó a todos los de `personal` como `dueno`, pero conviene verlo). Supabase → SQL Editor → New query → pega →
+**"Run without RLS"**:
+
+```sql
+select u.email, m.rol, m.activo
+from public.miembros m join auth.users u on u.id = m.user_id
+where m.restaurante_id = '00000000-0000-4000-8000-000000000001'
+order by m.rol, u.email;
+```
+
+Cada persona que usa el panel debe aparecer con `activo = true`. Si falta alguien, agrégalo antes de desplegar (con el UID de Authentication → Users):
+`insert into public.miembros (user_id, restaurante_id, rol) values ('<UID>', '00000000-0000-4000-8000-000000000001', 'cajero');` (roles: `dueno`,
+`cajero`, `cocina`).
+
+**2. Despliegue.** `git push` a `main` (ya hecho si lees esto en el repositorio); Vercel despliega solo. Abre `https://taqueiros-2-0.vercel.app/panel.html`.
+
+**3. Recorrido a mano en producción** (lo único que ninguna prueba reemplaza):
+* `panel.html`: entra con la cuenta de siempre → se ve **igual** que antes; en ☰ aparece "Tu rol: Dueño" bajo "Panel de comandas".
+  Cambia un pedido de estado, interruptor Abierto/Cerrado y vuelve a abrir, Sonido, **Reimprimir** (mismo ticket; el pie dice `LOS TAQUEIROS · PEDIDO WEB`).
+* **En el computador de la cocina:** recarga una vez (toma `sw.js` v10) y confirma que "Imprimir comandas en esta pantalla" sigue **ACTIVA** y el
+  tamaño/modo de hoja son los de siempre (se migran solos). Haz un pedido de prueba con Wompi sandbox: aparece, suena, imprime y llega el WhatsApp.
+* `menu-admin.html`: apaga y prende un producto; sube una foto de prueba (queda en `…/storage/v1/object/public/productos/00000000-0000-4000-8000-000000000001/p-….webp`)
+  y bórrala; las fotos de siempre se siguen viendo.
+* `historial.html`: elige una fecha, mira el resumen y busca por teléfono.
+* Un usuario **sin** membresía en Taqueiros (créalo en Authentication si quieres probarlo): debe ver "Tu usuario no tiene acceso a este restaurante." y no ver nada.
+
+**4. Pruebas locales (no tocan la base real):**
+
+```powershell
+npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2      # una vez
+node --test pruebas/*.test.js                                # unitarias (72)
+node pruebas/impresion/e2e.js                                # panel con Supabase simulado (~3 min, 180)
+node pruebas/impresion/comparar-tickets.mjs                  # los 7 tickets idénticos (~1 min)
+node pruebas/multirestaurante/panel.mjs                      # paginas privadas con 2 restaurantes, supabase-js real, RLS real y Realtime emulado (~1-5 min, 272)
+node pruebas/multirestaurante/front.mjs                      # paginas publicas (104)
+node pruebas/multirestaurante/servidor.mjs                   # servidor (187)
+node pruebas/multirestaurante/mutaciones-panel.mjs           # revision por mutacion de las paginas privadas (~35 min con 3 a la vez)
+```
+
+**5. Contra la base real (las mismas de 14.9 paso 3; el servidor casi no cambió: solo el campo opcional `tipografia` de `/api/restaurante`):**
+
+```powershell
+$k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/probar-compatibilidad.mjs                    # esperado: 26 PASAN
+node supabase/probar-servidor-multirestaurante.mjs         # esperado: todos PASA (174), "Limpieza: todo lo creado se borro."
+node supabase/probar-aislamiento.mjs                       # esperado: todas PASA (con Realtime real)
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+**Si algo falla en producción** (por ejemplo, alguien no está en `miembros` y no puede entrar): vuelve a la versión anterior con
+`git revert --no-edit d65d507 bc78966` y `git push`, o agrega la membresía que falta (paso 1). El revert no deshace nada en la base (este paso no la tocó).
+
+### 15.10 Qué se probó y qué no
+
+**Probado por mí (local, sin tocar la base real):**
+
+* `panel.mjs` (nuevo): **272** comprobaciones en Chrome sin interfaz con el `supabase-js` **real**, los manejadores **reales** de `api/`, Postgres 16 (PGlite) con el
+  SQL 10, 11 y 12 y sus políticas RLS **reales**, Supabase en **otro origen** (`supabase.localhost`) y un Realtime falso que habla el protocolo del cliente real
+  (`realtime-falso.mjs`): la marca de dos restaurantes en las tres páginas (colores, logo, favicon, título, tipografías con la dirección armada desde la
+  lista); datos hostiles en la configuración (HTML, CSS, `javascript:`, tipografías fuera de la lista, horario) sin efecto; dominio desconocido y servidor caído
+  (sin peticiones, reintento solo); membresía (dueño de A, dueño de B, miembro de ambos con rol distinto en cada uno, cocina, sin membresía, inactiva, y un
+  usuario de A por el dominio de B: mensaje, sesión cerrada solo localmente, ni una consulta de datos); fallo de red al verificar (no es rechazo) y membresía
+  quitada con el panel abierto; aislamiento con un usuario que RLS deja ver los dos (tablero, configuración, salud del WhatsApp, historial, resumen, búsqueda,
+  menú); interruptor y horario que escriben solo en su restaurante; `menu-admin` con **el mismo id de producto y de categoría en los dos restaurantes**
+  (agotar, editar rápido y por formulario, renombrar, ocultar, borrar, deshacer un alta a medias: nada toca al otro; cada alta lleva su `restaurante_id`, la foto
+  va a `{restaurante_id}/` y nunca a la raíz; RLS de Storage cerrada para la raíz y para la carpeta de otro); Realtime (lo que el navegador pide en el cable,
+  que se descarta lo ajeno **aunque llegue** sin filtro, eventos sin `restaurante_id`); impresión por restaurante; preferencias y su migración;
+  **Taqueiros idéntico al commit anterior**: 14 pantallas/estados (login, tablero con un pedido de domicilio, menú lateral, horario, impresión, aviso de WhatsApp,
+  menú, formulario de producto, historial…) comparando cada elemento con su **estilo calculado** (color, fondo, degradados, fuente, sombra, borde…): **idénticos**
+  (diferencias a propósito, normalizadas en la prueba: el rol bajo el menú; los dos ejemplos de búsqueda del historial; el ícono de pantalla de inicio que menú e
+  historial no tenían; la tipografía de una cifra del historial que no llevaba tipo genérico de respaldo); y la revisión de archivos (nada de Taqueiros escrito).
+* **Revisión por mutación** (`mutaciones-panel.mjs`): 71 mutaciones de las defensas de `panel-restaurante.js`, `restaurante-publico.js`, `panel.html`, `menu-admin.html`, `historial.html`, `ticket-comanda.js` y `sw.js` (cada filtro por restaurante, cada `p_restaurante`, la comprobación de membresía y sus reintentos, el cierre de sesión local, cada filtro y guarda de Realtime, la foto a la carpeta, la migración de claves, la lista de tipografías, la validación de colores…): **65 detectadas, 6 equivalentes declaradas con su razón, 0 sobrevivientes**. La primera corrida dejó pasar 5 (las dos pruebas de "quitar las dos capas de validación" no llegaban al navegador porque el servidor ya descarta lo hostil antes —se agregó el escenario `2b`, que le sirve al navegador datos crudos sin validar—, y la revisión de `sw.js`, que leía el archivo del repositorio en vez de la copia mutada) y una mutación declarada "equivalente" que sí se detectaba. Las equivalentes: los dos filtros de una sola capa de validación (colores y tipografías: la otra capa los cubre; quitadas las dos sí se detectan), `fila.activo` en el navegador (la consulta ya lo pide), un rol desconocido (la base tiene un CHECK con tres roles), el filtro `restaurante_id` en el cambio de estado de un pedido (`pedidos.id` es único en toda la tabla), `esImprimible` (tercera capa) y no intentar borrar una foto de otra carpeta (Storage ya lo prohíbe). Para repetir unas pocas: `node pruebas/multirestaurante/mutaciones-panel.mjs --sin-base --solo="<regex>"`.
+* Baterías anteriores, todas verdes: `rls.mjs` 234, `hallazgos.mjs` 32, `planes.mjs` 11, `sim.mjs` (34 OK, con y sin `conPendientes`), `dominios.mjs` 35,
+  `config-publica.mjs` 49, `cargar-secretos-test.mjs` 20, `servidor.mjs` 187 (186 + 1 de tipografías), `front.mjs` 104, `probar-compatibilidad` contra el falso 26,
+  `probar-servidor-multirestaurante` contra el falso 174, `probar-aislamiento` contra el falso 231 de 238 (las 7 que fallan son las de Realtime, que ese falso no emula,
+  igual que antes), unitarias 72, `e2e.js` del panel de la impresión 180 y `comparar-tickets.mjs` 7 de 7. Cambiaron solo las que dependían de lo que cambia:
+  `e2e.js` y su servidor falso (ahora entrega `/api/restaurante` armado con el mismo código del servidor, la tabla `miembros`, filtros por restaurante y canales
+  con filtro), `front.mjs` (nombre del objeto global, versión del service worker) y `fake-supabase.mjs` (ahora respeta `.single()`).
+
+**Solo se puede probar contra la base real o en producción (pendiente de Carlos):** el inicio de sesión real con tu cuenta y la fila real de `miembros`
+(paso 1 de 15.9); que Realtime real acepte el filtro `restaurante_id=eq.<uuid>` en las tres tablas (el protocolo es el estándar de Supabase y el cliente real lo
+acepta en la prueba, pero el servidor real lo valida él mismo); la subida real de fotos a `{restaurante_id}/` con las políticas reales (las políticas son las del
+SQL 10, que `probar-aislamiento.mjs` ya verifica contra la base real); la **impresora física** y `--kiosk-printing`; Google Fonts reales; el service worker real
+instalado en el equipo de la cocina; y que la caché del borde de Vercel separe dominios (P5, sin cambios).
+
+### 15.11 Pendientes y riesgos para el paso siguiente (2B-4)
+
+De 13.4 y 14.11, lo del frontend privado que era de bajo riesgo **se resolvió aquí**: marca de las páginas privadas y del ticket, `menu-admin` con
+`restaurante_id` explícito y fotos en carpeta, el panel sin "primera membresía" (ya no hace falta selector: el dominio decide), `TAQUEIROS_SUPABASE` y las
+tipografías. **No se hizo, y queda para 2B-4:**
+
+1. **Retirar los valores por defecto transitorios** de `restaurante_id` (y `restaurante_taqueiros_id()`). Antes, revisar quién inserta **sin** `restaurante_id`: el
+   servidor y las tres páginas privadas ya lo mandan; fallarían los scripts antiguos `supabase/probar-menu-rls.js`, `probar-publishable.mjs` y `probar-impresion-rls.js`
+   (ya estaban marcados como obsoletos en la sección 5) y cualquier carga manual.
+2. **Regla transitoria del bucket** (la raíz solo la escribe el dueño de Taqueiros). `menu-admin` ya no escribe en la raíz, pero las ~38 fotos antiguas siguen allí y
+   al borrar/cambiar una foto vieja la página intenta borrarla de la raíz: con la regla retirada, ese borrado fallaría en silencio (queda un aviso en consola). Decidir:
+   mover las fotos a `{restaurante_id}/` (hay que copiar el archivo con la API de Storage y actualizar `productos.imagen`; con SQL solo no se mueve el archivo) o conservar
+   solo el borrado en la raíz.
+3. **Formulario de configuración** (el dueño ya puede escribir `config.publico`): con las mismas validaciones que el servidor y el navegador (colores `#RRGGBB`,
+   URLs de logo, textos, WhatsApp) y **selector de las dos tipografías** con la lista de 15.5; que avise lo que se descarta.
+4. **Agrupación de endpoints:** siguen siendo **11 de 12** funciones de Vercel Hobby; este paso **no agregó ninguna** (el aviso de gracia, que habría pedido un endpoint
+   con sesión, no se hizo: el dueño ya puede leer su fila de `restaurantes` con RLS —incluye `vigente_hasta` y `dias_gracia`— así que se puede mostrar sin función nueva; falta
+   decidir quién lo ve y con qué texto). Candidatos a unir: `estado` + `disponibilidad`, `restaurante` + `manifest`, `keep-alive` + `alertas`.
+5. **Vista previa de enlaces:** sin cambios; las páginas privadas llevan `noindex`. Las públicas siguen con el título neutro hasta que se sirva el HTML desde una función.
+6. **Superadmin:** un superadmin que no es miembro de un restaurante hoy **no** entra a su panel (la comprobación es estricta); la interfaz de superadmin deberá traer su
+   camino ("entrar como"). Un usuario baneado en Auth conserva su token ~1 h (P9), pero RLS deja de darle datos en cuanto se desactiva su membresía y el panel lo saca
+   en ≤ 10 min.
+7. **Residuos regionales:** `America/Bogota` (jornada y fechas del panel e historial; `restaurantes.zona_horaria` existe pero `jornada_de` la tiene fija), prefijo `+57` de los
+   `tel:`, `es-CO`; y los datos inventados del **ticket de prueba** (nombres de productos de ejemplo, que dejé igual porque la prueba exige que el ticket de Taqueiros no cambie;
+   cambiarlos exige actualizar `comparar-tickets.mjs`).
+8. **Realtime y `DELETE`:** los eventos de borrado se ignoran (no traen `new`); un pedido borrado sigue en el tablero hasta recargar (como siempre). Los filtros de Realtime no
+   se aplican a `DELETE` salvo por clave primaria, por eso el manejador además descarta todo lo que no sea de su restaurante.
+9. **Costo por página:** cada carga hace una petición más a `/api/restaurante` y una a `miembros`. Si pesa, cache corto de borde **después** de verificar `Vary: Host` con dos dominios (P5).
+10. P1, P2, P4–P8 y P10–P13 de 13.4 no tocan estas páginas y siguen como estaban.

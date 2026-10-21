@@ -214,7 +214,7 @@ una dirección muy largos, ñ y tildes. Comprueba:
 - [ ] El nombre de cada producto se lee de lejos.
 - [ ] **No hay encabezado ni pie** de Chrome (ni fecha y título arriba, ni URL y "1/1" abajo).
 - [ ] El corte cae **debajo** de la línea final, sin comerse texto.
-- [ ] No sale papel en blanco extra después del ticket (unos 4–5 mm bajo "LOS TAQUEIROS · PEDIDO WEB", más ~3 cm que avanza la propia impresora hasta la cuchilla: son normales, sección 5.3).
+- [ ] No sale papel en blanco extra después del ticket (unos 4–5 mm bajo "<NOMBRE DEL RESTAURANTE> · PEDIDO WEB" (para Taqueiros: LOS TAQUEIROS · PEDIDO WEB), más ~3 cm que avanza la propia impresora hasta la cuchilla: son normales, sección 5.3).
 - [ ] El ticket arranca a ~1 cm del borde del papel, sin 6–9 cm de blanco arriba (modo de hoja **D**, sección 5.4).
 - [ ] El texto tiene un tamaño cómodo; si no, cámbialo en **Tamaño del ticket** (sección 5.1).
 
@@ -322,7 +322,7 @@ ese margen más la distancia a la cuchilla.
   por software.
 - Ese margen de 4 mm es solo aire. **Más margen = más papel gastado en
   cada ticket.**
-- Si el corte se come "LOS TAQUEIROS · PEDIDO WEB", sube la constante (prueba
+- Si el corte se come "<NOMBRE DEL RESTAURANTE> · PEDIDO WEB" (para Taqueiros: LOS TAQUEIROS · PEDIDO WEB), sube la constante (prueba
   con 8) y sube el `?v=` del `<script>` en `panel.html`. Nada más.
 
 ### 5.4 Modo de hoja: D es el recomendado para la DIG-POS892
@@ -431,7 +431,7 @@ Un pedido más largo se parte en hojas, y esa partición es **limpia**:
 
 - **Ningún producto se corta**: cada producto (con sus notas), el bloque
   de *Notas del pedido*, el bloque de totales (productos, domicilio, TOTAL,
-  forma de pago y pie "LOS TAQUEIROS · PEDIDO WEB") y el bloque de datos
+  forma de pago y pie "<NOMBRE DEL RESTAURANTE> · PEDIDO WEB" (para Taqueiros: LOS TAQUEIROS · PEDIDO WEB)) y el bloque de datos
   del cliente (cliente, teléfono, dirección, barrio y avisos) van enteros
   en una hoja. Se logra con `break-inside: avoid` y, además, el corte lo
   calcula `ticket-comanda.js` (`repartirHojas` / `paginarHojas`) para que
@@ -543,7 +543,7 @@ Ninguna de las dos devuelve datos de clientes.
   WhatsApp). Lo demás (Historial, Menú, Horario, Configuración,
   Notificaciones, Cerrar sesión) sale del arreglo `MENU_LATERAL` de
   `panel.html`: para sumar una opción se agrega un objeto ahí. El nombre y
-  el logo del restaurante viven solo en `marca.js`.
+  el logo del restaurante salen de `/api/restaurante` (ver `panel-restaurante.js`; `marca.js` ya no existe).
 - Pruebas: `node --test pruebas/ticket-comanda.test.js` (rápida) y
   `node pruebas/impresion/e2e.js` (navegador sin interfaz con Supabase
   simulado, ~2 minutos). Ver el encabezado de `e2e.js` para guardar los
