@@ -1,0 +1,135 @@
+/* =============================================================
+   REVISION POR MUTACION DEL SQL 13  (la usa endurecer.mjs --mutaciones)
+
+   Cada mutacion rompe UNA defensa del archivo supabase/13-endurecer.sql (reemplaza un trozo de texto). La migracion
+   mutada se aplica sobre una base nueva y tiene que pasar por una de estas dos puertas:
+     * detenerse o fallar alguna de sus propias comprobaciones, o
+     * que la sonda de comportamiento de endurecer.mjs (roles reales, RLS, REST) encuentre algo fuera de lugar.
+   Si ninguna lo ve, la defensa no tiene prueba. Una mutacion marcada "equivalente" lleva la razon por la que quitar esa
+   defensa NO cambia lo que un atacante puede hacer (hay otra capa que cubre lo mismo).
+============================================================= */
+export const MUTACIONES = [
+  // ---------------- valores por defecto ----------------
+  { nombre: 'no se retira el valor por defecto', buscar: "execute format('alter table %s alter column restaurante_id drop default', r.relid::regclass);", poner: 'null;' },
+  { nombre: 'el barrido se salta una tabla (productos)', buscar: "and a.atthasdef\n             and not exists", poner: "and a.atthasdef and c.relname <> 'productos'\n             and not exists" },
+  { nombre: 'el barrido se salta una tabla (salud_notificaciones)', buscar: "and a.atthasdef\n             and not exists", poner: "and a.atthasdef and c.relname <> 'salud_notificaciones'\n             and not exists" },
+  { nombre: 'al retirar el valor por defecto tambien se quita el NOT NULL', buscar: "'alter table %s alter column restaurante_id drop default'", poner: "'alter table %s alter column restaurante_id drop default, alter column restaurante_id drop not null'" },
+
+  // ---------------- validacion de config: el trigger ----------------
+  { nombre: 'no se crea el trigger de validacion', buscar: "create trigger restaurantes_validar_config\n  before insert or update on public.restaurantes\n  for each row execute function public.validar_config_restaurante();", poner: '-- (mutacion)' },
+  { nombre: 'el trigger solo valida en INSERT', buscar: "before insert or update on public.restaurantes\n  for each row execute function public.validar_config_restaurante();", poner: "before insert on public.restaurantes\n  for each row execute function public.validar_config_restaurante();" },
+  { nombre: 'el trigger deja pasar al servidor y al superadmin', buscar: "  v_err text[];\nbegin\n  if tg_op = 'UPDATE' and new.config is not distinct from old.config then", poner: "  v_err text[];\nbegin\n  if public.es_servidor() or (select public.es_superadmin()) then return new; end if;\n  if tg_op = 'UPDATE' and new.config is not distinct from old.config then" },
+  { nombre: 'el trigger valida aunque la config no cambie (un cambio de estado se frenaria por una config vieja)', buscar: "if tg_op = 'UPDATE' and new.config is not distinct from old.config then\n    return new;\n  end if;\n\n  v_err", poner: "if false then\n    return new;\n  end if;\n\n  v_err" },
+  { nombre: 'el trigger usa otro codigo de error', buscar: "using errcode = '23514', hint = 'Las reglas", poner: "using errcode = '22023', hint = 'Las reglas" },
+  { nombre: 'el mensaje de error repite el valor del secreto', buscar: "e := e || (r.ruta || ': el valor parece un secreto (llave privada,", poner: "e := e || (r.ruta || ': el valor ' || txt || ' parece un secreto (llave privada," },
+  { nombre: 'la funcion de validacion queda abierta a anon', buscar: "revoke all on function public.config_restaurante_errores(jsonb) from public, anon;", poner: '-- (mutacion)' },
+  { nombre: 'la funcion de validacion es SECURITY DEFINER', buscar: "returns text[]\nlanguage plpgsql\nimmutable\nset search_path = ''", poner: "returns text[]\nlanguage plpgsql\nimmutable\nsecurity definer\nset search_path = ''" },
+
+  // ---------------- validacion de config: las reglas ----------------
+  { nombre: 'no se rechazan claves desconocidas', buscar: "e := e || (r.ruta || ': clave desconocida');", poner: 'null;' },
+  { nombre: 'no se rechaza un contenedor que no es objeto', buscar: "if jsonb_typeof(r.v) <> 'object' then\n          e := e || (r.ruta || ': debe ser un objeto');", poner: "if false then\n          e := e || (r.ruta || ': debe ser un objeto');" },
+  { nombre: 'no se detectan claves con nombre de secreto', buscar: 'if not r.es_elemento and r.clave ~* c_secreto_clave then', poner: 'if false then' },
+  { nombre: 'no se detectan valores que parecen secreto', buscar: 'if txt ~* c_secreto_valor then', poner: 'if false then' },
+  { nombre: 'un prefijo de secreto sale de la lista (prod_events_)', buscar: '(test|prod)_(integrity|events)_|sb_secret_', poner: '(test|prod)_(integrity)_|sb_secret_' },
+  { nombre: 'un prefijo de secreto sale de la lista (sb_secret_)', buscar: '(test|prod)_(integrity|events)_|sb_secret_|sb_publishable_', poner: '(test|prod)_(integrity|events)_|sb_publishable_' },
+  { nombre: 'la lista de secretos pierde el prefijo prv_', buscar: "c_secreto_valor constant text := '(prv_|", poner: "c_secreto_valor constant text := '(" },
+  { nombre: 'no se rechazan las etiquetas HTML', buscar: "if txt ~ '[<>]' then", poner: 'if false then' },
+  { nombre: 'solo se rechaza < pero no >', buscar: "if txt ~ '[<>]' then", poner: "if txt ~ '[<]' then" },
+  { nombre: 'no se rechazan saltos de linea ni caracteres de control', buscar: 'if txt ~ c_control then', poner: 'if false then' },
+  { nombre: 'el patron de caracteres de control pierde los invisibles (ancho cero)', buscar: "|| chr(8203) || '-' || chr(8207) ||", poner: '||' },
+  { nombre: 'no se rechaza un texto que parece una clave', buscar: "if txt ~ '^[A-Za-z0-9_-]{32,}$' then", poner: 'if false then' },
+  { nombre: 'no se limita el largo de los textos', buscar: 'if char_length(txt) > r.maximo then', poner: 'if false then' },
+  { nombre: 'se aceptan URLs http', buscar: "c_https   constant text := '^https://", poner: "c_https   constant text := '^https?://" },
+  { nombre: 'se acepta https de cualquier dominio', buscar: "[a-z0-9-]+\\.supabase\\.co/storage/v1/object/public/", poner: "[a-z0-9.-]+/" },
+  { nombre: 'se acepta https de otra ruta del mismo Supabase', buscar: "\\.supabase\\.co/storage/v1/object/public/[A-Za-z0-9_./%-]+$'", poner: "\\.supabase\\.co/[A-Za-z0-9_./%-]+$'" },
+  { nombre: 'no se rechaza ".." en las URLs', buscar: "and position('..' in txt) = 0", poner: 'and true' },
+  { nombre: 'no se rechaza "//" en las rutas relativas', buscar: "(txt ~ c_ruta and position('//' in txt) = 0)", poner: '(txt ~ c_ruta)' },
+  { nombre: 'una ruta relativa puede traer dos puntos (esquema)', buscar: "c_ruta    constant text := '^/?[A-Za-z0-9][A-Za-z0-9_./-]*$';", poner: "c_ruta    constant text := '^/?[A-Za-z0-9][A-Za-z0-9_./:-]*$';" },
+  { nombre: 'no se limita el largo de las URLs', buscar: 'v_ok := char_length(txt) <= 500\n                and', poner: 'v_ok := true\n                and' },
+  { nombre: 'el color acepta cualquier longitud (#FFF)', buscar: "c_color   constant text := '^#[0-9A-Fa-f]{6}$';", poner: "c_color   constant text := '^#[0-9A-Fa-f]{3,8}$';" },
+  { nombre: 'el color no se ancla al final (CSS inyectado)', buscar: "c_color   constant text := '^#[0-9A-Fa-f]{6}$';", poner: "c_color   constant text := '^#[0-9A-Fa-f]{6}';" },
+  { nombre: 'no se limita la cantidad de colores de zona', buscar: 'if jsonb_array_length(r.v) > r.maximo then', poner: 'if false then' },
+  { nombre: 'no se revisa cada color de zona', buscar: 'for v_i in 0 .. jsonb_array_length(r.v) - 1 loop', poner: 'for v_i in 0 .. -1 loop' },
+  { nombre: 'no se revisa que las zonas sean una lista', buscar: "if jsonb_typeof(r.v) <> 'array' then\n        e := e || (r.ruta || ': debe ser una lista de colores');", poner: "if false then\n        e := e || (r.ruta || ': debe ser una lista de colores');" },
+  { nombre: 'no se revisa la lista de tipografias', buscar: "or not ((r.v #>> '{}') = any (c_fuentes))", poner: 'or false' },
+  { nombre: 'la lista de tipografias acepta Comic Sans', buscar: "'Work Sans','Source Sans 3']", poner: "'Work Sans','Source Sans 3','Comic Sans']" },
+  { nombre: 'la lista de tipografias pierde una (Lato)', buscar: "'Nunito','Lato','DM Sans'", poner: "'Nunito','DM Sans'" },
+  { nombre: 'la latitud admite cualquier valor', buscar: "('ubicacion.lat', 'num', -90, 90)", poner: "('ubicacion.lat', 'num', -9000, 9000)" },
+  { nombre: 'la longitud admite cualquier valor', buscar: "('ubicacion.lng', 'num', -180, 180)", poner: "('ubicacion.lng', 'num', -18000, 18000)" },
+  { nombre: 'el factor de recorrido admite cualquier valor', buscar: "('domicilio.factor_recorrido',  'num', 1, 3)", poner: "('domicilio.factor_recorrido',  'num', 0, 300)" },
+  { nombre: 'el pin minimo admite cualquier valor', buscar: "('domicilio.pin_minimo_metros', 'num', 0, 5000)", poner: "('domicilio.pin_minimo_metros', 'num', -9, 5000000)" },
+  { nombre: 'un numero puede venir como texto', buscar: "if jsonb_typeof(r.v) <> 'number' then\n        e := e || (r.ruta || ': debe ser un numero');\n      else\n        v_num := (r.v #>> '{}')::numeric;", poner: "if false then\n        e := e || (r.ruta || ': debe ser un numero');\n      else\n        v_num := 0;" },
+  { nombre: 'el WhatsApp acepta cualquier largo', buscar: "!~ '^[0-9]{8,15}$'", poner: "!~ '^[0-9]{1,30}$'" },
+  { nombre: 'el WhatsApp acepta letras', buscar: "regexp_replace(txt, '[[:space:]+()-]', '', 'g')", poner: "regexp_replace(txt, '[[:alpha:][:space:]+()-]', '', 'g')" },
+  { nombre: 'las redes aceptan cualquier cosa', buscar: "!~ '^@?[A-Za-z0-9._]{1,60}$'", poner: "!~ '^.*$'" },
+  { nombre: 'la llave publica de prueba acepta la de produccion', buscar: "!~ '^pub_test_[A-Za-z0-9]{10,80}$'", poner: "!~ '^pub_(test|prod)_[A-Za-z0-9]{10,80}$'" },
+  { nombre: 'la llave publica de produccion acepta la de prueba', buscar: "!~ '^pub_prod_[A-Za-z0-9]{10,80}$'", poner: "!~ '^pub_(test|prod)_[A-Za-z0-9]{10,80}$'" },
+  { nombre: 'la ubicacion puede venir sin lat o sin lng', buscar: "and not ((p_config -> 'ubicacion') ? 'lat' and (p_config -> 'ubicacion') ? 'lng') then", poner: 'and false then' },
+  { nombre: 'el area puede tener latMin > latMax', buscar: "and (v_a ->> 'latMin')::numeric > (v_a ->> 'latMax')::numeric then", poner: 'and false then' },
+  { nombre: 'el area puede tener lngMin > lngMax', buscar: "and (v_a ->> 'lngMin')::numeric > (v_a ->> 'lngMax')::numeric then", poner: 'and false then' },
+  { nombre: 'no se limita el tamano total de la config', buscar: 'if octet_length(p_config::text) > 20000 then', poner: 'if octet_length(p_config::text) > 20000000 then', equivalente: 'una config valida mide menos de 10000 caracteres (cada campo tiene su tope y las listas tambien): lo que pase de 20000 trae algo invalido, que otra regla ya rechaza; el tope solo evita recorrer una config enorme' },
+  { nombre: 'una config que no es objeto se acepta', buscar: "if p_config is null or jsonb_typeof(p_config) <> 'object' then", poner: "if p_config is null then" },
+  { nombre: 'la profundidad maxima del recorrido', buscar: 'where cardinality(w.p) < 8', poner: 'where cardinality(w.p) < 80', equivalente: 'una clave mas profunda que las reglas ya es "clave desconocida" a su nivel; el tope solo acota el trabajo' },
+
+  // ---------------- tarifas ----------------
+  { nombre: 'no se crea el trigger de rangos de tarifas', buscar: "create trigger tarifas_domicilio_validar\n  before insert or update on public.tarifas_domicilio\n  for each row execute function public.validar_tarifa_domicilio();", poner: '-- (mutacion)' },
+  { nombre: 'el precio de una tarifa no tiene tope', buscar: 'new.precio > 500000', poner: 'new.precio > 500000000' },
+  { nombre: 'el precio de una tarifa puede ser negativo', buscar: 'new.precio < 0 or new.precio > 500000', poner: 'new.precio < -5 or new.precio > 500000', equivalente: 'la tabla ya tiene CHECK (precio is null or precio >= 0) con el mismo codigo 23514' },
+  { nombre: 'los km de una tarifa no tienen tope', buscar: 'new.hasta <= 0 or new.hasta > 1000', poner: 'new.hasta <= 0 or new.hasta > 100000' },
+  { nombre: 'los km de una tarifa pueden ser cero', buscar: 'new.hasta <= 0 or new.hasta > 1000', poner: 'new.hasta < 0 or new.hasta > 1000', equivalente: 'la tabla ya tiene CHECK (hasta > 0) con el mismo codigo 23514' },
+  { nombre: 'las tarifas solo se validan al insertar', buscar: 'create trigger tarifas_domicilio_validar\n  before insert or update on public.tarifas_domicilio', poner: 'create trigger tarifas_domicilio_validar\n  before insert on public.tarifas_domicilio' },
+  { nombre: 'el dueno vuelve a poder insertar tarifas', buscar: "create policy mr_tarifas_insert on public.tarifas_domicilio for insert to authenticated\n    with check ((select public.es_superadmin()));", poner: "create policy mr_tarifas_insert on public.tarifas_domicilio for insert to authenticated\n    with check ((select public.es_superadmin()) or (select public.rol_en(restaurante_id)) = 'dueno');" },
+  { nombre: 'el dueno vuelve a poder actualizar tarifas', buscar: "create policy mr_tarifas_update on public.tarifas_domicilio for update to authenticated\n    using ((select public.es_superadmin())) with check ((select public.es_superadmin()));", poner: "create policy mr_tarifas_update on public.tarifas_domicilio for update to authenticated\n    using ((select public.es_superadmin()) or (select public.rol_en(restaurante_id)) = 'dueno') with check ((select public.es_superadmin()) or (select public.rol_en(restaurante_id)) = 'dueno');" },
+  { nombre: 'el dueno vuelve a poder borrar tarifas', buscar: "create policy mr_tarifas_delete on public.tarifas_domicilio for delete to authenticated\n    using ((select public.es_superadmin()));", poner: "create policy mr_tarifas_delete on public.tarifas_domicilio for delete to authenticated\n    using ((select public.es_superadmin()) or (select public.rol_en(restaurante_id)) = 'dueno');" },
+  { nombre: 'el cajero puede escribir tarifas', buscar: "create policy mr_tarifas_insert on public.tarifas_domicilio for insert to authenticated\n    with check ((select public.es_superadmin()));", poner: "create policy mr_tarifas_insert on public.tarifas_domicilio for insert to authenticated\n    with check ((select public.es_superadmin()) or (select public.rol_en(restaurante_id)) in ('dueno', 'cajero'));" },
+
+  // ---------------- permisos del dueno sobre su restaurante ----------------
+  { nombre: 'el dueno puede cambiar todo', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'plan', 'estado', 'slug', 'vigente_hasta', 'modulos', 'dias_gracia', 'modalidad_pago', 'zona_horaria', 'hora_corte_jornada', 'id', 'creado_en'];" },
+  { nombre: 'el dueno puede cambiar el plan', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'plan'];" },
+  { nombre: 'el dueno puede cambiar el estado', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'estado'];" },
+  { nombre: 'el dueno puede cambiar la vigencia', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'vigente_hasta'];" },
+  { nombre: 'el dueno puede cambiar los modulos', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'modulos'];" },
+  { nombre: 'el dueno puede cambiar el slug', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'slug'];" },
+  { nombre: 'el dueno puede cambiar la hora de corte del restaurante', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'hora_corte_jornada'];" },
+  { nombre: 'el dueno puede cambiar la zona horaria', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'zona_horaria'];" },
+  { nombre: 'el dueno puede cambiar el id del restaurante', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['nombre', 'config', 'id'];", equivalente: 'RLS (WITH CHECK rol_en(id) = dueno) y la llave primaria ya lo impiden: un id nuevo no tiene membresia y uno ajeno choca; el trigger es la tercera capa' },
+  { nombre: 'el dueno ya no puede cambiar su nombre', buscar: "permitidas constant text[] := array['nombre', 'config'];", poner: "permitidas constant text[] := array['config'];" },
+  { nombre: 'el nombre admite HTML', buscar: "          or new.nombre ~ '[<>]'", poner: '          or false' },
+  { nombre: 'el nombre no tiene tope de largo', buscar: 'not between 1 and 120', poner: 'not between 1 and 12000' },
+  { nombre: 'el nombre admite caracteres de control', buscar: "          or new.nombre ~ ('[\\x01-\\x1f\\x7f-\\x9f'", poner: "          or false and new.nombre ~ ('[\\x01-\\x1f\\x7f-\\x9f'" },
+  { nombre: 'el nombre no se valida', buscar: 'if new.nombre is distinct from old.nombre\n     and (', poner: 'if false\n     and (' },
+  { nombre: 'el dueno no puede editar el contacto', buscar: "new.config #- '{publico,textos}' #- '{publico,contacto}' else new.config end;", poner: "new.config #- '{publico,textos}' else new.config end;" },
+  { nombre: 'el dueno puede editar la marca', buscar: "then new.config #- '{publico,textos}' #- '{publico,contacto}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' else old.config end;", poner: "then new.config #- '{publico,textos}' #- '{publico,contacto}' #- '{publico,marca}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' #- '{publico,marca}' else old.config end;" },
+  { nombre: 'el dueno puede editar la ubicacion', buscar: "then new.config #- '{publico,textos}' #- '{publico,contacto}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' else old.config end;", poner: "then new.config #- '{publico,textos}' #- '{publico,contacto}' #- '{ubicacion}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' #- '{ubicacion}' else old.config end;" },
+  { nombre: 'el dueno puede editar las llaves de Wompi', buscar: "then new.config #- '{publico,textos}' #- '{publico,contacto}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' else old.config end;", poner: "then new.config #- '{publico,textos}' #- '{publico,contacto}' #- '{publico,wompi}' else new.config end;\n    v_o := case when jsonb_typeof(old.config -> 'publico') = 'object'\n                then old.config #- '{publico,textos}' #- '{publico,contacto}' #- '{publico,wompi}' else old.config end;" },
+  { nombre: 'no se compara la config del dueno', buscar: 'if new.config is distinct from old.config then\n    -- un publico', poner: 'if false then\n    -- un publico' },
+  { nombre: 'la comparacion de la config se salta si el cambio es de textos', buscar: "    if v_n is distinct from v_o then\n      raise exception 'El dueno solo puede cambiar config.publico.textos", poner: "    if false and v_n is distinct from v_o then\n      raise exception 'El dueno solo puede cambiar config.publico.textos" },
+  { nombre: 'un publico vacio no se normaliza (el dueno no puede agregar textos a una config sin publico)', buscar: "    if v_n -> 'publico' = '{}'::jsonb then v_n := v_n - 'publico'; end if;", poner: '-- (mutacion)' },
+  { nombre: 'un publico que no es objeto revienta en vez de rechazarse', buscar: "if new.config ? 'publico' and jsonb_typeof(new.config -> 'publico') <> 'object' then\n      raise exception 'config.publico debe ser un objeto' using errcode = '23514';\n    end if;", poner: '-- (mutacion)', equivalente: 'sin esa guarda #- sobre un arreglo falla igual con otro error y la validacion posterior tambien lo rechaza: se rechaza de todos modos' },
+  { nombre: 'el superadmin no puede cambiar el plan', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n\n  -- id, slug", poner: "  if public.es_servidor() then\n    return new;\n  end if;\n\n  -- id, slug" },
+  { nombre: 'el servidor no puede cambiar el plan', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n\n  -- id, slug", poner: "  if (select public.es_superadmin()) then\n    return new;\n  end if;\n\n  -- id, slug" },
+  { nombre: 'nadie escapa de la proteccion de restaurantes (ni servidor ni superadmin)', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n\n  -- id, slug", poner: "  if false then\n    return new;\n  end if;\n\n  -- id, slug" },
+  { nombre: 'no se instala la proteccion de restaurantes', buscar: "create trigger restaurantes_proteger\n  before update on public.restaurantes\n  for each row execute function public.proteger_campos_restaurante();", poner: '-- (mutacion)' },
+  { nombre: 'la proteccion de restaurantes queda abierta a anon', buscar: "revoke all on function public.proteger_campos_restaurante() from public, anon;", poner: '-- (mutacion)', equivalente: 'es una funcion de trigger que solo hace comparaciones; que anon pueda ejecutarla por RPC no le da acceso a nada. El SQL 10 hace lo mismo con las suyas y la comprobacion "anon solo ejecuta ..." de la propia migracion lo detecta' },
+
+  // ---------------- configuracion ----------------
+  { nombre: 'no se instala la proteccion de configuracion', buscar: "create trigger configuracion_proteger\n  before update on public.configuracion\n  for each row execute function public.proteger_campos_configuracion();", poner: '-- (mutacion)' },
+  { nombre: 'el dueno puede cambiar la hora de corte de la jornada', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en', 'hora_corte_jornada'];" },
+  { nombre: 'el dueno puede cambiar minutos_ocultar_terminados', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en', 'minutos_ocultar_terminados'];" },
+  { nombre: 'el dueno puede cambiar el id de la configuracion', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en', 'id'];" },
+  { nombre: 'el dueno ya no puede cerrar el local', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['horarios', 'mensaje_cerrado', 'actualizado_en'];" },
+  { nombre: 'el dueno ya no puede cambiar el horario', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['cerrado_temporal', 'mensaje_cerrado', 'actualizado_en'];" },
+  { nombre: 'el dueno ya no puede cambiar el mensaje de cerrado', buscar: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'mensaje_cerrado', 'actualizado_en'];", poner: "permitidas constant text[] := array['cerrado_temporal', 'horarios', 'actualizado_en'];" },
+  { nombre: 'la proteccion de configuracion rechaza el cambio de actualizado_en (rompe al panel)', buscar: "'mensaje_cerrado', 'actualizado_en'];", poner: "'mensaje_cerrado'];" },
+  { nombre: 'el servidor no puede cambiar la hora de corte', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)", poner: "  if (select public.es_superadmin()) then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)" },
+  { nombre: 'el superadmin no puede cambiar la hora de corte', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)", poner: "  if public.es_servidor() then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)" },
+  { nombre: 'nadie escapa de la proteccion de configuracion', buscar: "  if public.es_servidor() or (select public.es_superadmin()) then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)", poner: "  if false then\n    return new;\n  end if;\n  if (to_jsonb(new) - permitidas)" },
+
+  // ---------------- tablas privadas ----------------
+  { nombre: 'no se re-afirman los privilegios de las tablas privadas', buscar: "execute format('revoke all on table %s from anon, authenticated', r.relid::regclass);", poner: 'null;' },
+  { nombre: 'solo se le quitan a anon, no a authenticated', buscar: "execute format('revoke all on table %s from anon, authenticated', r.relid::regclass);", poner: "execute format('revoke all on table %s from anon', r.relid::regclass);" },
+  { nombre: 'la lista de tablas privadas pierde restaurante_secretos', buscar: "c.relname in ('restaurante_secretos', 'contadores_pedido', 'restaurante_dominios', 'intentos_buscar_pedido', 'personal') loop", poner: "c.relname in ('contadores_pedido', 'restaurante_dominios', 'intentos_buscar_pedido', 'personal') loop" },
+  { nombre: 'la lista de tablas privadas pierde contadores_pedido', buscar: "c.relname in ('restaurante_secretos', 'contadores_pedido', 'restaurante_dominios', 'intentos_buscar_pedido', 'personal') loop", poner: "c.relname in ('restaurante_secretos', 'restaurante_dominios', 'intentos_buscar_pedido', 'personal') loop" },
+  { nombre: 'la lista de tablas privadas pierde restaurante_dominios', buscar: "c.relname in ('restaurante_secretos', 'contadores_pedido', 'restaurante_dominios', 'intentos_buscar_pedido', 'personal') loop", poner: "c.relname in ('restaurante_secretos', 'contadores_pedido', 'intentos_buscar_pedido', 'personal') loop" },
+  { nombre: 'la migracion cambia datos (renombra Taqueiros antes de comprobar)', buscar: '-- >>> PASO 4.3 la tabla de comprobaciones', poner: "update public.restaurantes set nombre = nombre || ' ' where slug = 'taqueiros'; -- >>> PASO 4.3 la tabla de comprobaciones" }
+];

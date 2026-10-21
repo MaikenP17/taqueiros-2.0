@@ -7,7 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { crearBase, sembrar, sql10, REPO } from './sim.mjs';
 
-export async function levantar({ puerto = 54329, migrar = true } = {}) {
+/* validarConfig: false apaga SOLO el trigger de validacion de restaurantes.config del SQL 13 (el resto del 13 queda
+   activo). Lo usan las baterias que prueban lo que hacen el servidor y el navegador con una config hostil o de forma
+   vieja (defensa en profundidad): la base ya no deja guardar esos datos, pero esas capas tienen que seguir
+   defendiendose por si algun dia llegan (por ejemplo, un cambio hecho con el trigger apagado). VALIDAR_CONFIG=1 lo
+   fuerza a prender en todas, para ver cuales dependen de ello. */
+export async function levantar({ puerto = 54329, migrar = true, validarConfig = true } = {}) {
   const db = await crearBase({ con01y02: true });
   await sembrar(db);
   if (migrar) {
@@ -20,8 +25,20 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
     // nuevo ANTES de correr el SQL 12: Taqueiros debe verse igual con los valores de respaldo).
     const f12 = path.join(REPO, 'supabase', '12-config-publica.sql');
     if (!process.env.SQL12_NO && fs.existsSync(f12)) await db.exec(fs.readFileSync(f12, 'utf8'));
+    // SQL 13 (sin valor por defecto de restaurante_id, config validada, minimo privilegio). SQL13_NO=1 lo omite
+    // (para probar el codigo antes de correrlo). Se aplica solo si el 12 esta (el 13 se corre despues del 12).
+    const f13 = process.env.SQL13_ARCHIVO || path.join(REPO, 'supabase', '13-endurecer.sql');
+    if (!process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f13)) await db.exec(fs.readFileSync(f13, 'utf8'));
+    // SQL 14 (retira la regla de la raiz del bucket). Solo con SQL14=1: se corre despues de mover las fotos.
+    const f14 = path.join(REPO, 'supabase', '14-retirar-regla-bucket.sql');
+    if (process.env.SQL14 && fs.existsSync(f14)) await db.exec(fs.readFileSync(f14, 'utf8'));
+    if (validarConfig === false && !process.env.VALIDAR_CONFIG && !process.env.SQL13_NO && !process.env.SQL12_NO) {
+      await db.exec('alter table public.restaurantes disable trigger restaurantes_validar_config');
+    }
   }
 
+  const archivos = new Map();    // 'productos/<ruta>' -> Buffer (contenido real de lo subido)
+  const falso = { archivos, cortar: null, antes: null, ignorarBorrados: false, peticiones: [] };   // cortar(req, url) -> true: corta la conexion (simula un fallo)
   const passwords = new Map();   // email -> password
   const tokens = new Map();      // token -> uid
   let cola = Promise.resolve();
@@ -111,8 +128,7 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
   async function leerCuerpo(req) {
     const trozos = [];
     for await (const t of req) trozos.push(t);
-    const txt = Buffer.concat(trozos).toString('utf8');
-    return txt;
+    return Buffer.concat(trozos);
   }
   /* Como PostgREST: con "Accept: application/vnd.pgrst.object+json" (supabase-js .single()) la respuesta es UN objeto,
      y si no son exactamente una fila, error 406 (PGRST116). */
@@ -130,7 +146,11 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
     serie(async () => {
       const url = new URL(req.url, 'http://x');
       const ctx = rolDe(req);
-      const crudo = await leerCuerpo(req);
+      const bytes = await leerCuerpo(req);
+      const crudo = bytes.toString('utf8');
+      falso.peticiones.push(req.method + ' ' + url.pathname);
+      if (falso.antes) await falso.antes(req, url);   // gancho de las pruebas: cambia el estado justo antes de atender la peticion
+      if (falso.cortar && falso.cortar(req, url)) { req.socket.destroy(); return; }
       const rechazo = rechazoDelGateway(req, url);
       if (rechazo) return enviar(res, 401, rechazo);
       let cuerpo;
@@ -226,17 +246,34 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
         if (m && req.method === 'POST') {
           const pref = cuerpo.prefix ? cuerpo.prefix + '/' : '';
           const rows = await enRol(ctx, async (tx) => (await tx.query(`select name from storage.objects where bucket_id = 'productos' and name like $1`, [pref + '%'])).rows);
-          return enviar(res, 200, rows.map((r) => ({ name: r.name.slice(pref.length) })).filter((r) => !r.name.includes('/')));
+          return enviar(res, 200, rows.map((r) => ({ name: r.name.slice(pref.length) })).filter((r) => !r.name.includes('/'))
+            .map((r) => ({ name: r.name, metadata: { size: (archivos.get('productos/' + pref + r.name) || Buffer.from('png')).length } })));
         }
         if (url.pathname === '/storage/v1/object/productos' && req.method === 'DELETE') {
           const nombres = cuerpo.prefixes || [];
-          await enRol(ctx, async (tx) => tx.query(`delete from storage.objects where bucket_id = 'productos' and name = any($1)`, [nombres]));
-          return enviar(res, 200, []);
+          if (falso.ignorarBorrados) return enviar(res, 200, []);   // gancho de las pruebas: responde OK pero no borra
+          const borrados = await enRol(ctx, async (tx) => (await tx.query(`delete from storage.objects where bucket_id = 'productos' and name = any($1) returning name`, [nombres])).rows);
+          for (const b of borrados) archivos.delete('productos/' + b.name);
+          return enviar(res, 200, borrados.map((b) => ({ name: b.name })));
         }
         m = url.pathname.match(/^\/storage\/v1\/object\/public\/productos\/(.+)$/);
         if (m && req.method === 'GET') {
           const r = await db.query(`select 1 from storage.objects where bucket_id = 'productos' and name = $1`, [decodeURIComponent(m[1])]);
-          return r.rows.length ? enviar(res, 200, 'png', 'image/png') : enviar(res, 404, { error: 'not_found' });
+          if (!r.rows.length) return enviar(res, 404, { error: 'not_found' });
+          return enviar(res, 200, archivos.get('productos/' + decodeURIComponent(m[1])) || 'png', 'image/png');
+        }
+        // copiar un objeto (la usa migrar-fotos-raiz.mjs): solo el servidor; no pisa uno que ya existe
+        if (url.pathname === '/storage/v1/object/copy' && req.method === 'POST') {
+          if (ctx.rol !== 'service_role') return enviar(res, 403, { statusCode: '403', error: 'Unauthorized', message: 'solo el servidor' });
+          const { bucketId, sourceKey, destinationKey } = cuerpo || {};
+          if (bucketId !== 'productos') return enviar(res, 404, { statusCode: '404', error: 'Bucket not found' });
+          const o = await db.query(`select name from storage.objects where bucket_id = 'productos' and name = any($1)`, [[sourceKey, destinationKey]]);
+          const nombres = o.rows.map((x) => x.name);
+          if (!nombres.includes(sourceKey)) return enviar(res, 404, { statusCode: '404', error: 'not_found', message: 'Object not found' });
+          if (nombres.includes(destinationKey)) return enviar(res, 409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+          await db.query(`insert into storage.objects (bucket_id, name) values ('productos', $1)`, [destinationKey]);
+          archivos.set('productos/' + destinationKey, archivos.get('productos/' + sourceKey) || Buffer.from('png'));
+          return enviar(res, 200, { Key: 'productos/' + destinationKey });
         }
         m = url.pathname.match(/^\/storage\/v1\/object\/productos\/(.+)$/);
         if (m) {
@@ -244,16 +281,18 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
           if (req.method === 'POST') {
             try {
               await enRol(ctx, async (tx) => tx.query(`insert into storage.objects (bucket_id, name, owner) values ('productos', $1, $2)`, [ruta, ctx.uid]));
+              archivos.set('productos/' + ruta, bytes);
               return enviar(res, 200, { Key: 'productos/' + ruta });
             } catch (e) { return enviar(res, 400, { statusCode: '403', error: 'Unauthorized', message: e.message }); }
           }
           if (req.method === 'DELETE') {
             const rows = await enRol(ctx, async (tx) => (await tx.query(`delete from storage.objects where bucket_id = 'productos' and name = $1 returning name`, [ruta])).rows);
+            if (rows.length) archivos.delete('productos/' + ruta);
             return rows.length ? enviar(res, 200, { message: 'Successfully deleted' }) : enviar(res, 404, { error: 'not_found' });
           }
           if (req.method === 'GET') {
             const rows = await enRol(ctx, async (tx) => (await tx.query(`select name from storage.objects where bucket_id = 'productos' and name = $1`, [ruta])).rows);
-            return rows.length ? enviar(res, 200, 'png', 'image/png') : enviar(res, 400, { error: 'not_found' });
+            return rows.length ? enviar(res, 200, archivos.get('productos/' + ruta) || 'png', 'image/png') : enviar(res, 400, { error: 'not_found' });
           }
         }
         return enviar(res, 404, { message: 'ruta no implementada en el falso: ' + req.method + ' ' + url.pathname });
@@ -264,7 +303,7 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
   });
 
   await new Promise((r) => servidor.listen(puerto, r));
-  return { db, servidor, cerrar: () => new Promise((r) => servidor.close(r)), url: `http://localhost:${puerto}` };
+  return Object.assign(falso, { db, servidor, cerrar: () => new Promise((r) => { servidor.closeAllConnections?.(); servidor.close(r); }), url: `http://localhost:${puerto}` });
 }
 
 if (process.argv[1] && process.argv[1].endsWith('fake-supabase.mjs')) {

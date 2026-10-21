@@ -302,7 +302,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mr-mut-'));
 // Cada mutante va en SU carpeta: require() guarda los modulos por ruta y reutilizarla serviria el primer mutante siempre
 let contador = 0;
 const carpetaNueva = () => path.join(tmp, 'm' + (++contador));
-const falso = await levantar({ puerto: 54332 });
+const falso = await levantar({ puerto: 54332, validarConfig: false });
 const resumen = { detectadas: 0, sobreviven: [], equivalentes: [], soloInvariante: 0, errores: [] };
 const filasFiltro = [];
 

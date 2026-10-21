@@ -199,11 +199,23 @@ export async function correrEscenarios(opts) {
 
   let A, B, C, D;
   let hA, hB, hC, hD;
+  // Desde el SQL 13 la base RECHAZA una config con claves desconocidas, HTML, colores o URLs raras, secretos, etc. Las pruebas que
+  // guardan una config hostil a proposito (para ver que el servidor y el navegador se defienden aunque algo asi llegara) solo
+  // pueden correr cuando el trigger de validacion esta apagado (la bateria local lo apaga; la base real no). Cuando no se puede,
+  // esas pruebas comprueban lo contrario: que la base lo rechaza con 23514 y no cambia nada.
+  let hostilOk = false;
+  const rechazadaPorLaBase = async (r, config) => {
+    const antes = JSON.stringify((await leer('restaurantes', `id=eq.${r.id}&select=config`))[0].config);
+    let codigo = null;
+    try { await parchear('restaurantes', `id=eq.${r.id}`, { config }); } catch (e) { codigo = /"code":"(\w+)"/.test(e.message) ? RegExp.$1 : 'otro'; }
+    const despues = JSON.stringify((await leer('restaurantes', `id=eq.${r.id}&select=config`))[0].config);
+    return codigo === '23514' && antes === despues;
+  };
   const slugDe = (r) => r.slug;
 
   async function preparar() {
-    A = await nuevoRestaurante('a', { config: { ubicacion: ORIGEN, publico: { color: 'rojo', logo: 'a.png' }, interno: 'SOLO-INTERNO-A', domicilio: { area: { latMin: 7.85, latMax: 7.95, lngMin: -72.55, lngMax: -72.45 } } } });
-    B = await nuevoRestaurante('b', { config: { ubicacion: ORIGEN, publico: { color: 'azul' }, domicilio: { factor_recorrido: 1.0 } } });
+    A = await nuevoRestaurante('a', { config: { ubicacion: ORIGEN, publico: { marca: { colores: { primario: '#AA0000' }, logo: 'Recursos/a/logo.png' } }, domicilio: { area: { latMin: 7.85, latMax: 7.95, lngMin: -72.55, lngMax: -72.45 } } } });
+    B = await nuevoRestaurante('b', { config: { ubicacion: ORIGEN, publico: { marca: { colores: { primario: '#0000AA' } } }, domicilio: { factor_recorrido: 1.0 } } });
     C = await nuevoRestaurante('c', { zona_horaria: 'America/Bogota' });
     D = await nuevoRestaurante('d');
     hA = hostDe('a'); hB = hostDe('b'); hC = hostDe('c');
@@ -229,6 +241,17 @@ export async function correrEscenarios(opts) {
     await ponerSecretos(B, 'b');
     await ponerSecretos(C, 'c');
     // D: sin secretos (ni Wompi ni CallMeBot) y sin wompi_modo
+
+    // ¿Deja la base guardar una config hostil? (ver la nota de hostilOk)
+    const configA = A.config;
+    hostilOk = await (async () => {
+      try {
+        await parchear('restaurantes', `id=eq.${A.id}`, { config: { sonda_hostil: '<b>x</b>' } });
+        await parchear('restaurantes', `id=eq.${A.id}`, { config: configA });
+        return true;
+      } catch (e) { return false; }
+    })();
+    R.invalidarCache();
   }
 
   const secretosDe = async (r) => (await leer('restaurante_secretos', `restaurante_id=eq.${r.id}&select=*`))[0];
@@ -666,7 +689,7 @@ export async function correrEscenarios(opts) {
     const configCompleta = (n, extra = {}) => ({
       ubicacion: ORIGEN,
       domicilio: { factor_recorrido: 1.3 },
-      interno: 'SOLO-INTERNO-' + n,
+      ...(hostilOk ? { interno: 'SOLO-INTERNO-' + n } : {}),   // una clave que la base ya no deja guardar: solo con el trigger apagado
       publico: {
         marca: { logo: `Recursos/${n}/logo.png`, icono_192: `Recursos/${n}/i192.png`, emoji: '\u{1F355}',
                  colores: { primario: '#112233', oscuro: '#0A0B0C', claro: '#F0F0F0' }, colores_zonas: ['#111111', '#222222'] },
@@ -726,6 +749,22 @@ export async function correrEscenarios(opts) {
       hostil.publico.contacto = { whatsapp: 'no-es-un-numero', telefono: 'x'.repeat(100), instagram: '<b>x</b>', tiktok: '@valido_1', direccion: '  Calle   1  ' };
       hostil.publico.wompi = { llave_publica_test: 'pub_test_"><img src=x onerror=window.__pwn=1>', llave_publica_prod: llavePubProd + '<x>', privada: 'prv_test_SECRETISIMA1234567890' };
       hostil.publico.secreto = 'NO-DEBE-SALIR'; hostil.publico.pwa = { nombre: 'x' };
+      if (!hostilOk) {
+        // La base valida la config (SQL 13): nada de esto se puede guardar, y el servidor nunca llega a verlo.
+        const piezas = [
+          ['la config hostil completa', hostil],
+          ['logo javascript:', configCompleta('a', { publico: { marca: { logo: 'javascript:alert(1)' } } })],
+          ['icono data:', configCompleta('a', { publico: { marca: { icono_192: 'data:image/png;base64,AAAA' } } })],
+          ['color con CSS', configCompleta('a', { publico: { marca: { colores: { primario: 'red;background:url(//evil.example/x)' } } } })],
+          ['HTML en un texto', configCompleta('a', { publico: { textos: { eslogan: '<script>alert(1)</script>' } } })],
+          ['una llave privada de Wompi', configCompleta('a', { publico: { wompi: { llave_publica_test: 'prv_test_SECRETISIMA1234567890' } } })],
+          ['una clave inventada', configCompleta('a', { publico: { secreto: 'NO-DEBE-SALIR' } })],
+          ['caracteres bidi en un texto', configCompleta('a', { publico: { textos: { eslogan: `x${bidi}y` } } })]
+        ];
+        const fallos = [];
+        for (const [nombre, c] of piezas) if (!(await rechazadaPorLaBase(A, c))) fallos.push(nombre);
+        return es(fallos.length === 0, 'la base NO rechazo (con 23514 y sin cambiar nada): ' + fallos.join(' | '));
+      }
       const c1 = await conConfig(A, hostil, async () => (await publico(hA)).cuerpo);
       const c2 = await conConfig(A, configCompleta('a', { publico: { marca: { logo: origenOk, icono_192: '//evil.example/x.png', icono_512: 'Recursos/../../etc/passwd' } } }), async () => (await publico(hA)).cuerpo);
       const t = JSON.stringify(c1);
@@ -743,6 +782,19 @@ export async function correrEscenarios(opts) {
 
     await T('tipografias de las paginas del personal: solo NOMBRES de la lista permitida; lo demas se omite; sin eleccion el campo no sale', async () => {
       const con = (tip) => conConfig(A, configCompleta('a', { publico: { marca: { tipografia: tip } } }), async () => (await publico(hA)).cuerpo.marca);
+      if (!hostilOk) {
+        // La base valida la config (SQL 13): una tipografia fuera de la lista no se puede guardar (el servidor y el navegador igual la ignorarian)
+        const buena = await con({ titulos: 'Bebas Neue', cuerpo: 'Open Sans' });
+        const ninguna = await con(undefined);
+        const malas = [{ titulos: 'Anton', cuerpo: 'Comic Sans' }, { titulos: 'Anton;} body{display:none} /*', cuerpo: 'https://evil.example/f.css?family=x' },
+          { titulos: ['Anton'], cuerpo: { toString: 'Anton' } }, { titulos: ' Lora ', cuerpo: 'lora' }, 'Anton'];
+        const rechazos = [];
+        for (const tip of malas) rechazos.push(await rechazadaPorLaBase(A, configCompleta('a', { publico: { marca: { tipografia: tip } } })));
+        R.invalidarCache();
+        const taq0 = (await invocar(M.restaurante, { host: HOST_TAQUEIROS, ruta: '/api/restaurante' })).cuerpo;
+        return es(igual(buena.tipografia, { titulos: 'Bebas Neue', cuerpo: 'Open Sans' }) && !('tipografia' in ninguna) && rechazos.every(Boolean)
+          && !('tipografia' in taq0.marca) && PUB.FUENTES_PERMITIDAS.includes('Anton') && PUB.FUENTES_PERMITIDAS.includes('Libre Franklin'), JSON.stringify([buena.tipografia, ninguna.tipografia, rechazos]));
+      }
       const ok = await con({ titulos: 'Bebas Neue', cuerpo: 'Open Sans' });
       const una = await con({ titulos: 'Anton', cuerpo: 'Comic Sans' });
       const inyeccion = await con({ titulos: 'Anton;} body{display:none} /*', cuerpo: 'https://evil.example/f.css?family=x' });
@@ -786,13 +838,17 @@ export async function correrEscenarios(opts) {
           await parchear('restaurantes', `id=eq.${A.id}`, { modulos: { pasarela: false, seguimiento: true, comandas: true, impresion: true } }); R.invalidarCache();
           try { return await publico(hA); } finally { await parchear('restaurantes', `id=eq.${A.id}`, { modulos: { pasarela: true, seguimiento: true, comandas: true, impresion: true } }); R.invalidarCache(); }
         })();
-        const cruzada = await conConfig(A, configCompleta('a', { publico: { ...configCompleta('a').publico, wompi: { llave_publica_test: llavePubProd, llave_publica_prod: llavePubTest } } }), () => publico(hA));
-        return { sinProd: sinProd.cuerpo, sinIntegridad: sinIntegridad.cuerpo, apagada: apagada.cuerpo, cruzada: cruzada.cuerpo };
+        // Llaves cruzadas (la de prueba en el campo de produccion y al reves): la base ya no las deja guardar (SQL 13); con el trigger apagado, el servidor tampoco las entrega
+        const cfgCruzada = configCompleta('a', { publico: { ...configCompleta('a').publico, wompi: { llave_publica_test: llavePubProd, llave_publica_prod: llavePubTest } } });
+        const cruzada = hostilOk ? await conConfig(A, cfgCruzada, () => publico(hA)) : null;
+        const cruzadaRechazada = hostilOk ? true : await rechazadaPorLaBase(A, cfgCruzada);
+        return { sinProd: sinProd.cuerpo, sinIntegridad: sinIntegridad.cuerpo, apagada: apagada.cuerpo, cruzada: cruzada && cruzada.cuerpo, cruzadaRechazada };
       });
       const sinLlave = (c) => c.pago.disponible === false && c.pago.llave_publica === null;
       return es(sinLlave(r.sinProd) && r.sinProd.pago.modo === 'produccion' && !JSON.stringify(r.sinProd).includes(llavePubTest)
         && sinLlave(r.sinIntegridad) && sinLlave(r.apagada) && r.apagada.modulos.pasarela === false
-        && sinLlave(r.cruzada) && !JSON.stringify(r.cruzada).includes(llavePubProd) && !JSON.stringify(r.cruzada).includes(llavePubTest), JSON.stringify([r.sinProd.pago, r.sinIntegridad.pago, r.apagada.pago, r.cruzada.pago]));
+        && r.cruzadaRechazada && (!r.cruzada || (sinLlave(r.cruzada) && !JSON.stringify(r.cruzada).includes(llavePubProd) && !JSON.stringify(r.cruzada).includes(llavePubTest))),
+        JSON.stringify([r.sinProd.pago, r.sinIntegridad.pago, r.apagada.pago, r.cruzada && r.cruzada.pago, r.cruzadaRechazada]));
     });
     await T('pago: un restaurante sin modo de cobro ni secretos (D) no ofrece pasarela; las tarifas y la ubicacion ausentes se reportan sin inventar nada', async () => {
       const r = await invocar(M.restaurante, { host: hD, ruta: '/api/restaurante' });
@@ -875,6 +931,10 @@ export async function correrEscenarios(opts) {
       const cfg = configCompleta('a');
       cfg.publico.marca = { logo: 'javascript:alert(1)', icono_192: 'data:text/html,x', icono_512: 'https://evil.example/i.png', colores: { primario: 'red;x', oscuro: 'url(x)' } };
       cfg.publico.pwa = { nombre: `Panel\n${bidi}Falso`, nombre_corto: 'y'.repeat(50) };
+      if (!hostilOk) {   // la base valida la config (SQL 13): no deja guardar nada de esto
+        const m = await manifest(hA);
+        return es(await rechazadaPorLaBase(A, cfg) && m.status === 200, 'la base no rechazo la config hostil del manifest');
+      }
       return conConfig(A, cfg, async () => {
         const m = cuerpoManifest(await manifest(hA));
         return es(m.name === 'Panel Falso' && m.short_name.length === 12 && m.theme_color === '#444444' && m.background_color === '#1A1A1A' && igual(m.icons, [])

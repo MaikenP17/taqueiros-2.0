@@ -244,7 +244,7 @@ async function escenario(nombre, fn) {
   if (!CHROME) { console.error('No encuentro Chrome. Define CHROME=ruta\\chrome.exe'); process.exit(2); }
 
   // ---- base falsa y entorno del servidor ------------------------------------------------------------------
-  const falso = await levantar({ puerto: PUERTO_FALSO });
+  const falso = await levantar({ puerto: PUERTO_FALSO, validarConfig: false });
   const URL_FALSO = falso.url;
   process.env.SUPABASE_URL = URL_FALSO;
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_secret_FAKE_0000';

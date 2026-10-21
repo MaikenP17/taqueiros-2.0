@@ -42,7 +42,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const arg = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').split('=')[1];
   const grupos = arg('grupo') ? arg('grupo').split(',') : null;
   const t0 = Date.now();
-  const falso = await levantar({ puerto: 54331 });
+  const falso = await levantar({ puerto: 54331, validarConfig: false });
   console.log(`Supabase falso listo (${((Date.now() - t0) / 1000).toFixed(1)} s). Corriendo los escenarios...`);
   const { resultados, limpieza } = await correrContraFalso(falso, path.join(RAIZ, 'api'), {
     soloGrupos: grupos, sinInvariante: process.argv.includes('--sin-invariante')

@@ -6,13 +6,17 @@
 
    USO:  node pruebas/multirestaurante/rls.mjs [conPendientes]
 ============================================================= */
-import { crearBase, sembrar, sql10, como, intentar, U } from './sim.mjs';
+import { crearBase, sembrar, sql10, sql, como, intentar, U } from './sim.mjs';
 
 const conPend = process.argv[2] === 'conPendientes';
 const db = await crearBase({ con01y02: conPend });
 await sembrar(db);
 await db.exec(sql10());
 console.log('[SQL 10 aplicado]');
+// El SQL 13 (sin valor por defecto de restaurante_id, minimo privilegio) es el estado de produccion. SQL13_NO=1 corre las
+// comprobaciones tal como eran con el SQL 10 solo.
+const con13 = !process.env.SQL13_NO;
+if (con13) { await db.exec(sql('13-endurecer.sql')); console.log('[SQL 13 aplicado]'); }
 
 const TAQ = '00000000-0000-4000-8000-000000000001';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -48,8 +52,8 @@ const rechazado = (r) => !r.ok;
 
 console.log('--- numeros por restaurante');
 T('numero A = 1,2 ; B = 1,2', pA1.numero == 1 && pA2.numero == 2 && pB1.numero == 1 && pB2.numero == 2, JSON.stringify([pA1, pA2, pB1, pB2]));
-const nTaq = (await db.query(`insert into public.pedidos (referencia, estado, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total, estado_pago) values ('T-TAQ-N','pendiente_pago','x','3','llevar','[]',1000,1000,'pendiente') returning id, numero, restaurante_id`)).rows[0];
-T('Taqueiros continua despues del ultimo (id/numero siguiente > 5), restaurante por defecto Taqueiros', nTaq.restaurante_id === TAQ && nTaq.numero == 6 || nTaq.numero > 5, JSON.stringify(nTaq));
+const nTaq = (await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total, estado_pago) values ('${TAQ}','T-TAQ-N','pendiente_pago','x','3','llevar','[]',1000,1000,'pendiente') returning id, numero, restaurante_id`)).rows[0];
+T('Taqueiros continua despues del ultimo (id/numero siguiente > 5)', nTaq.restaurante_id === TAQ && nTaq.numero == 6 || nTaq.numero > 5, JSON.stringify(nTaq));
 await db.query(`delete from public.pedidos where referencia = 'T-TAQ-N'`);
 
 console.log('--- anon');
@@ -112,7 +116,7 @@ T('dA no puede elegir su numero (se ignora y recibe el siguiente)', r.ok && r.ro
 r = await intentar(db, u.dA, `insert into public.pedidos (restaurante_id, referencia, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total) values ('${B}','T-A-HACK','x','1','llevar','[]',1000,1000)`);
 T('dA no inserta con restaurante_id de B', rechazado(r), JSON.stringify(r));
 r = await intentar(db, u.dA, `insert into public.pedidos (referencia, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, total) values ('T-A-DEF','x','1','llevar','[]',1000,1000)`);
-T('dA no inserta sin restaurante_id (el defecto transitorio es Taqueiros)', rechazado(r), JSON.stringify(r));
+T(con13 ? 'dA no inserta sin restaurante_id (SQL 13: ya no hay valor por defecto; falla por NOT NULL)' : 'dA no inserta sin restaurante_id (el defecto transitorio es Taqueiros)', rechazado(r) && (!con13 || /restaurante_id|categor|null/i.test(r.error || '')), JSON.stringify(r));
 r = await intentar(db, u.dA, `update public.pedidos set estado = 'listo' where id = ${pB1.id}`);
 T('dA no actualiza pedido de B (0 filas)', denegado(r), JSON.stringify(r));
 r = await intentar(db, u.dA, `delete from public.pedidos where id = ${pB1.id}`);
@@ -204,7 +208,8 @@ T('dueno no crea otra fila de configuracion (lo frena RLS, no la llave primaria)
 r = await intentar(db, u.dA, `delete from public.configuracion where restaurante_id = '${A}'`);
 T('dueno no borra su configuracion', denegado(r));
 r = await intentar(db, u.dA, `insert into public.tarifas_domicilio (restaurante_id, hasta, precio) values ('${A}', 3, 1000)`);
-T('dueno A crea tarifa', r.ok, JSON.stringify(r));
+if (con13) T('dueno A NO crea tarifa (SQL 13: las tarifas las escribe el superadmin o el servidor; el dueno solo las lee)', rechazado(r) && r.code === '42501', JSON.stringify(r));
+else T('dueno A crea tarifa', r.ok, JSON.stringify(r));
 r = await intentar(db, u.dA, `insert into public.tarifas_domicilio (restaurante_id, hasta, precio) values ('${B}', 3, 1000)`);
 T('dueno A no crea tarifa en B', rechazado(r));
 r = await intentar(db, u.dA, `select * from public.salud_notificaciones`);
@@ -246,7 +251,11 @@ console.log('--- restaurantes, miembros, secretos, superadmins');
 r = await intentar(db, u.dA, `select id from public.restaurantes`);
 T('dA ve solo su restaurante', r.ok && r.rows.length === 1 && r.rows[0].id === A, JSON.stringify(r));
 r = await intentar(db, u.dA, `update public.restaurantes set nombre = 'Nuevo nombre', config = '{"color":"#fff"}' where id = '${A}'`);
-T('dA cambia nombre y config', r.ok && r.n === 1, JSON.stringify(r));
+if (con13) {
+  T('SQL 13: dA NO cambia config.color (clave desconocida, la validacion la rechaza)', rechazado(r) && r.code === '42501', JSON.stringify(r));
+  r = await intentar(db, u.dA, `update public.restaurantes set nombre = 'Nuevo nombre', config = '{"publico":{"textos":{"eslogan":"Hola"},"contacto":{"telefono":"300 111 2233"}}}'::jsonb where id = '${A}'`);
+}
+T('dA cambia nombre y config.publico.textos / contacto', r.ok && r.n === 1, JSON.stringify(r));
 for (const [col, val] of [['plan', "'basico'"], ['estado', "'suspendido'"], ['slug', "'otro-slug'"], ['vigente_hasta', "'2030-01-01'"], ['modulos', `'{"pasarela":false}'::jsonb`], ['dias_gracia', '99'], ['modalidad_pago', "'unico'"]]) {
   r = await intentar(db, u.dA, `update public.restaurantes set ${col} = ${val} where id = '${A}'`);
   T(`dA no puede cambiar ${col}`, rechazado(r), JSON.stringify(r));
@@ -369,14 +378,18 @@ r = await intentar(db, P, `select * from public.categorias order by orden`);
 T('menu-admin: lee categorias (6)', r.ok && r.rows.length === 6, JSON.stringify(r).slice(0, 80));
 r = await intentar(db, P, `select * from public.productos order by orden`);
 T('menu-admin: lee productos (38)', r.ok && r.rows.length === 38, JSON.stringify(r).slice(0, 80));
-r = await intentar(db, P, `insert into public.categorias (id, nombre, emoji, orden) values ('postres', 'Postres', '🍰', 9) returning restaurante_id`);
-T('menu-admin: inserta categoria SIN restaurante_id -> queda en Taqueiros', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
-r = await intentar(db, P, `insert into public.productos (id, nombre, descripcion, precio, categoria, orden, disponible, imagen) values ('flan', 'Flan', null, 7000, 'postres', 0, true, null) returning restaurante_id`);
-T('menu-admin: inserta producto SIN restaurante_id', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
+r = await intentar(db, P, `insert into public.categorias (restaurante_id, id, nombre, emoji, orden) values ('${TAQ}', 'postres', 'Postres', '🍰', 9) returning restaurante_id`);
+T('menu-admin: inserta categoria con restaurante_id explicito (como la pagina actual)', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
+if (con13) {
+  const sinRid = await intentar(db, P, `insert into public.categorias (id, nombre, emoji, orden) values ('sin-rid', 'Sin rid', '🍰', 9)`);
+  T('SQL 13: insertar una categoria SIN restaurante_id falla (ya no cae en Taqueiros)', rechazado(sinRid), JSON.stringify(sinRid));
+}
+r = await intentar(db, P, `insert into public.productos (restaurante_id, id, nombre, descripcion, precio, categoria, orden, disponible, imagen) values ('${TAQ}', 'flan', 'Flan', null, 7000, 'postres', 0, true, null) returning restaurante_id`);
+T('menu-admin: inserta producto con restaurante_id explicito', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
 r = await intentar(db, P, `update public.productos set disponible = false where id = 'flan'`);
 T('menu-admin: update producto eq id', r.ok && r.n === 1);
 r = await intentar(db, P, `update public.productos set imagen = 'https://pzryobpriyewlxltditw.supabase.co/storage/v1/object/public/productos/p-abc123.webp' where id = 'flan'`);
-T('menu-admin: foto plana nueva en Taqueiros (ruta p-xxxx.webp)', r.ok && r.n === 1, JSON.stringify(r));
+T('menu-admin: foto plana en Taqueiros (ruta p-xxxx.webp; el SQL 14 retira esta regla)', r.ok && r.n === 1, JSON.stringify(r));
 r = await intentar(db, P, `update public.categorias set activa = false where id = 'postres'`);
 T('menu-admin: apaga categoria', r.ok && r.n === 1);
 r = await intentar(db, P, `delete from public.productos where id = 'flan'`);
@@ -392,8 +405,12 @@ T('historial: buscar_historial con los 4 parametros', r.ok);
 
 console.log('--- servidor (service_role): lo que hace api/*.js');
 const S = async (q, p = []) => como(db, null, async () => { try { const x = await db.query(q, p); return { ok: true, rows: x.rows, n: x.affectedRows ?? x.rows.length }; } catch (e) { return { ok: false, error: e.message }; } }, { rol: 'service_role' });
-r = await S(`insert into public.pedidos (referencia, estado, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, estado_pago, wompi_ambiente) values ('TAQ-SRV-1','pendiente_pago','S','3','llevar','[]',1000,0,1000,'pendiente','test') returning restaurante_id, numero, id`);
-T('crear-pedido (service_role): sin restaurante_id queda en Taqueiros con numero siguiente', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
+r = await S(`insert into public.pedidos (restaurante_id, referencia, estado, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, estado_pago, wompi_ambiente) values ('${TAQ}','TAQ-SRV-1','pendiente_pago','S','3','llevar','[]',1000,0,1000,'pendiente','test') returning restaurante_id, numero, id`);
+T('crear-pedido (service_role): con restaurante_id explicito queda en Taqueiros con numero siguiente', r.ok && r.rows[0].restaurante_id === TAQ, JSON.stringify(r));
+if (con13) {
+  const sinRid = await S(`insert into public.pedidos (referencia, estado, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, estado_pago) values ('TAQ-SRV-SIN','pendiente_pago','S','3','llevar','[]',1000,0,1000,'pendiente')`);
+  T('SQL 13: crear-pedido (service_role) SIN restaurante_id falla (no cae en Taqueiros)', !sinRid.ok, JSON.stringify(sinRid));
+}
 r = await S(`update public.pedidos set estado_pago = 'aprobado', estado = 'nuevo', pagado_en = now(), wompi_transaction_id = 'w1' where referencia = 'TAQ-SRV-1' returning id`);
 T('webhook (service_role): marca pagado (cambia estado_pago)', r.ok && r.n === 1, JSON.stringify(r));
 r = await S(`select * from public.pedidos where estado = 'nuevo' and alerta_enviada = false and pagado_en < now()`);
@@ -498,7 +515,7 @@ console.log('--- ataques agregados en la revision por mutacion');
   r = await intentar(db, dAB, `update public.productos set restaurante_id = '${B}' where restaurante_id = '${A}' and id = 'prod-mover'`);
   T('dueno de A y de B NO mueve un producto de A a B', !r.ok, JSON.stringify(r).slice(0, 120));
   r = await intentar(db, dAB, `update public.tarifas_domicilio set restaurante_id = '${B}' where restaurante_id = '${A}' and hasta = 77`);
-  T('dueno de A y de B NO mueve tarifas de A a B', !r.ok, JSON.stringify(r).slice(0, 120));
+  T('dueno de A y de B NO mueve tarifas de A a B', (!r.ok || r.n === 0) && (await db.query(`select restaurante_id from public.tarifas_domicilio where hasta = 77`)).rows[0].restaurante_id === A, JSON.stringify(r).slice(0, 120));
 
   // UPSERT contra una fila ajena: el ON CONFLICT DO UPDATE no puede pisar la fila de B
   const refB = (await db.query(`select referencia, cliente_nombre from public.pedidos where id = ${pB1.id}`)).rows[0];
