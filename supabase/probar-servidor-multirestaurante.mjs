@@ -123,7 +123,9 @@ console.log(`API MULTI-RESTAURANTE contra ${URL_BASE.replace(/^https:\/\//, "")}
 let resultados = [], limpieza = [];
 try {
   ({ resultados, limpieza } = await correrEscenarios({
-    apiDir: path.join(raiz, "api"), urlBase: URL_BASE, llaveServicio: SRV, llavePublicable: PUB, real: true
+    apiDir: path.join(raiz, "api"), urlBase: URL_BASE, llaveServicio: SRV, llavePublicable: PUB, real: true,
+    // VIA=despachador (o reescrita) corre los mismos escenarios a traves de api/publico.js y api/cron.js (docs, seccion 17)
+    via: process.env.VIA || "modulo"
   }));
 } catch (e) {
   console.error("\nLa corrida se interrumpio por un error: " + e.message);

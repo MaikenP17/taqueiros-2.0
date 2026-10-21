@@ -603,8 +603,11 @@ async function escenario(nombre, fn) {
       'con sesion: el nombre hostil sale como texto en la barra y en el menu', nombre);
 
     // el horario tambien viene de la base y se escribe dentro de atributos: una hora hostil no se ejecuta
+    // (desde el SQL 15 la base ya no deja guardar un horario asi: se apaga SOLO ese trigger un momento para dejar el dato viejo y hostil que la pagina tiene que resistir)
+    await falso.db.exec('alter table public.configuracion disable trigger configuracion_validar');
     await parchear('configuracion', `restaurante_id=eq.${Hs.id}`, { horarios: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((dia, i) => (i === 0
       ? { dia, abre: '"><img src=x onerror=window.__pwn=1>', cierra: 'x" autofocus onfocus="window.__pwn=1', activo: true } : { dia, abre: '08:30', cierra: '24:00', activo: true })) });
+    await falso.db.exec('alter table public.configuracion enable trigger configuracion_validar');
     await p.ir(URL_N('hostil.localhost') + '/panel.html');
     await panelAbierto(p);
     await p.clic('#menuBtn'); await sleep(450); await p.clic('#horariosBtn'); await sleep(300);
@@ -1205,13 +1208,14 @@ async function escenario(nombre, fn) {
 
   // ---------------------------------------------------------------------------------------------------------
   const SNAP = `(function(){
+    // (la opcion nueva 'Datos de mi restaurante' del menu lateral, que el dueno ve, no existia en la version anterior: no se compara)
     // las animaciones (el pulso de los pedidos nuevos) cambian el valor calculado con el tiempo: se congelan para comparar lo que la pagina DECLARA
     if (!document.getElementById('snap-quieto')) { var st = document.createElement('style'); st.id = 'snap-quieto'; st.textContent = '*,*::before,*::after{animation:none !important;transition:none !important}'; document.head.appendChild(st); }
     var out = [];
     var els = document.body.querySelectorAll('*');
     for (var i = 0; i < els.length; i++) {
       var e = els[i];
-      if (e.closest('#rp-estado') || e.hasAttribute('data-pr-rol') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.tagName === 'IFRAME') continue;
+      if (e.closest('#rp-estado') || e.closest('#datosBtn') || e.hasAttribute('data-pr-rol') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.tagName === 'IFRAME') continue;
       var cs = getComputedStyle(e);
       var propios = Array.prototype.filter.call(e.childNodes, function(n){return n.nodeType === 3;}).map(function(n){return n.nodeValue.replace(/\\s+/g,' ').trim();}).filter(Boolean).join('|');
       var attrs = [];
@@ -1376,6 +1380,272 @@ async function escenario(nombre, fn) {
       const c = leer(f);
       comprobar(/--fuente-titulos:'Anton', sans-serif/.test(c) && /--fuente-cuerpo:'Libre Franklin', sans-serif/.test(c) && !/<link[^>]*fonts\.googleapis\.com\/css2/.test(c), `${f}: por defecto Anton y Libre Franklin; ninguna URL de fuentes escrita en el HTML`);
     }
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
+  await escenario('13. "Datos de mi restaurante": solo el dueno lo ve y lo usa, valida como la base, no pierde claves ni pisa ediciones, y no se salta fabricando la peticion', async () => {
+    // (los escenarios de datos hostiles apagan el trigger de validacion de la config; aqui vale la validacion real de la base)
+    await falso.db.exec('alter table public.restaurantes enable trigger restaurantes_validar_config');
+    const filaR = async (r) => (await srv('GET', `restaurantes?id=eq.${r.id}&select=*`))[0];
+    const sinEditable = (fila) => { const c = JSON.parse(JSON.stringify(fila.config)); if (c.publico) { delete c.publico.textos; delete c.publico.contacto; } const { nombre, ...resto } = fila; return JSON.stringify({ ...resto, config: c }); };
+    const abrirMenu = async (pg) => {
+      if (!(await pg.eval("document.getElementById('menuLateral').classList.contains('open')"))) await pg.clic('#menuBtn');
+      await pg.esperar(`function(){return document.getElementById('menuLateral').classList.contains('open');}`, 5000, 'menu abierto');
+    };
+    const modalAbierto = `function(){var m=document.getElementById('modalDatos');return !!m && m.classList.contains('open') && !!document.querySelector('#datosCuerpo input');}`;
+    const abrirDatos = async (pg) => {
+      await abrirMenu(pg);
+      await pg.clic('#datosBtn');
+      await pg.esperar(modalAbierto, 10000, 'formulario abierto');
+    };
+    const campo = (c) => `[data-datos-campo="${c}"]`;
+    const valorDe = (pg, c) => pg.eval(`document.querySelector(${JSON.stringify(campo(c))}).value`);
+    const errorDe = (pg, c) => pg.eval(`(function(){var e=document.querySelector('[data-datos-error="${c}"]');return e && !e.hidden ? e.textContent : '';})()`);
+    const avisoDe = (pg) => pg.eval(`(function(){var a=document.getElementById('datosAviso');return a.hidden ? '' : a.textContent;})()`);
+    const cerrado = (pg) => pg.eval(`!document.getElementById('modalDatos').classList.contains('open')`);
+    const guardar = async (pg) => {
+      await pg.clic('#datosGuardar');
+      await pg.esperar(`function(){var m=document.getElementById('modalDatos');return !document.getElementById('datosGuardar').disabled && (!m.classList.contains('open') || !document.getElementById('datosAviso').hidden || !!document.querySelector('[data-datos-error]:not([hidden])'));}`, 10000, 'resultado de guardar');
+    };
+    // CAPTURAS=<carpeta>: guarda imagenes del formulario (1280 y 390 de ancho) para revisarlo a ojo
+    const capturar = async (pg, nombre) => {
+      if (!process.env.CAPTURAS) return;
+      fs.mkdirSync(process.env.CAPTURAS, { recursive: true });
+      for (const [ancho, alto] of [[1280, 900], [390, 844]]) {
+        await cdp.send('Emulation.setDeviceMetricsOverride', { width: ancho, height: alto, deviceScaleFactor: 1, mobile: ancho < 500 }, pg.sid);
+        await sleep(250);
+        const img = await cdp.send('Page.captureScreenshot', { format: 'png' }, pg.sid);
+        fs.writeFileSync(path.join(process.env.CAPTURAS, `${nombre}-${ancho}.png`), Buffer.from(img.data, 'base64'));
+      }
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false }, pg.sid);
+    };
+    const rpcGuardar = (rid, cambios) => `db.rpc('guardar_datos_restaurante', { p_restaurante: ${JSON.stringify(rid)}, p_cambios: ${JSON.stringify(cambios)} }).then(function(r){ return { code: r.error ? r.error.code : null, ok: r.data ? r.data.ok : null }; })`;
+
+    const uC = await usuario('dueno-gamma');
+    const G = await restaurante('gamma', { nombre: `Gamma ${sfx}`, config: configDe('alfa') });
+    await miembro(uC, G, 'dueno');
+    R.invalidarCache();
+
+    // ---------------------------------------------------------------------------------- quien lo ve
+    const pa = await panelDe('13-dueno-a', 'alfa.localhost', uA);
+    await abrirMenu(pa);
+    comprobar(await pa.eval(`(function(){var b=document.getElementById('datosBtn');return !!b && !b.hidden && b.offsetParent !== null;})()`), '13a. El dueno ve "Datos de mi restaurante" en el menu lateral');
+    comprobar(await pa.eval(`document.getElementById('datosBtn').textContent.indexOf('Datos de mi restaurante') >= 0`), '13a. ...con ese nombre');
+
+    const pcaj = await panelDe('13-cajero-a', 'alfa.localhost', uAB);
+    await abrirMenu(pcaj);
+    comprobar(await pcaj.eval(`(function(){var b=document.getElementById('datosBtn');return !!b && b.hidden && b.offsetParent === null;})()`), '13b. Un CAJERO no ve la opcion (escondida)');
+    const pcoc = await panelDe('13-cocina-a', 'alfa.localhost', uCocina);
+    await abrirMenu(pcoc);
+    comprobar(await pcoc.eval(`(function(){var b=document.getElementById('datosBtn');return !!b && b.hidden && b.offsetParent === null;})()`), '13b. La COCINA no ve la opcion');
+    comprobar(await pcaj.eval(`DatosRestaurante.abrir({ db: db, rid: ${JSON.stringify(A.id)} }).then(function(r){ return r === false && !document.getElementById('modalDatos'); })`),
+      '13b. ...y aunque alguien llame al formulario desde la consola, un cajero no lo abre');
+
+    // ---------------------------------------------------------------------------------- fabricar la peticion
+    const antesA = await filaR(A);
+    const antesB = await filaR(B);
+    const r1 = await pcaj.eval(rpcGuardar(A.id, [{ campo: 'textos.eslogan', antes: null, despues: 'Hackeado por el cajero' }]));
+    const r2 = await pcoc.eval(rpcGuardar(A.id, [{ campo: 'textos.eslogan', antes: null, despues: 'Hackeado por la cocina' }]));
+    comprobar(r1.code === '42501' && r2.code === '42501', '13c. Un cajero y la cocina NO pueden guardar aunque fabriquen la llamada (42501)', JSON.stringify([r1, r2]));
+    const u1 = await pcaj.eval(`db.from('restaurantes').update({ nombre: 'Hackeado' }).eq('id', ${JSON.stringify(A.id)}).select().then(function(r){ return { n: r.data ? r.data.length : 0, code: r.error ? r.error.code : null }; })`);
+    comprobar(u1.n === 0, '13c. ...ni con un UPDATE directo a la tabla', JSON.stringify(u1));
+
+    const pb = await panelDe('13-dueno-b', 'beta.localhost', uB);
+    const cruz = await pb.eval(rpcGuardar(A.id, [{ campo: 'textos.eslogan', antes: null, despues: 'Hackeado por el dueno de B' }]));
+    comprobar(cruz.code === '42501', '13d. El dueno de OTRO restaurante no puede editar el de A (42501)', JSON.stringify(cruz));
+    const cruzU = await pb.eval(`db.from('restaurantes').update({ nombre: 'Hackeado' }).eq('id', ${JSON.stringify(A.id)}).select().then(function(r){ return { n: r.data ? r.data.length : 0 }; })`);
+    comprobar(cruzU.n === 0, '13d. ...ni con un UPDATE directo', JSON.stringify(cruzU));
+
+    const prohibidos = ['marca.logo', 'marca.colores.primario', 'estado', 'plan', 'vigente_hasta', 'modulos', 'slug', 'wompi.llave_publica_test', 'ubicacion.lat', 'domicilio.factor_recorrido', 'textos', 'publico.textos.eslogan'];
+    const codigos = [];
+    for (const c of prohibidos) codigos.push((await pa.eval(rpcGuardar(A.id, [{ campo: c, antes: null, despues: 'x' }]))).code);
+    comprobar(codigos.every((c) => c === '22023'), `13e. El dueno fabrica ${prohibidos.length} campos que no son suyos (marca, plan, estado, vigencia, modulos, slug, llaves, ubicacion, domicilio): todos rechazados (22023)`, codigos.join(','));
+    const directos = await pa.eval(`Promise.all([
+      db.from('restaurantes').update({ plan: 'regalado' }).eq('id', ${JSON.stringify(A.id)}).select(),
+      db.from('restaurantes').update({ vigente_hasta: '2099-12-31' }).eq('id', ${JSON.stringify(A.id)}).select(),
+      db.from('restaurantes').update({ modulos: { pasarela: false } }).eq('id', ${JSON.stringify(A.id)}).select(),
+      db.from('restaurantes').update({ estado: 'activo', slug: 'otro-slug' }).eq('id', ${JSON.stringify(A.id)}).select(),
+      db.from('restaurantes').update({ config: { publico: { marca: { logo: 'Recursos/otro.png' } } } }).eq('id', ${JSON.stringify(A.id)}).select()
+    ]).then(function(rs){ return rs.map(function(r){ return { n: r.data ? r.data.length : 0, code: r.error ? r.error.code : null }; }); })`);
+    comprobar(directos.every((d) => d.n === 0 && d.code === '42501'), '13e. ...y por UPDATE directo tampoco puede cambiar plan, vigencia, modulos, slug ni la marca (42501)', JSON.stringify(directos));
+    const despuesFab = await filaR(A);
+    comprobar(JSON.stringify(despuesFab) === JSON.stringify(antesA) && JSON.stringify(await filaR(B)) === JSON.stringify(antesB), '13f. Despues de todos esos intentos, ni A ni B cambiaron en nada');
+
+    // ---------------------------------------------------------------------------------- el dueno edita lo permitido
+    await abrirDatos(pa);
+    comprobar(await valorDe(pa, 'nombre') === antesA.nombre && await valorDe(pa, 'contacto.whatsapp') === ((antesA.config.publico.contacto || {}).whatsapp || '')
+      && await valorDe(pa, 'textos.eslogan') === ((antesA.config.publico.textos || {}).eslogan || ''), '13g. El formulario abre con los datos vigentes de A');
+    comprobar(await pa.eval(`document.querySelectorAll('[data-datos-campo]').length`) === 32, '13g. ...con sus 32 campos');
+    comprobar(await pa.eval(`document.querySelector('#modalDatos').textContent.indexOf('colores, el logo, la ubicación') >= 0`), '13g. ...y avisa que la marca, la ubicacion y el domicilio los cambia el administrador');
+    const marcaAntes = JSON.stringify(antesA.config.publico.marca);
+    await capturar(pa, 'datos-1-abierto');
+    await pa.escribir(campo('nombre'), `Casa Alfa Editada ${sfx}`);
+    await pa.escribir(campo('textos.titulo_pagina'), `Pide en Casa Alfa ${sfx}`);
+    await pa.escribir(campo('textos.eslogan'), 'El eslogan nuevo de Alfa');
+    await pa.escribir(campo('textos.seguimiento.frase_camino'), 'Tu pedido ya va por la calle');
+    await pa.escribir(campo('contacto.telefono'), '+57 300 555 0101');
+    const logAntes = log.length;
+    await guardar(pa);
+    await esperarDb(async () => (await filaR(A)).nombre === `Casa Alfa Editada ${sfx}`, 'el nombre se guardo');
+    const despuesA = await filaR(A);
+    comprobar(await cerrado(pa) && (await toastTexto(pa)).includes('Datos guardados'), '13h. Guardar cierra el formulario y avisa "Datos guardados"');
+    comprobar(despuesA.config.publico.textos.eslogan === 'El eslogan nuevo de Alfa' && despuesA.config.publico.textos.seguimiento.frase_camino === 'Tu pedido ya va por la calle'
+      && despuesA.config.publico.contacto.telefono === '+57 300 555 0101' && despuesA.config.publico.textos.titulo_pagina === `Pide en Casa Alfa ${sfx}`, '13h. Lo editado queda en la base (nombre, titulo, eslogan, seguimiento, telefono)');
+    comprobar(JSON.stringify(despuesA.config.publico.marca) === marcaAntes && sinEditable(despuesA) === sinEditable(antesA),
+      '13i. NO se perdio ninguna otra clave: la marca, la ubicacion, el domicilio y el resto de la config quedan EXACTAMENTE igual', JSON.stringify([despuesA.config, antesA.config]).slice(0, 300));
+    comprobar(['plan', 'estado', 'slug', 'modulos', 'vigente_hasta', 'dias_gracia', 'zona_horaria'].every((k) => JSON.stringify(despuesA[k]) === JSON.stringify(antesA[k])), '13i. ...ni el plan, estado, slug, modulos, vigencia ni zona horaria');
+    const envio = log.slice(logAntes).filter((l) => /rpc\/guardar_datos_restaurante/.test(l.ruta));
+    const cuerpoEnviado = envio.length ? JSON.parse(envio[envio.length - 1].cuerpo) : null;
+    comprobar(envio.length === 1 && cuerpoEnviado && cuerpoEnviado.p_restaurante === A.id && cuerpoEnviado.p_cambios.length === 5
+      && cuerpoEnviado.p_cambios.every((c) => Object.keys(c).sort().join() === 'antes,campo,despues')
+      && cuerpoEnviado.p_cambios.map((c) => c.campo).sort().join() === ['nombre', 'textos.titulo_pagina', 'textos.eslogan', 'textos.seguimiento.frase_camino', 'contacto.telefono'].sort().join(),
+      '13j. El formulario manda SOLO los 5 campos que cambiaron (con el valor que vio, "antes"), no la config entera', JSON.stringify(cuerpoEnviado).slice(0, 400));
+    comprobar(log.slice(logAntes).some((l) => /rpc\/config_restaurante_errores/.test(l.ruta)), '13j. ...y antes de guardar le pregunto a la base (config_restaurante_errores) si lo aceptaria');
+    comprobar(await pa.eval(`Array.from(document.querySelectorAll('[data-marca-nombre]')).every(function(e){return e.textContent === ${JSON.stringify(`Casa Alfa Editada ${sfx}`)};})`), '13k. El nombre nuevo se ve de inmediato en el menu del panel');
+    comprobar(await pa.eval('document.title') === `Panel de Comandas | Casa Alfa Editada ${sfx}`, '13k. ...y en el titulo de la pestana');
+
+    // se refleja en el sitio publico (el servidor guarda 30 s en memoria el restaurante de cada host: aqui se vacia para no esperar)
+    R.invalidarCache();
+    const pub = JSON.parse((await pedirConHost('alfa.localhost', PUERTO_WEB, '/api/restaurante')).texto);
+    comprobar(pub.nombre === `Casa Alfa Editada ${sfx}` && pub.textos.eslogan === 'El eslogan nuevo de Alfa' && pub.textos.seguimiento.frase_camino === 'Tu pedido ya va por la calle' && pub.contacto.telefono === '+57 300 555 0101',
+      '13l. Lo editado se refleja en /api/restaurante (lo que lee el sitio publico)', JSON.stringify(pub.textos).slice(0, 200));
+    const man = JSON.parse((await pedirConHost('alfa.localhost', PUERTO_WEB, '/manifest.json')).texto);
+    comprobar(/Casa Alfa Editada/.test(man.description), '13l. ...y en el manifest');
+    const sitio = await abrir('13-sitio-alfa', URL_N('alfa.localhost') + '/');
+    await sitio.esperar(`function(){return document.title === ${JSON.stringify(`Pide en Casa Alfa ${sfx}`)};}`, 15000, 'titulo de la pagina publica');
+    comprobar(true, '13l. ...y en la pagina publica (la pestana dice el titulo nuevo)');
+
+    // otra vez: abrir y guardar sin tocar nada no manda nada
+    await abrirDatos(pa);
+    const logSin = log.length;
+    await guardar(pa);
+    comprobar(/No hay cambios/.test(await avisoDe(pa)) && !log.slice(logSin).some((l) => /rpc\/guardar_datos_restaurante/.test(l.ruta)), '13m. Abrir y pulsar Guardar sin tocar nada: "No hay cambios" y no se manda nada');
+    await pa.clic('#datosCancelar');
+    comprobar(await cerrado(pa), '13m. ...y Cancelar sin cambios cierra de una vez');
+
+    // ---------------------------------------------------------------------------------- valores invalidos
+    await abrirDatos(pa);
+    const estadoAntes = JSON.stringify(await filaR(A));
+    await pa.escribir(campo('contacto.whatsapp'), '12');
+    await pa.escribir(campo('textos.eslogan'), '<b>hola</b>');
+    await pa.escribir(campo('textos.tagline'), 'palabra '.repeat(51));
+    await pa.escribir(campo('contacto.instagram'), 'con espacios');
+    await pa.escribir(campo('nombre'), '');
+    const logInv = log.length;
+    await guardar(pa);
+    await capturar(pa, 'datos-2-errores');
+    comprobar(/8 a 15 dígitos/.test(await errorDe(pa, 'contacto.whatsapp')), '13n. WhatsApp "12": dice en espanol que hacen falta de 8 a 15 digitos', await errorDe(pa, 'contacto.whatsapp'));
+    comprobar(/etiquetas HTML/.test(await errorDe(pa, 'textos.eslogan')), '13n. Eslogan con <b>: dice que no se permite HTML', await errorDe(pa, 'textos.eslogan'));
+    comprobar(/máximo 400/.test(await errorDe(pa, 'textos.tagline')), '13n. Frase de portada de 408 caracteres: dice el maximo (400)', await errorDe(pa, 'textos.tagline'));
+    comprobar(/Usuario no válido/.test(await errorDe(pa, 'contacto.instagram')), '13n. Instagram con espacios: usuario no valido', await errorDe(pa, 'contacto.instagram'));
+    comprobar(/vacío/.test(await errorDe(pa, 'nombre')), '13n. Nombre vacio: no puede quedar vacio', await errorDe(pa, 'nombre'));
+    comprobar(/Revisa los campos marcados/.test(await avisoDe(pa)) && !await cerrado(pa), '13n. Avisa "Revisa los campos marcados", deja el formulario abierto y NO guarda nada');
+    comprobar(!log.slice(logInv).some((l) => /rpc\/guardar_datos_restaurante/.test(l.ruta)) && JSON.stringify(await filaR(A)) === estadoAntes, '13n. ...y ni siquiera se llamo a la base para guardar');
+    comprobar(await pa.eval(`document.querySelector('[data-datos-campo="contacto.whatsapp"]').getAttribute('aria-invalid')`) === 'true', '13n. El campo con problema queda marcado para los lectores de pantalla (aria-invalid)');
+    await pa.escribir(campo('contacto.whatsapp'), '573001230000');
+    comprobar(await errorDe(pa, 'contacto.whatsapp') === '', '13n. Al corregir el campo, su aviso desaparece');
+
+    // ---------------------------------------------------------------------------------- ajustes que se avisan
+    await pa.escribir(campo('nombre'), `Casa Alfa Editada ${sfx}`);
+    await pa.escribir(campo('textos.eslogan'), 'El eslogan nuevo de Alfa');
+    await pa.escribir(campo('textos.tagline'), '');
+    await pa.escribir(campo('contacto.instagram'), '@casa.alfa');
+    await pa.escribir(campo('contacto.whatsapp'), '+57 (300) 123-0000');
+    await pa.escribir(campo('textos.descripcion_pagina'), 'Primera linea\nSegunda   linea');
+    await guardar(pa);
+    const ajuste = await avisoDe(pa);
+    await capturar(pa, 'datos-3-ajustes');
+    comprobar(/Ajustamos/.test(ajuste) && /573001230000/.test(ajuste) && /@/.test(ajuste) && /saltos de línea/.test(ajuste), '13o. Si hay que ajustar algo (WhatsApp solo numeros, @ del usuario, saltos de linea) lo avisa antes de guardar', ajuste);
+    comprobar(await valorDe(pa, 'contacto.whatsapp') === '573001230000' && await valorDe(pa, 'contacto.instagram') === 'casa.alfa' && await valorDe(pa, 'textos.descripcion_pagina') === 'Primera linea Segunda linea',
+      '13o. ...y deja en el formulario exactamente lo que se guardara', await valorDe(pa, 'textos.descripcion_pagina'));
+    comprobar(!await cerrado(pa) && (await filaR(A)).config.publico.contacto.whatsapp !== '573001230000', '13o. ...sin guardar todavia: hay que revisar y pulsar Guardar de nuevo');
+    await guardar(pa);
+    await esperarDb(async () => (await filaR(A)).config.publico.contacto.whatsapp === '573001230000', 'el segundo Guardar guarda');
+    const f3 = await filaR(A);
+    comprobar(f3.config.publico.contacto.instagram === 'casa.alfa' && f3.config.publico.textos.descripcion_pagina === 'Primera linea Segunda linea' && !('tagline' in f3.config.publico.textos),
+      '13o. Con el segundo Guardar queda como se aviso; el campo que se dejo vacio se borra (solo ese)', JSON.stringify(f3.config.publico.textos));
+    comprobar(JSON.stringify(f3.config.publico.marca) === marcaAntes && f3.config.publico.textos.eslogan === 'El eslogan nuevo de Alfa', '13o. ...y nada mas cambio');
+
+    // ---------------------------------------------------------------------------------- dos ediciones a la vez
+    const p1 = await panelDe('13-pestana-1', 'alfa.localhost', uA);
+    const p2 = await panelDe('13-pestana-2', 'alfa.localhost', uA);
+    await abrirDatos(p1); await abrirDatos(p2);
+    await p1.escribir(campo('textos.pie_final'), 'Cierre de la pestana 1 &lt;i&gt; "x"');
+    await p1.escribir(campo('contacto.ciudad'), 'Ciudad de la pestana 1');
+    await guardar(p1);
+    await esperarDb(async () => (await filaR(A)).config.publico.textos.pie_final === 'Cierre de la pestana 1 &lt;i&gt; "x"', 'guardo la pestana 1');
+    // la pestana 2 (que abrio ANTES) cambia el MISMO campo y otro distinto
+    await p2.escribir(campo('textos.pie_final'), 'Cierre de la pestana 2');
+    await p2.escribir(campo('textos.ejemplo_nota'), 'Nota de la pestana 2');
+    await guardar(p2);
+    const conf = await avisoDe(p2);
+    await capturar(p2, 'datos-4-conflicto');
+    const fC = await filaR(A);
+    comprobar(/Otra persona editó/.test(conf) && conf.includes('Cierre de la pestana 1 &lt;i&gt; "x"'), '13p. La pestana 2 recibe el aviso: otra persona edito ese campo, y le dice como quedo (el texto ajeno se muestra TAL CUAL: sin interpretar &lt;i&gt; como HTML)', conf);
+    comprobar(await p2.eval(`document.querySelectorAll('#datosAviso i, #datosAviso b, #modalDatos i').length === 0`), '13p. ...y el texto de la otra persona no creo ningun elemento');
+    comprobar(fC.config.publico.textos.pie_final === 'Cierre de la pestana 1 &lt;i&gt; "x"' && fC.config.publico.textos.ejemplo_nota !== 'Nota de la pestana 2', '13p. NO se pisa la edicion de la pestana 1 y tampoco se guarda NADA de la pestana 2 (ni su otro campo)', JSON.stringify(fC.config.publico.textos));
+    comprobar(/Otra persona cambió/.test(await errorDe(p2, 'textos.pie_final')) && await valorDe(p2, 'textos.pie_final') === 'Cierre de la pestana 2', '13p. El campo en conflicto queda marcado y el texto de la pestana 2 sigue ahi');
+    comprobar(await valorDe(p2, 'contacto.ciudad') === 'Ciudad de la pestana 1', '13p. Lo que la pestana 2 NO toco se actualiza con lo vigente (la ciudad de la pestana 1)', await valorDe(p2, 'contacto.ciudad'));
+    await guardar(p2);
+    await esperarDb(async () => (await filaR(A)).config.publico.textos.pie_final === 'Cierre de la pestana 2', 'guardo la pestana 2 tras revisar');
+    const fD = await filaR(A);
+    comprobar(fD.config.publico.textos.ejemplo_nota === 'Nota de la pestana 2' && fD.config.publico.contacto.ciudad === 'Ciudad de la pestana 1',
+      '13p. Al revisar y guardar otra vez, se guarda lo de la pestana 2 y se conserva lo de la pestana 1 (ciudad)', JSON.stringify([fD.config.publico.textos.ejemplo_nota, fD.config.publico.contacto.ciudad]));
+    // campos distintos: se suman sin conflicto
+    await abrirDatos(p1);
+    await abrirDatos(p2);
+    await p1.escribir(campo('contacto.region'), 'Region 1');
+    await p2.escribir(campo('contacto.direccion_corta'), 'Direccion corta 2');
+    await guardar(p1); await esperarDb(async () => (await filaR(A)).config.publico.contacto.region === 'Region 1', 'region');
+    await guardar(p2); await esperarDb(async () => (await filaR(A)).config.publico.contacto.direccion_corta === 'Direccion corta 2', 'direccion corta');
+    const fE = await filaR(A);
+    comprobar(fE.config.publico.contacto.region === 'Region 1' && fE.config.publico.contacto.direccion_corta === 'Direccion corta 2' && await cerrado(p2),
+      '13q. Dos ediciones de campos DISTINTOS se suman: ninguna pisa a la otra y no hay conflicto', JSON.stringify(fE.config.publico.contacto));
+
+    // ---------------------------------------------------------------------------------- una config vieja invalida fuera del formulario
+    await falso.db.exec('alter table public.restaurantes disable trigger restaurantes_validar_config');
+    await falso.db.query(`update public.restaurantes set config = jsonb_set(config, '{publico,marca,logo}', '"http://evil.example/x.png"') where id = $1`, [G.id]);
+    await falso.db.exec('alter table public.restaurantes enable trigger restaurantes_validar_config');
+    const pg = await panelDe('13-gamma', 'gamma.localhost', uC);
+    await abrirDatos(pg);
+    await pg.escribir(campo('textos.eslogan'), 'Eslogan de Gamma');
+    const antesG = JSON.stringify(await filaR(G));
+    await guardar(pg);
+    const av = await avisoDe(pg);
+    comprobar(/fuera de este formulario/.test(av) && /publico\.marca\.logo/.test(av) && JSON.stringify(await filaR(G)) === antesG,
+      '13r. Si la config tiene un problema viejo FUERA de este formulario (la marca), avisa cual es, que hay que avisar al administrador y no guarda', av);
+
+    // ---------------------------------------------------------------------------------- datos hostiles guardados antes
+    const ph = await panelDe('13-hostil', 'hostil.localhost', uH);
+    await abrirDatos(ph);
+    comprobar(await ph.eval(`document.querySelectorAll('#modalDatos img, #modalDatos script, #modalDatos b').length === 0 && typeof window.__pwn === 'undefined'`), '13s. Un nombre con HTML guardado antes se muestra como texto en el campo: no se ejecuta ni se inyecta nada');
+    comprobar((await valorDe(ph, 'nombre')).includes('<img src=x onerror='), '13s. ...el campo muestra el texto tal cual (como valor, no como HTML)');
+    await ph.eval(`DatosRestaurante.cerrar()`);
+
+    // ---------------------------------------------------------------------------------- cerrar con cambios sin guardar
+    await abrirDatos(pa);
+    await pa.escribir(campo('textos.eslogan'), 'Un cambio que no se guarda');
+    const estadoX = JSON.stringify(await filaR(A));
+    await pa.clic('#datosCancelar');
+    comprobar(!await cerrado(pa) && /sin guardar/.test(await avisoDe(pa)) && (await pa.eval(`document.getElementById('datosCancelar').textContent`)) === 'Descartar los cambios',
+      '13t. Cancelar con cambios sin guardar NO cierra de una vez: avisa y pide confirmar');
+    await pa.clic('#datosCancelar');
+    comprobar(await cerrado(pa) && JSON.stringify(await filaR(A)) === estadoX, '13t. ...y al confirmar, descarta y no guarda nada');
+    await abrirDatos(pa);
+    comprobar(await valorDe(pa, 'textos.eslogan') === 'El eslogan nuevo de Alfa', '13t. Al volver a abrir, el formulario trae lo vigente (no lo descartado)');
+    await pa.eval(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    comprobar(await cerrado(pa), '13t. Escape cierra el formulario (sin cambios)');
+
+    // ---------------------------------------------------------------------------------- si pierde el rol con el formulario abierto
+    await abrirDatos(pa);
+    await pa.eval(`PR.mostrarRol('cajero')`);
+    comprobar(await cerrado(pa) && await pa.eval(`document.getElementById('datosBtn').hidden`), '13u. Si el rol deja de ser "dueno" con el formulario abierto, se cierra y la opcion se esconde');
+    await pa.eval(`PR.mostrarRol('dueno')`);
+    comprobar(await pa.eval(`!document.getElementById('datosBtn').hidden`), '13u. ...y vuelve a aparecer si el rol vuelve a ser dueno');
+
+    // ---------------------------------------------------------------------------------- Taqueiros, el menu: nada mas cambio
+    const errs = [pa, pcaj, pcoc, pb, p1, p2, pg, ph].map((p) => p.errores.filter((e) => !/Failed to load resource|favicon/.test(e)));
+    comprobar(errs.every((e) => e.length === 0), '13v. Ninguna pagina tuvo errores de JavaScript durante todo el escenario', JSON.stringify(errs));
   });
 
   // ---------------------------------------------------------------------------------------------------------

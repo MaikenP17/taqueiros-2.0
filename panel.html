@@ -270,6 +270,30 @@
   .btn-cancelar{background:rgba(var(--crema-rgb),.08); color:var(--texto-claro);}
   .btn-cancelar:hover{background:rgba(var(--crema-rgb),.16);}
 
+  /* ---------- DATOS DE MI RESTAURANTE (solo el dueño; datos-restaurante.js) ---------- */
+  [data-solo-rol][hidden]{display:none !important;}
+  .modal-datos{width:min(660px,100%);}
+  .modal-datos .acciones-modal{position:sticky; bottom:-1.4rem; margin-top:1rem; padding:.8rem 0 .2rem; background:var(--carbon-2);}
+  .datos-aviso{margin:.2rem 0 .9rem; padding:.7rem .85rem; border-radius:10px; font-size:.8rem; line-height:1.45;
+    background:rgba(var(--crema-rgb),.07); border:1px solid var(--borde);}
+  .datos-aviso.error{border-color:#ff8a80; background:rgba(255,138,128,.1);}
+  .datos-aviso.atencion{border-color:var(--mostaza); background:rgba(var(--mostaza-rgb),.1);}
+  .datos-aviso ul{margin:.35rem 0 0 1.1rem; padding:0;}
+  .datos-grupo{border:1px solid var(--borde); border-radius:12px; margin:.65rem 0; background:rgba(var(--crema-rgb),.03);}
+  .datos-grupo > summary{cursor:pointer; padding:.7rem .9rem; font-weight:700; font-size:.88rem;}
+  .datos-fila{padding:.3rem .9rem .65rem;}
+  .datos-fila label{display:block; font-size:.76rem; font-weight:700; color:var(--texto-secundario); margin-bottom:.25rem;}
+  .datos-fila input, .datos-fila textarea{
+    width:100%; background:var(--carbon); color:var(--texto-claro); border:1px solid var(--borde);
+    border-radius:10px; padding:.55rem .7rem; font-family:inherit; font-size:.88rem;}
+  .datos-fila textarea{resize:vertical;}
+  .datos-fila input[aria-invalid="true"], .datos-fila textarea[aria-invalid="true"]{border-color:#ff8a80;}
+  .datos-pie{display:flex; justify-content:space-between; gap:.6rem; margin-top:.2rem;}
+  .datos-ayuda{font-size:.7rem; color:var(--texto-secundario); line-height:1.35;}
+  .datos-contador{font-size:.7rem; color:var(--texto-secundario); white-space:nowrap;}
+  .datos-contador.excedido{color:#ff8a80; font-weight:700;}
+  .datos-error{margin-top:.3rem; font-size:.76rem; color:#ffb4ab; font-weight:600;}
+
   /* ---------- KANBAN ---------- */
   .board{
     display:grid; grid-template-columns:repeat(5, minmax(280px, 1fr));
@@ -865,6 +889,7 @@
 <script src="supabase-publico.js?v=2"></script>
 <script src="restaurante-publico.js?v=2"></script>
 <script src="panel-restaurante.js?v=1"></script>
+<script src="datos-restaurante.js?v=1"></script>
 <script src="ticket-comanda.js?v=5"></script>
 <script>
 /* =========================================================
@@ -1039,6 +1064,9 @@ function avisar(mensaje, esError){
                 que no tengan manejador propio)
      estado     true: muestra una etiqueta de estado a la derecha
      peligro    true: color de accion destructiva
+     soloRol    "dueno": la opcion solo se muestra a ese rol (PR.mostrarRol la muestra
+                o la esconde; la base rechaza lo que el rol no puede hacer aunque la
+                opcion se muestre)
      separado   true: va al final, separada del resto
 
    Siempre que se elige una opcion el menu se cierra solo.
@@ -1050,6 +1078,8 @@ const MENU_LATERAL = [
     href:"menu-admin.html", titulo:"Agotar productos y cambiar precios" },
   { id:"horariosBtn",    icono:"🕓", texto:"Horario",
     titulo:"Ver y editar el horario" },
+  { id:"datosBtn",       icono:"🏪", texto:"Datos de mi restaurante", soloRol:"dueno",
+    titulo:"Nombre, textos de tu página y contacto" },
   { id:"impresionBtn",   icono:"⚙️", texto:"Configuración",
     titulo:"Tamaño del ticket, modo de hoja, ticket de prueba y hoja de calibración" },
   { id:"notifBtn",       icono:"🔕", texto:"Notificaciones", estado:true,
@@ -1066,6 +1096,7 @@ const MENU_LATERAL = [
     if(op.id) el.id = op.id;
     el.className = "menu-item" + (op.peligro ? " peligro" : "") + (op.separado ? " separado" : "");
     if(op.titulo) el.title = op.titulo;
+    if(op.soloRol){ el.setAttribute("data-solo-rol", op.soloRol); el.hidden = true; }
 
     const ico = document.createElement("span");
     ico.className = "menu-ico";
@@ -1915,6 +1946,21 @@ function cerrarHorarios(){ modalHorarios.classList.remove("open"); }
 document.getElementById("horariosBtn").addEventListener("click", abrirHorarios);
 document.getElementById("cancelarHorarios").addEventListener("click", cerrarHorarios);
 modalHorarios.addEventListener("click", (e) => { if(e.target === modalHorarios) cerrarHorarios(); });
+
+/* ---- Datos de mi restaurante (solo el dueño; todo el formulario vive en datos-restaurante.js) ---- */
+document.getElementById("datosBtn").addEventListener("click", () => {
+  if(!window.DatosRestaurante || PR.rol !== "dueno") return;
+  DatosRestaurante.abrir({
+    db: db,
+    rid: RID,
+    avisar: avisar,
+    alGuardar: (datos) => {
+      // el nombre cambio: el pie del ticket y el título de la pestaña lo reflejan sin recargar
+      if(window.TicketComanda) TicketComanda.fijarRestaurante(datos.nombre);
+      document.title = "Panel de Comandas | " + datos.nombre;
+    }
+  });
+});
 
 document.getElementById("guardarHorarios").addEventListener("click", async (e) => {
   const boton = e.currentTarget;

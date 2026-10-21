@@ -281,6 +281,15 @@
       els[i].textContent = etiqueta ? "Tu rol: " + etiqueta : "";
       els[i].hidden = !etiqueta;
     }
+    /* Opciones que son solo de algunos roles: data-solo-rol="dueno" (o varios separados por espacio). Se
+       muestran solo con ese rol. Esconderlas NO es lo que protege: la base rechaza lo que el rol no puede hacer. */
+    var solo = document.querySelectorAll("[data-solo-rol]");
+    for (var j = 0; j < solo.length; j++) {
+      var roles = (solo[j].getAttribute("data-solo-rol") || "").split(" ");
+      solo[j].hidden = !(rol && ROLES[rol] && roles.indexOf(rol) >= 0);
+    }
+    /* Si el rol cambia o se pierde con el formulario de datos abierto, se cierra */
+    if (rol !== "dueno" && window.DatosRestaurante && typeof window.DatosRestaurante.cerrar === "function") window.DatosRestaurante.cerrar();
   };
 
   /* Vuelve a comprobar la membresia de vez en cuando (la quitaron mientras el panel seguia abierto).

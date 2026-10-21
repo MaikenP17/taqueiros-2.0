@@ -25,8 +25,8 @@ const arg = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').spl
 const filtro = arg('solo');
 const PARALELO = Number(arg('paralelo')) || 3;
 
-const PR = 'panel-restaurante.js', RPJ = 'restaurante-publico.js', PAN = 'panel.html', MEN = 'menu-admin.html', HIS = 'historial.html', TIC = 'ticket-comanda.js', SW = 'sw.js';
-const ARCHIVOS = [PR, RPJ, PAN, MEN, HIS, TIC, SW, 'index.html', 'pedido.html'];
+const PR = 'panel-restaurante.js', RPJ = 'restaurante-publico.js', PAN = 'panel.html', MEN = 'menu-admin.html', HIS = 'historial.html', TIC = 'ticket-comanda.js', SW = 'sw.js', DAT = 'datos-restaurante.js';
+const ARCHIVOS = [PR, RPJ, PAN, MEN, HIS, TIC, SW, DAT, 'index.html', 'pedido.html'];
 
 /* { nombre, archivo, buscar, reemplazar, solo, equivalente?, tambien?: [archivo, buscar, reemplazar] } */
 const M = [];
@@ -124,6 +124,46 @@ m('ticket: el pie no usa el nombre del restaurante', TIC, 'pie: textoPie(op.rest
 m('sw: la version no sube', SW, 'const VERSION = "v10";', 'const VERSION = "v9";', '^12\\.');
 m('sw: se vuelve a precachear algo', SW, 'const CASCARON = [];', 'const CASCARON = ["/Recursos/logo/logo.png"];', '^12\\.');
 m('sw: /api/ deja de ir siempre por la red', SW, '      || url.pathname.startsWith("/api/")\n', '', '^12\\.');
+
+// ---- "Datos de mi restaurante" (solo el dueno): la opcion, el formulario y lo que manda a la base -------------------------------------------------
+m('datos: la opcion del menu se muestra a todos los roles', PR, 'solo[j].hidden = !(rol && ROLES[rol] && roles.indexOf(rol) >= 0);', 'solo[j].hidden = false;', '^13\\.');
+m('datos: la opcion se muestra a cualquier rol valido (no solo al dueno)', PR, 'solo[j].hidden = !(rol && ROLES[rol] && roles.indexOf(rol) >= 0);', 'solo[j].hidden = !(rol && ROLES[rol]);', '^13\\.');
+m('datos: perder el rol no cierra el formulario', PR, 'if (rol !== "dueno" && window.DatosRestaurante && typeof window.DatosRestaurante.cerrar === "function") window.DatosRestaurante.cerrar();', '', '^13\\.');
+m('datos: la opcion nace visible (sin esconderla hasta saber el rol)', PAN, 'if(op.soloRol){ el.setAttribute("data-solo-rol", op.soloRol); el.hidden = true; }', 'if(op.soloRol){ el.setAttribute("data-solo-rol", op.soloRol); }', '^13\\.',
+  { equivalente: 'PR.mostrarRol() la esconde o la muestra apenas se conoce el rol (antes de levantar el panel); nace visible solo un instante, con el panel todavia cerrado' });
+m('datos: el boton de la opcion no revisa el rol (el formulario si lo revisa)', PAN, 'if(!window.DatosRestaurante || PR.rol !== "dueno") return;', 'if(!window.DatosRestaurante) return;', '^13\\.',
+  { equivalente: 'la opcion esta escondida para los demas roles y DatosRestaurante.abrir() revisa el rol otra vez; quitadas las dos SI se detecta (mutacion siguiente)' });
+m('datos: ni el boton ni el formulario revisan el rol (un cajero que fuerce la llamada abre el formulario)', PAN, 'if(!window.DatosRestaurante || PR.rol !== "dueno") return;', 'if(!window.DatosRestaurante) return;', '^13\\.',
+  { tambien: [DAT, 'if (window.PR && window.PR.rol !== "dueno") return false;', ''] });
+m('datos: el boton no pasa el restaurante del dominio', PAN, '    rid: RID,\n    avisar: avisar,', '    rid: null,\n    avisar: avisar,', '^13\\.');
+m('datos: guardar el nombre no actualiza el titulo de la pestana', PAN, '      document.title = "Panel de Comandas | " + datos.nombre;\n', '', '^13\\.');
+m('datos: el formulario manda TODOS los campos, no solo los que cambiaron', DAT, 'if (antes !== despues) {', 'if (true) {', '^13\\.');
+m('datos: el formulario no manda el valor que vio ("antes")', DAT, 'cambios.push({ campo: def.campo, antes: antes === "" ? null : antes, despues: despues === "" ? null : despues });', 'cambios.push({ campo: def.campo, antes: null, despues: despues === "" ? null : despues });', '^13\\.');
+m('datos: lo que no se toco se manda igual (se compara el crudo, no lo que la persona edito)', DAT, '      if (crudo === original) {\n        valores[def.campo] = original.trim();\n        tocados[def.campo] = false;\n        return;\n      }\n', '', '^13\\.');
+m('datos: no se valida nada en el navegador', DAT, 'var errores = DR.validarCampo(def.campo, f.valores[def.campo]);', 'var errores = [];', '^13\\.');
+m('datos: no se pregunta a la base (config_restaurante_errores) antes de guardar', DAT, 'var rv = await estado.db.rpc("config_restaurante_errores", { p_config: candidata });', 'var rv = { error: true };', '^13\\.');
+m('datos: se ignoran los problemas que la base encuentra fuera del formulario', DAT, '        if (generales.length) {', '        if (false) {', '^13\\.');
+m('datos: un conflicto se toma por guardado', DAT, 'if (res.ok === false) {', 'if (false) {', '^13\\.');
+m('datos: tras un conflicto, lo que no se toco no se actualiza con lo vigente', DAT, '          if (e && !f.tocados[def.campo]) { e.value = DR.leer(estado.original, def.campo); contar(def.campo); }', '', '^13\\.');
+m('datos: tras un conflicto no se carga lo vigente como nueva referencia', DAT, '        if (res.datos) aplicarDatosVigentes(res.datos);\n        // lo que yo no toque', '        // lo que yo no toque', '^13\\.');
+m('datos: un ajuste (WhatsApp, @, saltos de linea) se guarda sin avisar', DAT, 'if (ajustes.length && !estado.ajustesMostrados) {', 'if (false) {', '^13\\.');
+m('datos: cancelar con cambios sin guardar cierra sin preguntar', DAT, 'if (estado.original && hayCambios() && !estado.cierreConfirmado) {', 'if (false) {', '^13\\.');
+m('datos: el aviso y los textos ajenos entran como HTML (innerHTML)', DAT, 'if (k === "texto") e.textContent = atributos[k];', 'if (k === "texto") e.innerHTML = atributos[k];', '^13\\.');
+m('datos: del WhatsApp no se quitan los separadores', DAT, 'if (solo !== v && /^[0-9]*$/.test(solo)) {', 'if (false) {', '^13\\.');
+m('datos: del usuario de Instagram no se quita el @', DAT, 'if (v.charAt(0) === "@") {\n        v = v.slice(1).trim();', 'if (false) {\n        v = v.slice(1).trim();', '^13\\.');
+m('datos: los saltos de linea no se cambian por espacios', DAT, 'v = v.replace(RE_SALTOS_G, " ");', '', '^13\\.');
+m('datos: el HTML no se rechaza en el navegador', DAT, 'if (/[<>]/.test(v)) e.push("No se permiten etiquetas HTML (los caracteres < y >).");', '', '^13\\.');
+m('datos: el largo maximo no se revisa en el navegador', DAT, 'if (largo(v) > def.max) e.push("Es demasiado largo (máximo " + def.max + " caracteres).");', '', '^13\\.');
+m('datos: el WhatsApp corto se acepta en el navegador', DAT, 'if (largo(v) > def.max || !RE_DIGITOS.test(v.replace(RE_SEPARADORES_G, ""))) {', 'if (false) {', '^13\\.');
+m('datos: un usuario con espacios se acepta en el navegador', DAT, 'if (!RE_USUARIO.test(v.charAt(0) === "@" ? v.slice(1) : v)) {', 'if (false) {', '^13\\.');
+m('datos: el nombre vacio se acepta en el navegador', DAT, 'if (largo(v) < 1) e.push("El nombre no puede quedar vacío.");', '', '^13\\.');
+m('datos: el campo con error no se marca para los lectores de pantalla', DAT, 'if (e) e.setAttribute("aria-invalid", "true");', '', '^13\\.');
+m('datos: al corregir un campo su aviso no desaparece', DAT, 'entrada.addEventListener("input", function () { contar(def.campo); limpiarError(def.campo); estado.cierreConfirmado = false; restaurarBotonCancelar(); });', 'entrada.addEventListener("input", function () { contar(def.campo); estado.cierreConfirmado = false; restaurarBotonCancelar(); });', '^13\\.');
+m('datos: Escape no cierra el formulario', DAT, 'if (ev.key === "Escape" && fondo.classList.contains("open")) pedirCierre();', '', '^13\\.');
+m('datos: el formulario no carga lo vigente de la base al abrir (usa lo viejo)', DAT, 'estado.original = { nombre: r.data.nombre, config: r.data.config && typeof r.data.config === "object" ? r.data.config : {} };', 'estado.original = estado.original || { nombre: r.data.nombre, config: r.data.config && typeof r.data.config === "object" ? r.data.config : {} };', '^13\\.',
+  { equivalente: 'cada apertura crea un estado nuevo (estado = {... original: null}), asi que no queda nada viejo que reutilizar' });
+m('datos: el nombre nuevo no se ve de inmediato en el menu', DAT, '        window.PR.aplicarNombreYLogo(window.PR.R);', '', '^13\\.');
+m('datos: el formulario muestra el nombre como HTML al abrir (valor con innerHTML)', DAT, 'entrada.value = DR.leer(estado.original, def.campo);', 'entrada.setAttribute("value", DR.leer(estado.original, def.campo)); entrada.insertAdjacentHTML("afterend", DR.leer(estado.original, def.campo));', '^13\\.');
 
 /* ---- ejecucion ------------------------------------------------------------------------------------------------------------------------ */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'taq-mut-panel-'));
