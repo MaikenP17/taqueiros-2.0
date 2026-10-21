@@ -290,25 +290,7 @@ async function esSuperadmin(userId) {
   return filas.length > 0;
 }
 
-/* Quien es el dueno de un JWT de sesion del panel: { id } o null si no es valido.
-   Le pregunta a Supabase Auth (no decodifica el token a mano). La llave que va en
-   'apikey' es la publishable si esta en SUPABASE_PUBLISHABLE_KEY, y si no la de
-   servicio; el token del usuario va como Bearer. */
-async function usuarioDeToken(token) {
-  const t = String(token || "").trim();
-  if (!t || t.length > 4096 || /s/.test(t)) return null;
-
-  const { url, key } = credenciales();
-  const apikey = String(process.env.SUPABASE_PUBLISHABLE_KEY || key).trim();
-  const resp = await fetch(`${url}/auth/v1/user`, {
-    headers: { "apikey": apikey, "Authorization": `Bearer ${t}` }
-  });
-  if (!resp.ok) return null;
-
-  let u = null;
-  try { u = JSON.parse(await resp.text()); } catch (e) { return null; }
-  return u && typeof u.id === "string" && UUID.test(u.id) ? { id: u.id.toLowerCase() } : null;
-}
+/* (La validacion de la sesion de un usuario vive en _sesion.js, un solo lugar.) */
 
 /* La consulta mas liviana que existe: sirve para que Supabase cuente el
    proyecto como activo. Toca una tabla que no es de negocio. */
@@ -335,7 +317,6 @@ module.exports = {
   buscarRestaurantePorHost,
   listarRestaurantes,
   esSuperadmin,
-  usuarioDeToken,
   marcarReembolsado,
   pingBase,
   COLUMNAS_RESTAURANTE

@@ -50,6 +50,7 @@ export async function correrEscenarios(opts) {
   let desfase = 0;                // para adelantar el reloj
   let falla = null;               // (url) => true  simula Supabase caido
   let dominiosAusente = false;    // simula que la tabla restaurante_dominios no existe
+  let authEstado = 0;             // si no es 0, /auth/v1/user responde ese HTTP (simula Auth con error)
   let idsPrueba = [];             // para que /api/alertas (modo real) solo vea restaurantes de prueba
   let callmebotResponde = () => ({ status: 200, texto: 'Message queued. You will receive it in a few seconds' });
 
@@ -71,8 +72,9 @@ export async function correrEscenarios(opts) {
       return new Response(JSON.stringify({ address: { neighbourhood: 'Barrio Prueba' } }), { status: 200 });
     }
     if (url.startsWith(URL_BASE)) {
-      registro.push({ url, metodo, cuerpo: o && o.body });
+      registro.push({ url, metodo, cuerpo: o && o.body, cabeceras: (o && o.headers) || {} });
       if (falla && falla(url)) throw new Error('red caida (simulada)');
+      if (authEstado && url.includes('/auth/v1/user')) return new Response('{"msg":"fallo interno"}', { status: authEstado });
       if (dominiosAusente && url.includes('/rest/v1/restaurante_dominios')) {
         return new Response(JSON.stringify({ code: 'PGRST205', message: "Could not find the table 'public.restaurante_dominios' in the schema cache" }), { status: 404 });
       }
@@ -1216,6 +1218,101 @@ export async function correrEscenarios(opts) {
       await parchear('restaurantes', `id=eq.${A.id}`, { estado: 'activo' }); R.invalidarCache();
       return es(r.status === 200, r.status);
     });
+
+    /* ---- validacion de la sesion (api/_sesion.js): como llega el token a Supabase Auth ---- */
+    const SES = api('_sesion');
+    const tokenReal = duenoA.token;
+    const llamadasAuth = (desde) => registro.slice(desde).filter((p) => p.url.includes('/auth/v1/user'));
+    await T('el token de sesion de la prueba tiene la forma de uno real (~cientos de caracteres, con letra "s" y 3 partes)', async () =>
+      es(tokenReal.length > 300 && /s/.test(tokenReal) && tokenReal.split('.').length === 3, `largo ${tokenReal.length}`));
+    await T('sesion: un token real (largo, con "s") se acepta y devuelve el id del usuario', async () => {
+      const u = await SES.usuarioDeToken(tokenReal);
+      return es(u && u.id === duenoA.id, JSON.stringify(u));
+    });
+    await T('sesion: Authorization lleva el token del USUARIO y apikey una llave del proyecto (nunca la secreta como Bearer)', async () => {
+      const desde = registro.length;
+      const u = await SES.usuarioDeSolicitud({ headers: { authorization: 'Bearer ' + tokenReal } });
+      const [p] = llamadasAuth(desde);
+      const apikeyEsperada = llavePublicable || llaveServicio;
+      return es(u && p && llamadasAuth(desde).length === 1 && p.cabeceras.Authorization === 'Bearer ' + tokenReal && p.cabeceras.apikey === apikeyEsperada
+        && !/sb_secret_/.test(p.cabeceras.Authorization), p ? `apikey=${String(p.cabeceras.apikey).slice(0, 14)}...` : 'sin peticion');
+    });
+    await T('sesion: sin SUPABASE_PUBLISHABLE_KEY usa la llave secreta SOLO en apikey y la sesion sigue valiendo', async () => {
+      const guardada = process.env.SUPABASE_PUBLISHABLE_KEY;
+      delete process.env.SUPABASE_PUBLISHABLE_KEY;
+      try {
+        const desde = registro.length;
+        const u = await SES.usuarioDeSolicitud({ headers: { authorization: 'Bearer ' + tokenReal } });
+        const [p] = llamadasAuth(desde);
+        return es(u && u.id === duenoA.id && p.cabeceras.apikey === llaveServicio && p.cabeceras.Authorization === 'Bearer ' + tokenReal,
+          u ? 'ok' : 'la sesion valida fue rechazada');
+      } finally { if (guardada) process.env.SUPABASE_PUBLISHABLE_KEY = guardada; }
+    });
+    await T('sesion: cabecera Authorization sin Bearer, vacia o con espacios internos no llega a la red ni da sesion', async () => {
+      const desde = registro.length;
+      const r = await Promise.all([null, '', 'Bearer', 'Bearer ', tokenReal, 'Basic ' + tokenReal, 'Bearer ' + tokenReal.slice(0, 30) + ' ' + tokenReal.slice(30)]
+        .map((a) => SES.usuarioDeSolicitud({ headers: a === null ? {} : { authorization: a } })));
+      return es(r.every((x) => x === null) && llamadasAuth(desde).length === 0, JSON.stringify(r.map((x) => !!x)));
+    });
+    await T('sesion: un token invalido o mal firmado (con la forma de un JWT) es "sin sesion", no un error', async () => {
+      const [a, b, c] = tokenReal.split('.');
+      const malFirmado = [a, b, c.slice(0, -4) + (c.slice(-4) === 'AAAA' ? 'BBBB' : 'AAAA')].join('.');
+      const x = await SES.usuarioDeToken(malFirmado); const y = await SES.usuarioDeToken('eyJ' + 'x'.repeat(60));
+      return es(x === null && y === null, `${x} ${y}`);
+    });
+    await T('sesion: el reembolso con el token real que antes se rechazaba por llevar la letra "s" ya no da 401', async () => {
+      const r = await pedirReembolso(hA, tokenReal, 'TAQ-NO-EXISTE');
+      return es(r.status === 404, r.status);   // paso la sesion y la autorizacion de dueno: llega a buscar el pedido
+    });
+    if (!real) {
+      await T('sesion: si Supabase Auth se cae el reembolso responde 500 (no un 401 que mande a iniciar sesion de nuevo)', async () => {
+        falla = (u) => u.includes('/auth/v1/user');
+        try { const r = await pedirReembolso(hA, tokenReal, refR); return es(r.status === 500, r.status); } finally { falla = null; }
+      });
+      await T('sesion: si Supabase Auth responde 5xx el reembolso responde 500, y un 401 de Auth sigue siendo "sin sesion"', async () => {
+        authEstado = 503;
+        try {
+          const a = await pedirReembolso(hA, tokenReal, refR);
+          authEstado = 401;
+          const b = await pedirReembolso(hA, tokenReal, refR);
+          return es(a.status === 500 && b.status === 401, `${a.status} ${b.status}`);
+        } finally { authEstado = 0; }
+      });
+      await T('sesion: si Supabase rechaza la llave del proyecto el reembolso responde 500 con la causa en el log (no 401)', async () => {
+        const guardada = process.env.SUPABASE_PUBLISHABLE_KEY;
+        process.env.SUPABASE_PUBLISHABLE_KEY = 'llave-que-no-sirve';
+        const antes = logs.length;
+        try {
+          const r = await pedirReembolso(hA, tokenReal, refR);
+          return es(r.status === 500 && logs.slice(antes).some((l) => /llave del proyecto/.test(l)), `${r.status}`);
+        } finally { if (guardada) process.env.SUPABASE_PUBLISHABLE_KEY = guardada; else delete process.env.SUPABASE_PUBLISHABLE_KEY; }
+      });
+
+      /* El simulador debe rechazar lo mismo que rechaza Supabase real; si se vuelve permisivo,
+         las pruebas de arriba dejan de detectar un servidor que arma mal las cabeceras. */
+      const aUser = (h) => fetchReal(`${URL_BASE}/auth/v1/user`, { headers: h }).then(async (r) => ({ status: r.status, texto: await r.text() }));
+      const bearer = { Authorization: 'Bearer ' + tokenReal };
+      await T('falso realista: GET /auth/v1/user con la llave en apikey y el token del usuario como Bearer -> 200 (publishable o secreta)', async () => {
+        const a = await aUser({ apikey: llavePublicable, ...bearer }); const b = await aUser({ apikey: llaveServicio, ...bearer });
+        return es(a.status === 200 && b.status === 200 && JSON.parse(a.texto).id === duenoA.id, `${a.status} ${b.status}`);
+      });
+      await T('falso realista: una sb_secret_ enviada como Bearer -> 401 (no es un JWT), aun con apikey valida', async () => {
+        const a = await aUser({ apikey: llaveServicio, Authorization: 'Bearer ' + llaveServicio });
+        const b = await aUser({ apikey: llavePublicable, Authorization: 'Bearer ' + llaveServicio });
+        const c = await fetchReal(`${URL_BASE}/rest/v1/restaurantes?select=id&limit=1`, { headers: { apikey: llaveServicio, Authorization: 'Bearer ' + llaveServicio } });
+        return es(a.status === 401 && b.status === 401 && c.status === 401, `${a.status} ${b.status} ${c.status}`);
+      });
+      await T('falso realista: el token del usuario SIN apikey -> 401; sin nada -> 401; apikey sin token en /auth/v1/user -> 401', async () => {
+        const a = await aUser(bearer); const b = await aUser({}); const c = await aUser({ apikey: llavePublicable });
+        const d = await aUser({ apikey: 'no-es-una-llave', ...bearer });
+        return es(a.status === 401 && b.status === 401 && c.status === 401 && d.status === 401, `${a.status} ${b.status} ${c.status} ${d.status}`);
+      });
+      await T('falso realista: un Bearer que no es una sesion (basura, token con forma de JWT inventado) -> 401', async () => {
+        const a = await aUser({ apikey: llavePublicable, Authorization: 'Bearer token-invalido' });
+        const b = await aUser({ apikey: llavePublicable, Authorization: 'Bearer ' + tokenReal.slice(0, -3) + 'xyz' });
+        return es(a.status === 401 && b.status === 401, `${a.status} ${b.status}`);
+      });
+    }
 
     /* =====================================================================
        9. GENERAR-FIRMA

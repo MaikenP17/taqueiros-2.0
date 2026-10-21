@@ -1,6 +1,7 @@
 const {
-  buscarPedidoPorReferencia, marcarReembolsado, consultarTabla, esSuperadmin, usuarioDeToken
+  buscarPedidoPorReferencia, marcarReembolsado, consultarTabla, esSuperadmin
 } = require("./_supabase.js");
+const { usuarioDeSolicitud } = require("./_sesion.js");
 const { exigirRestaurante } = require("./_restaurante.js");
 
 /* =============================================================
@@ -72,9 +73,7 @@ async function manejador(req, res) {
   if (!restaurante) return;
 
   try {
-    const cabecera = String((req.headers && req.headers["authorization"]) || "");
-    const m = /^Bearer\s+(.+)$/i.exec(cabecera);
-    const usuario = m ? await usuarioDeToken(m[1]) : null;
+    const usuario = await usuarioDeSolicitud(req);
 
     if (!usuario) {
       res.status(401).json({ error: "Inicia sesión para continuar" });

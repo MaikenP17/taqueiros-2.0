@@ -134,7 +134,18 @@ m('reembolso: cualquiera con sesion puede', 'reembolso.js', 'if (!(await esDueno
 m('reembolso: el cajero tambien puede (no se exige el rol dueno)', 'reembolso.js', '&activo=is.true&rol=eq.dueno&', '&activo=is.true&');
 m('reembolso: un dueno desactivado todavia puede', 'reembolso.js', '`user_id=eq.${usuario.id}&activo=is.true&rol=eq.dueno&', '`user_id=eq.${usuario.id}&rol=eq.dueno&');
 m('reembolso: todo el mundo es superadmin', 'reembolso.js', 'return esSuperadmin(usuario.id);', 'return true;');
-m('reembolso: un token invalido se acepta', 'reembolso.js', 'const usuario = m ? await usuarioDeToken(m[1]) : null;', 'const usuario = m ? { id: "00000000-0000-4000-8000-0000000000ff" } : null;');
+m('reembolso: un token invalido se acepta', 'reembolso.js', 'const usuario = await usuarioDeSolicitud(req);', 'const usuario = tokenDeCualquierCosa(req) ? { id: "00000000-0000-4000-8000-0000000000ff" } : null;\n    function tokenDeCualquierCosa(r) { return /^Bearer\\s+\\S+/i.test(String((r.headers && r.headers["authorization"]) || "")); }');
+// Validacion de la sesion (_sesion.js): la causa del fallo contra la base real fue la primera de estas
+m('sesion: rechaza todo token que contenga la letra "s" (/\\s/ escrito como /s/; la falla contra Supabase real)', '_sesion.js', '/\\s/.test(t)', '/s/.test(t)');
+m('sesion: la secreta se manda como Bearer en vez del token del usuario', '_sesion.js', '"Authorization": `Bearer ${t}`', '"Authorization": `Bearer ${llaveDeProyecto()}`');
+m('sesion: el token del usuario va tambien como apikey', '_sesion.js', '"apikey": llaveDeProyecto(),', '"apikey": t,');
+m('sesion: no se manda apikey', '_sesion.js', '"apikey": llaveDeProyecto(), ', '');
+m('sesion: la secreta tambien se manda como Bearer (ademas del token)', '_sesion.js', '"Authorization": `Bearer ${t}`', '"Authorization": `Bearer ${t}, Bearer ${llaveDeProyecto()}`');
+m('sesion: un error de Auth (5xx) se toma como "sin sesion"', '_sesion.js', 'if (!resp.ok) {\n    // Cualquier otra', 'if (false) {\n    // Cualquier otra');
+m('sesion: la llave del proyecto rechazada se toma como "sin sesion"', '_sesion.js', 'if (resp.status === 401 && /api key/i.test(texto)) {', 'if (false) {');
+m('sesion: se acepta cualquier token no vacio sin preguntarle a Auth', '_sesion.js', 'const resp = await fetch(`${url}/auth/v1/user`, {', 'if (t) return { id: "00000000-0000-4000-8000-0000000000ff" };\n  const resp = await fetch(`${url}/auth/v1/user`, {');
+m('sesion: un 200 de Auth sin id de usuario se acepta', '_sesion.js', 'return u && typeof u.id === "string" && UUID.test(u.id) ? { id: u.id.toLowerCase() } : null;', 'return { id: "00000000-0000-4000-8000-0000000000ff" };');
+m('sesion: se aceptan tokens con espacios internos (llegan a la red)', '_sesion.js', ' || /\\s/.test(t)) return null;', ') return null;');
 m('reembolso: no exige que el pedido este cancelado y cobrado (ninguna de las dos capas)', 'reembolso.js',
   'if (pedido.estado !== "cancelado" || pedido.estado_pago !== "aprobado") {', 'if (false) {',
   { tambien: ['_supabase.js', '&estado=eq.cancelado&estado_pago=eq.aprobado&reembolsado_en=is.null`', '&reembolsado_en=is.null`'] });

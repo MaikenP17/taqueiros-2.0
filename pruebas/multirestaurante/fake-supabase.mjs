@@ -23,6 +23,40 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
   let cola = Promise.resolve();
   const serie = (fn) => { const p = cola.then(fn, fn); cola = p.catch(() => {}); return p; };
 
+  /* Token de sesion con la FORMA de uno real: tres partes en base64url (encabezado.carga.firma), ~700
+     caracteres, con mayusculas, minusculas, digitos, '-' y '_'. Antes los tokens del falso eran
+     'tok_<hex>' (sin una sola 's'), y un servidor que rechazaba tokens por su forma pasaba todas las
+     pruebas locales y fallaba con la base real. */
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const tokenDeSesion = (uid, email) => {
+    const ahora = Math.floor(Date.now() / 1000);
+    return b64({ alg: 'ES256', typ: 'JWT', kid: crypto.randomUUID() }) + '.' + b64({
+      iss: 'http://localhost/auth/v1', sub: uid, aud: 'authenticated', exp: ahora + 3600, iat: ahora, email,
+      phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: { email_verified: true },
+      role: 'authenticated', aal: 'aal1', amr: [{ method: 'password', timestamp: ahora }], session_id: crypto.randomUUID(), is_anonymous: false
+    }) + '.' + crypto.randomBytes(64).toString('base64url');
+  };
+
+  const esLlaveNueva = (v) => /^sb_(secret|publishable)_\S+$/.test(v);
+
+  /* Lo que el gateway de Supabase real rechaza ANTES de llegar a Auth/PostgREST (el proyecto de Taqueiros
+     usa las llaves nuevas y tiene las JWT legacy DESACTIVADAS):
+       * sin 'apikey' valida (sb_secret_ o sb_publishable_) -> 401: el token del usuario solo NO basta, y un JWT
+         (de usuario o legacy) tampoco sirve como apikey;
+       * una llave sb_secret_ como Bearer -> 401 (no es un JWT; solo va en 'apikey');
+       * un Bearer que no es una sesion conocida ni la llave publishable -> 401. */
+  const rechazoDelGateway = (req, url) => {
+    if (url.pathname.startsWith('/storage/v1/object/public/')) return null;   // los objetos publicos no piden llave
+    const key = String(req.headers.apikey || '').trim();
+    if (!esLlaveNueva(key)) return { message: key ? 'Invalid API key' : 'No API key found in request', hint: 'No `apikey` request header or url param was found.' };
+    const cabecera = String(req.headers.authorization || '').trim();
+    if (!cabecera) return null;
+    if (!/^Bearer\s+\S+$/i.test(cabecera)) return { code: 401, error: 'UNAUTHORIZED_INVALID_JWT_FORMAT', message: 'Invalid JWT' };   // sin el esquema Bearer
+    const bearer = cabecera.replace(/^Bearer\s+/i, '');
+    if (tokens.has(bearer) || /^sb_publishable_/.test(bearer)) return null;
+    return { code: 401, error: 'UNAUTHORIZED_INVALID_JWT_FORMAT', message: 'Invalid JWT' };
+  };
+
   const rolDe = (req) => {
     const auth = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     if (auth && tokens.has(auth)) return { rol: 'authenticated', uid: tokens.get(auth) };
@@ -86,6 +120,8 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
       const url = new URL(req.url, 'http://x');
       const ctx = rolDe(req);
       const crudo = await leerCuerpo(req);
+      const rechazo = rechazoDelGateway(req, url);
+      if (rechazo) return enviar(res, 401, rechazo);
       let cuerpo;
       try { cuerpo = crudo && req.headers['content-type']?.includes('json') ? JSON.parse(crudo) : undefined; } catch { cuerpo = undefined; }
       const prefer = req.headers.prefer || '';
@@ -117,7 +153,7 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
         if (url.pathname === '/auth/v1/token') {
           const r = await db.query(`select id from auth.users where email = $1`, [cuerpo.email]);
           if (!r.rows.length || passwords.get(cuerpo.email) !== cuerpo.password) return enviar(res, 400, { error: 'invalid_grant' });
-          const t = 'tok_' + crypto.randomBytes(8).toString('hex');
+          const t = tokenDeSesion(r.rows[0].id, cuerpo.email);
           tokens.set(t, r.rows[0].id);
           return enviar(res, 200, { access_token: t, refresh_token: 'r', token_type: 'bearer', expires_in: 3600, user: { id: r.rows[0].id, email: cuerpo.email } });
         }
