@@ -1,3 +1,5 @@
+-- OBSOLETO (SQL 13): archivo historico, de ANTES del multi-restaurante. NO lo vuelvas a correr: inserta sin restaurante_id
+-- (que desde el SQL 13 es obligatorio) y recrearia politicas de un solo restaurante. La base actual la definen los SQL 10 a 13.
 -- =============================================================
 -- LOS TAQUEIROS 2.0 — El menu pasa a la base de datos
 -- Ejecutar en: Supabase Dashboard -> SQL Editor -> New query

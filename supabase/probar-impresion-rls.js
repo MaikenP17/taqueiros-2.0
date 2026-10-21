@@ -17,7 +17,7 @@ const { cabecerasSupabase, leerLlaveServicio } = require("../api/_llave.js");
 
 // URL y llave publishable: la misma copia que usan las paginas
 const publico = fs.readFileSync(path.join(__dirname, "..", "supabase-publico.js"), "utf8");
-const BASE = (publico.match(/url:\s*"([^"]+)"/) || [])[1];
+const BASE = (process.env.SUPABASE_URL || (publico.match(/url:\s*"([^"]+)"/) || [])[1] || "").replace(/\/$/, "");
 const ANON = process.env.SUPABASE_PUBLISHABLE_KEY
   || (publico.match(/publishableKey:\s*"([^"]+)"/) || [])[1];
 
@@ -60,10 +60,13 @@ function resultado(ok, texto) {
   let actual = null;
   if (Hs) {
     const filas = await j(await fetch(
-      BASE + "/rest/v1/pedidos?select=id,impreso_en,reimpresiones&estado=neq.pendiente_pago&order=id.desc&limit=1",
+      BASE + "/rest/v1/pedidos?select=id,restaurante_id,impreso_en,reimpresiones&estado=neq.pendiente_pago&order=id.desc&limit=1",
       { headers: Hs }));
     if (Array.isArray(filas) && filas.length) { id = filas[0].id; actual = filas[0]; }
   }
+  // Los intentos de escritura mandan el restaurante del pedido en el filtro: desde el SQL 13 nada depende de un
+  // restaurante por defecto, y asi lo unico que los frena son los permisos (no una columna que falta).
+  const filtroRest = actual ? "&restaurante_id=eq." + actual.restaurante_id : "";
   console.log("Pedido usado:", id === -1 ? "(inexistente)" : "#" + id, "\n");
 
   console.log("========== EL ANONIMO NO PUEDE LLAMAR LAS FUNCIONES ==========");
@@ -84,7 +87,7 @@ function resultado(ok, texto) {
   console.log("\n========== NI ESCRIBIR LAS COLUMNAS DIRECTO ==========");
   // 'return=representation' devuelve las filas tocadas: vacio = no toco nada.
   const valor = actual ? actual.impreso_en : null;   // el mismo que ya tiene
-  r = await fetch(BASE + "/rest/v1/pedidos?id=eq." + id, {
+  r = await fetch(BASE + "/rest/v1/pedidos?id=eq." + id + filtroRest, {
     method: "PATCH",
     headers: { ...Ha, Prefer: "return=representation" },
     body: JSON.stringify({ impreso_en: valor })
@@ -94,7 +97,7 @@ function resultado(ok, texto) {
   resultado(r.status >= 400 || tocadas === 0,
     "C) PATCH impreso_en como anonimo -> HTTP " + r.status + ", filas tocadas: " + (tocadas === null ? "error" : tocadas));
 
-  r = await fetch(BASE + "/rest/v1/pedidos?id=eq." + id, {
+  r = await fetch(BASE + "/rest/v1/pedidos?id=eq." + id + filtroRest, {
     method: "PATCH",
     headers: { ...Ha, Prefer: "return=representation" },
     body: JSON.stringify({ reimpresiones: actual ? actual.reimpresiones : 0 })
@@ -120,5 +123,5 @@ function resultado(ok, texto) {
   console.log("\n" + (fallos === 0
     ? "✅ TODO BLOQUEADO: el publico no puede tocar la impresion."
     : "❌ " + fallos + " intento(s) se colaron. REVISA las politicas antes de usar el panel."));
-  process.exit(fallos === 0 ? 0 : 1);
+  process.exitCode = fallos === 0 ? 0 : 1;   // sin process.exit() de golpe: en Windows imprime "Assertion failed ... async.c"
 })();

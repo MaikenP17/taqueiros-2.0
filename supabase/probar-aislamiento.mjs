@@ -352,7 +352,9 @@ async function main() {
     prueba(`dueno A no inserta en ${t} con restaurante_id de Taqueiros`, rechazada(taq), detalle(taq));
     const { restaurante_id, ...sinRid } = nuevos[t](A, "3");
     const defecto = await api("POST", t, { token: dA.token, cuerpo: sinRid });
-    prueba(`dueno A no inserta en ${t} SIN restaurante_id (el defecto transitorio apunta a Taqueiros)`, rechazada(defecto), detalle(defecto));
+    prueba(`dueno A no inserta en ${t} SIN restaurante_id (SQL 13: ya no hay valor por defecto; falla por NOT NULL)`, rechazada(defecto), detalle(defecto));
+    const srvSin = await svc("POST", t, sinRid);
+    prueba(`el servidor (llave secreta) tampoco inserta en ${t} SIN restaurante_id (no cae en Taqueiros)`, rechazada(srvSin), detalle(srvSin));
     const s = await api("POST", t, { token: sin.token, cuerpo: nuevos[t](A, "4") });
     prueba(`usuario sin membresia no inserta en ${t}`, rechazada(s), detalle(s));
     const an = await api("POST", t, { cuerpo: nuevos[t](A, "5") });
@@ -472,7 +474,9 @@ async function main() {
     r = await api("PATCH", `configuracion?restaurante_id=eq.${A}`, { token: dA.token, cuerpo: { cerrado_temporal: true } });
     prueba("dueno A edita su configuracion", tocoFilas(r), detalle(r));
     r = await api("POST", "tarifas_domicilio", { token: dA.token, cuerpo: nuevos.tarifas_domicilio(A, "1") });
-    prueba("dueno A crea una tarifa de domicilio", tocoFilas(r), detalle(r));
+    prueba("dueno A NO crea tarifas de domicilio (SQL 13: las escribe el superadmin o el servidor; el dueno las lee)", rechazada(r), detalle(r));
+    r = await api("GET", `tarifas_domicilio?restaurante_id=eq.${A}&select=hasta`, { token: dA.token });
+    prueba("dueno A SI lee las tarifas de su restaurante", r.status === 200 && Array.isArray(r.cuerpo), detalle(r));
     r = await api("POST", "pedidos", { token: dA.token, cuerpo: { ...nuevos.pedidos(A, "imp"), estado_pago: "pendiente", estado: "nuevo" } });
     const sinPagar = filas(r)[0];
     r = sinPagar ? await api("DELETE", `pedidos?id=eq.${sinPagar.id}`, { token: dA.token }) : { status: 0, cuerpo: [] };
@@ -542,8 +546,40 @@ async function main() {
   // =================================================================
   grupo("Restaurantes, membresias y superadmins");
   {
-    let r = await api("PATCH", `restaurantes?id=eq.${A}`, { token: dA.token, cuerpo: { nombre: `${NOMBRE_PRUEBA} A (editado)`, config: { color: "#ffffff" } } });
-    prueba("dueno A cambia el nombre y la config de su restaurante", tocoFilas(r), detalle(r));
+    let r = await api("PATCH", `restaurantes?id=eq.${A}`, { token: dA.token, cuerpo: { nombre: `${NOMBRE_PRUEBA} A (editado)`, config: { publico: { textos: { eslogan: "Eslogan de prueba" }, contacto: { telefono: "300 000 0000" } } } } });
+    prueba("dueno A cambia el nombre y config.publico.textos / contacto de su restaurante", tocoFilas(r), detalle(r));
+    const cfgA = { publico: { textos: { eslogan: "Eslogan de prueba" }, contacto: { telefono: "300 000 0000" } } };
+    const cfgDe = async () => JSON.stringify(filas(await svc("GET", `restaurantes?id=eq.${A}&select=config`))[0].config);
+    const cfgAntes = await cfgDe();
+    for (const [que, cfg] of [
+      ["la marca (colores, logo)", { ...cfgA, publico: { ...cfgA.publico, marca: { colores: { primario: "#000000" } } } }],
+      ["la ubicacion", { ...cfgA, ubicacion: { lat: 1, lng: 1 } }],
+      ["el domicilio", { ...cfgA, domicilio: { factor_recorrido: 2 } }],
+      ["las llaves publicas de Wompi", { ...cfgA, publico: { ...cfgA.publico, wompi: { llave_publica_test: "pub_test_ZZZZZZZZZZZZZZZZ" } } }],
+      ["una clave nueva en la raiz", { ...cfgA, extra: 1 }]
+    ]) {
+      r = await api("PATCH", `restaurantes?id=eq.${A}`, { token: dA.token, cuerpo: { config: cfg } });
+      prueba(`SQL 13: dueno A NO puede cambiar ${que} de la config (solo textos y contacto)`, rechazada(r) && (await cfgDe()) === cfgAntes, detalle(r));
+    }
+    for (const [que, cfg] of [
+      ["HTML en un texto", { publico: { textos: { eslogan: "<script>alert(1)</script>" } } }],
+      ["un secreto en un texto", { publico: { textos: { eslogan: "sb_secret_abcdefghijklmnop" } } }],
+      ["un texto de 401 caracteres", { publico: { textos: { eslogan: "x ".repeat(201) } } }],
+      ["un WhatsApp invalido", { publico: { contacto: { whatsapp: "hola" } } }]
+    ]) {
+      r = await api("PATCH", `restaurantes?id=eq.${A}`, { token: dA.token, cuerpo: { config: cfg } });
+      prueba(`SQL 13: la base rechaza ${que} (23514)`, rechazada(r) && r.cuerpo && r.cuerpo.code === "23514" && !JSON.stringify(r.cuerpo).includes("abcdefghijklmnop"), detalle(r));
+    }
+    r = await svc("PATCH", `restaurantes?id=eq.${A}`, { config: { publico: { marca: { colores: { primario: "rojo" } } } } });
+    prueba("SQL 13: ni el servidor (llave secreta) guarda un color invalido", rechazada(r) && r.cuerpo && r.cuerpo.code === "23514", detalle(r));
+    r = await api("PATCH", `configuracion?restaurante_id=eq.${A}`, { token: dA.token, cuerpo: { hora_corte_jornada: "07:00" } });
+    prueba("SQL 13: dueno A NO cambia la hora de corte de la jornada (configuracion)", rechazada(r), detalle(r));
+    r = await api("PATCH", `configuracion?restaurante_id=eq.${A}`, { token: dA.token, cuerpo: { cerrado_temporal: false, mensaje_cerrado: "Volvemos pronto" } });
+    prueba("SQL 13: dueno A SI cambia cerrado_temporal y mensaje_cerrado", tocoFilas(r), detalle(r));
+    r = await api("GET", `restaurante_dominios?select=host&limit=1`, { token: dA.token });
+    prueba("SQL 13: dueno A no lee restaurante_dominios", rechazada(r) || filas(r).length === 0, detalle(r));
+    r = await api("POST", "restaurante_dominios", { token: dA.token, cuerpo: { host: `x-${etiqueta}.example.com`, restaurante_id: A } });
+    prueba("SQL 13: dueno A no registra dominios", rechazada(r), detalle(r));
     for (const [campo, valor] of [["plan", "basico"], ["estado", "suspendido"], ["slug", "otro-slug-x"], ["vigente_hasta", "2099-01-01"], ["dias_gracia", 99], ["modalidad_pago", "unico"], ["modulos", { pasarela: false }]]) {
       r = await api("PATCH", `restaurantes?id=eq.${A}`, { token: dA.token, cuerpo: { [campo]: valor } });
       const v = filas(await svc("GET", `restaurantes?id=eq.${A}&select=${campo}`))[0];

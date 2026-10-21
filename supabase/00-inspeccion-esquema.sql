@@ -279,4 +279,19 @@ select 'secuencia_pedidos',
        (select jsonb_build_object('ultimo_valor', s.last_value, 'max_id', (select max(id) from public.pedidos))
         from pg_sequences s
         where s.schemaname = 'public'
-          and s.sequencename = split_part(pg_get_serial_sequence('public.pedidos', 'id'), '.', 2));
+          and s.sequencename = split_part(pg_get_serial_sequence('public.pedidos', 'id'), '.', 2))
+union all
+-- SQL 13: tablas que todavia conservan un valor por defecto en restaurante_id (el SQL 13 se lo retira)
+select 'restaurante_id_con_valor_por_defecto',
+       (select coalesce(jsonb_agg(c.relname order by c.relname), '[]'::jsonb)
+        from pg_class c
+        join pg_attribute a on a.attrelid = c.oid and a.attname = 'restaurante_id' and a.attnum > 0 and not a.attisdropped
+        where c.relnamespace = 'public'::regnamespace and c.relkind in ('r', 'p') and a.atthasdef)
+union all
+-- SQL 14: fotos que siguen en la RAIZ del bucket productos y productos que apuntan a ellas
+select 'fotos_en_la_raiz_del_bucket',
+       jsonb_build_object(
+         'archivos_en_la_raiz', (select count(*) from storage.objects o where o.bucket_id = 'productos' and o.name !~ '/'),
+         'productos_que_apuntan_a_la_raiz', case when to_regclass('public.productos') is null then null else
+           (select count(*) from public.productos p
+            where p.imagen ~ '/storage/v1/object/public/productos/[^/?#]+([?#].*)?$') end);
