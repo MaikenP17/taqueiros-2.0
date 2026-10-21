@@ -660,8 +660,10 @@ Orden, y **nada más**:
 2. Un **subdominio** bajo `DOMINIO_BASE` (variable de entorno de Vercel) cuyo **único** segmento anterior sea el slug de un
    restaurante. Con `DOMINIO_BASE=midominio.com`: `lostaqueiros.midominio.com` → slug `lostaqueiros`. Dos niveles
    (`x.lostaqueiros.midominio.com`), el dominio pegado sin punto o un sufijo (`...midominio.com.evil.com`) **no** resuelven.
-3. **Solo si `VERCEL_ENV` no es `production`** (previews y desarrollo local): el parámetro `?r=<slug>`, para probar sin dominios.
-   En producción está apagado: ni `?r=`, ni cabeceras, ni el cuerpo eligen restaurante.
+3. **Solo si `VERCEL_ENV` no es `production` Y además `RESTAURANTE_POR_PARAMETRO=1`** (previews y desarrollo local): el
+   parámetro `?r=<slug>`, para probar sin dominios. En producción está apagado siempre, y en un preview también salvo que
+   se active a propósito (sección 13, H4: los previews de Vercel son públicos y usan la misma base y la misma llave secreta).
+   Ni `?r=`, ni cabeceras, ni el cuerpo eligen restaurante.
 
 Por qué es seguro:
 
@@ -705,13 +707,20 @@ pedido (única en toda la base) y el pedido trae su `restaurante_id`; (2) la fir
 restaurante**, según el `environment` del evento; (3) todo lo demás (actualizar, avisar) usa ese `restaurante_id`. Un
 evento firmado con los secretos del restaurante A sobre un pedido de B responde **401** y no cambia nada. Una referencia
 desconocida y una firma mala responden **igual** (401, mismo cuerpo): el endpoint no sirve para averiguar qué referencias
-existen. Idempotencia, comparación de monto y manejo de estados quedaron iguales. Un restaurante **suspendido sigue
+existen. Además (sección 13): el ambiente del evento (`test`/`prod`) debe coincidir con el del pedido y con el modo fijado del
+restaurante (si no, 200 e ignorado); el monto se compara en centavos exactos y la moneda debe ser COP; y toda escritura es
+condicional (`estado_pago <> aprobado`), así que dos eventos simultáneos avisan una sola vez y un rechazo tardío no deshace
+un pago. Un restaurante **suspendido sigue
 procesando los pagos ya en curso** (el cliente ya pagó): lo que se corta es crear pedidos nuevos.
 
 **Alertas.** Itera sobre los restaurantes que están sirviendo (activo, prueba o gracia; no suspendidos). Un restaurante sin
 contacto se salta y sus pedidos **no** se marcan como avisados; el fallo de uno no detiene a los demás; `notificarWhatsApp`
 lanza error si el contacto no es del restaurante del pedido (defensa en profundidad: nunca sale un pedido por el WhatsApp de
-otro). El estado de salud (`salud_notificaciones`) se lee y se escribe por `restaurante_id` (ya no `id = 1`).
+otro). El estado de salud (`salud_notificaciones`) se lee y se escribe por `restaurante_id` (ya no `id = 1`). Con muchos
+restaurantes (sección 13, H5): solo se avisan pedidos pagados en las **últimas 2 h** (cargarle el contacto a un restaurante
+que no lo tenía no le manda un aluvión de pedidos viejos), se revisan **4 restaurantes a la vez** empezando por uno al azar, y
+la corrida **no empieza envíos pasados 8 s** (cada envío se acorta a lo que queda); lo que no alcanza sale en la siguiente
+pasada. La respuesta informa `sinRevisar`.
 
 **`limpiar_pedidos_huerfanos`**, `seguimiento` y `buscar_mis_pedidos`: el servidor solo llama a la primera, y es un barrido
 global que solo toca pedidos que ya nunca se van a cobrar (sin pagar, de más de 24 h) y solo el servidor puede ejecutarla;
@@ -738,7 +747,9 @@ log de la corrida).
 prueba de Wompi: el webhook de prueba aprobaba el pago y el pedido entraba a cocina gratis. Ahora lo decide el servidor con
 `otros.wompi_modo` (el dueño no lo puede editar: `restaurante_secretos` es solo del servidor). Si no está definido, **solo
 Taqueiros** conserva lo de siempre (el modo que manda su página); **cualquier otro restaurante no cobra** hasta que se
-configure. *Antes de salir a producción con Taqueiros conviene fijarlo* (`cargar-secretos.mjs` con `WOMPI_MODO=produccion`).
+configure. **Antes de cambiar `WOMPI_MODE` a `"produccion"` en `index.html` es OBLIGATORIO fijarlo** (`cargar-secretos.mjs`
+con `WOMPI_MODO=produccion`): sin eso, un cliente puede crear su pedido en modo prueba y pagarlo con una tarjeta de prueba
+(sección 13, H1 y pendiente P1).
 
 **Respaldo con variables de entorno, solo Taqueiros.** Si un secreto de Taqueiros no está en `restaurante_secretos`, se usa
 la variable de entorno actual (`WOMPI_INTEGRITY_SECRET_*`, `WOMPI_EVENTS_SECRET_*`, `CALLMEBOT_PHONE`, `CALLMEBOT_APIKEY`),
@@ -772,8 +783,9 @@ El panel todavía no lo usa (no se cambió el front).
 ### 12.7 `/api/restaurante` (datos públicos) y configuración de cada restaurante
 
 Devuelve **solo**: `id`, `slug`, `nombre`, `zona_horaria`, `modulos`, `config` (**únicamente `config.publico`**) y
-`servicio {estado, sirve, motivo}`. No devuelve plan, modalidad de pago, vigencia, días de gracia, el resto de `config`,
-ni nada de `restaurante_secretos` ni de `miembros`. Sin caché del borde (es por host).
+`servicio {estado: activo|suspendido, sirve, motivo}`. No devuelve plan, modalidad de pago, vigencia, días de gracia, el resto
+de `config`, ni nada de `restaurante_secretos` ni de `miembros`. Tampoco dice si el restaurante está **en gracia** (atrasado con
+la mensualidad): en gracia responde `activo` (sección 13, H10). Sin caché del borde (es por host).
 
 Claves de `restaurantes.config` (jsonb; el dueño edita `nombre` y `config`):
 
@@ -936,7 +948,8 @@ WhatsApp real.
 4. **El panel usa `restaurante_actual()`** (la primera membresía): un usuario con dos restaurantes necesita un selector.
 5. **Realtime y `DELETE`** (riesgo 5 de la sección 9) sigue igual.
 6. **Dominios:** cada dominio nuevo hay que agregarlo en Vercel **y** en `restaurante_dominios`; un preview de Vercel
-   (`...vercel.app` distinto) no está registrado y solo sirve con `?r=`.
+   (`...vercel.app` distinto) no está registrado y solo sirve con `?r=`, que además exige `RESTAURANTE_POR_PARAMETRO=1`
+   en las variables de **Preview** (sección 13, H4).
 7. **`modo` de cobro de Taqueiros** sigue lo que mande su página hasta que se fije `otros.wompi_modo`.
 8. **`?clave=` del cron** y el defecto transitorio no se retiraron (se pidió dejarlos).
 9. **Anomalía de `restaurante_dominios` si se borra a mano:** el servidor usa la última resolución conocida hasta 6 h si
@@ -988,3 +1001,126 @@ confirmado por la API de administración, borrado al terminar). Prueba 11 combin
 **Recomendación independiente del resultado:** define `SUPABASE_PUBLISHABLE_KEY` en Vercel (es la llave pública que ya está
 en `supabase-publico.js`): es la forma documentada para validar sesiones y no depende de que la secreta sea aceptada en
 `apikey` de Auth.
+
+## 13. Revisión adversaria del servidor (segunda revisión, independiente)
+
+Revisión hecha como atacante (dueño de un restaurante cliente o cliente final malicioso) de todo `api/`, los helpers, las
+funciones SQL que llama el servidor, el simulador y las pruebas. Cada hallazgo corregido tiene una prueba en
+`pruebas/multirestaurante/escenarios-servidor.mjs` (grupo `adversaria`, prefijo `H<n>`) que **falló antes** de la corrección
+y pasa después, y una o más mutaciones en `mutaciones-servidor.mjs`. Nada cambió en las páginas HTML, `ticket-comanda.js` ni la
+impresión, y Taqueiros se comporta igual (las únicas diferencias visibles están señaladas abajo).
+
+### 13.1 Hallazgos corregidos (de mayor a menor severidad)
+
+| # | Severidad | Dónde | Qué era y cómo se explotaba | Corrección |
+|---|---|---|---|---|
+| H1 | **Crítico** (con dinero real) | `api/webhook-wompi.js:149`, `api/generar-firma.js:58` | El webhook elegía el secreto según el `environment` **que trae el evento** y aprobaba cualquier pedido con un evento de prueba bien firmado. (a) Un pedido viejo creado cuando el restaurante estaba en prueba, todavía pendiente tras pasar a producción, se pagaba con una **tarjeta de prueba** y entraba a cocina. (b) `generar-firma` firmaba en prueba un pedido creado en producción (Taqueiros acepta todavía el modo del navegador): se abría el widget con la llave pública de prueba (está en `index.html`), se pagaba con la tarjeta 4242… y Wompi sandbox mandaba un evento de prueba legítimo. | El ambiente del evento debe coincidir con el `wompi_ambiente` del pedido **y** con el modo fijado del restaurante (`otros.wompi_modo`); si no, 200 e ignorado (sin reintentos de Wompi). `generar-firma` responde 409 si el modo pedido no es el del pedido. **Queda abierto** el caso de Taqueiros sin `wompi_modo` (pendiente P1). |
+| H4 | **Alto** | `api/_restaurante.js:205` | `?r=<slug>` funcionaba en **cualquier** despliegue que no fuera producción. Los previews de Vercel son públicos por defecto (sus URL salen en los despliegues del repo público) y usan las mismas variables: la misma base y la llave secreta. Cualquiera con la URL de un preview operaba cualquier restaurante con `?r=`: pedidos basura en restaurantes aún no lanzados, enumeración de slugs, y el código de una rama sin revisar corriendo contra la base real. | `?r=` exige además `RESTAURANTE_POR_PARAMETRO=1` (y sigue apagado en producción aunque esté puesta). Ver P2 para cerrar el resto en la configuración de Vercel. |
+| H2 | Medio | `api/webhook-wompi.js:168-209`, `api/_supabase.js` (`actualizarPedidoPorReferencia`) | Idempotencia solo por lectura previa. Dos entregas simultáneas del mismo evento aprobado mandaban **la comanda dos veces** (la cocina puede prepararla dos veces); un rechazo que leyó el pedido antes de una aprobación y escribía después dejaba un pedido **en cocina con el pago "rechazado"**. | Todas las escrituras del webhook son condicionales (`estado_pago=neq.aprobado`); si la aprobación no cambió ninguna fila, es un duplicado y no se avisa. |
+| H5 | Medio | `api/alertas.js:48-131` | (a) Los pedidos de un restaurante sin contacto nunca se marcan; al cargarle el contacto, el cron le mandaba **todos los pedidos viejos** (10 cada 2 min). (b) Restaurantes en serie con envíos de hasta 8 s: un CallMeBot lento en uno pasaba del límite de Vercel (10 s en Hobby) y los restaurantes siguientes **nunca** recibían alertas (siempre los mismos). | Ventana de 2 h; 4 restaurantes en paralelo empezando por uno al azar; no se empiezan envíos pasados 8 s y cada envío se acorta a lo que queda; lo que falta sale en la siguiente pasada (`sinRevisar` en la respuesta). |
+| H6 | Medio (si CallMeBot repite la apikey; no verificado con el servicio real) | `api/_notificar.js:262-270` | El detalle del error de CallMeBot (los últimos 160 caracteres de su respuesta, o el mensaje de un error de red) se guardaba en `salud_notificaciones.ultimo_error` (lo lee **todo** el personal del restaurante, no solo el dueño) y en el log de Vercel. Si traía la apikey, quedaba expuesta (con ella se pueden mandar comandas falsas a ese WhatsApp). | Se tacha la apikey (tal cual y codificada) del detalle antes de guardarlo o imprimirlo. |
+| H7 | Medio | `api/crear-pedido.js:43-52`, `api/_notificar.js:130-157` | Un salto de línea en el **nombre** (o en las indicaciones) fabricaba en la comanda de WhatsApp una línea con la forma exacta de un producto (`9x Taco de A — 90.000`): la cocina lo preparaba sin estar pagado. También se aceptaban caracteres invisibles y de dirección (bidi) para disfrazar texto. | Al crear el pedido se quitan controles, ancho cero y bidi de todos los textos; nombre, teléfono, dirección y barrio quedan en una línea; las indicaciones conservan sus saltos (el ticket las imprime como notas) pero en WhatsApp **cada línea** lleva 📝. **Diferencia visible:** una indicación de varias líneas llega a WhatsApp con 📝 en cada línea. |
+| H8 | Bajo | `api/crear-pedido.js:130` | Sin tope de líneas por pedido (miles de líneas por petición: base y comandas infladas). Las cantidades sí estaban bien validadas (1 a 50, enteras; ahora con prueba). | Máximo 100 líneas (400). |
+| H3 | Bajo (defensa en profundidad) | `api/webhook-wompi.js:183` | El monto se comparaba redondeado a pesos (50 centavos menos pasaban) y no se miraba la moneda. No explotable hoy porque la firma de integridad de Wompi ata monto y moneda. | Centavos exactos y moneda `COP`. |
+| H9 | Bajo | `api/_sesion.js:59` | Un token con caracteres fuera de Latin-1 hacía lanzar a `fetch` y el reembolso respondía 500 (con ruido en el log) en vez de 401. | Fuera de ASCII imprimible = sin sesión, sin llegar a la red. |
+| H10 | Bajo | `api/restaurante.js:51` | `/api/restaurante` (público) decía `gracia`/`en_gracia`: cualquiera (clientes, competencia) sabía que el restaurante está **atrasado con la mensualidad**. | En gracia responde `activo` (sigue recibiendo pedidos). Si el panel necesita avisar de la gracia, debe salir de un endpoint con sesión. |
+
+**Otras mejoras de las pruebas (no son hallazgos del servidor):** el espía de URLs ahora también rechaza RPC distintas de
+`limpiar_pedidos_huerfanos`, filtros `or=`/`and=` y `select` embebidos (joins) — formas de esquivar el filtro que antes no
+veía — y cualquier `PATCH` que cambie `restaurante_id` (la llave secreta pasa el trigger que lo impide). El arnés puede retener
+una petición a la base (para provocar carreras) y simular errores de red de CallMeBot. Pruebas nuevas de cobertura (pasaban
+antes): cantidades inválidas, recorte de textos largos, copia vieja de la resolución vencida a las 6 h, alerta que no se repite,
+cron sin `CRON_SECRET`, checksum en mayúsculas (así lo manda Wompi) y de otro largo.
+
+### 13.2 Revisado sin hallazgo
+
+* **Filtro por restaurante:** cada consulta, escritura y RPC de `api/` (incluidos los helpers) lleva `restaurante_id` o es una de
+  las excepciones comentadas (búsqueda global por referencia del webhook, `limpiar_pedidos_huerfanos`, tablas que no son de
+  negocio). No hay consultas armadas con datos de la petición sin validar ni joins. El servidor no llama `reclamar_impresion`,
+  `registrar_reimpresion`, `seguimiento` ni `buscar_mis_pedidos`; las dos primeras dependen de `auth.uid()` y con la llave
+  secreta **fallan cerradas** ("No autorizado"): el servidor nunca debe usarlas. `siguiente_numero_pedido` es atómica por
+  restaurante y `asignar_numero_pedido` ignora un número que mande un cliente.
+* **Resolución del host:** mayúsculas, punto final, puerto, punycode (válido), Unicode/vacío/repetido (404 sin consultar),
+  `x-forwarded-host` ignorado, subdominios anidados (404), `DOMINIO_BASE` sin definir (no resuelve por subdominio). La copia
+  vieja cuando Supabase falla no salta una suspensión: `crear-pedido` y `generar-firma` releen el restaurante sin caché y, con la
+  base caída, fallan (500).
+* **Webhook:** secretos del restaurante del pedido, comparación en tiempo constante, referencia desconocida = firma mala (401;
+  Wompi reintenta 3 veces y luego desiste, sin efectos), un dueño con sus propios secretos no puede aprobar pedidos de otro.
+* **Reembolso y sesión:** autorización contra el restaurante del host (dueño activo o superadmin); cambiar el Host o el cuerpo no
+  sirve; doble reembolso imposible; cabeceras `Authorization` repetidas las descarta Node; otros esquemas (Basic) = sin sesión;
+  token vencido, de usuario borrado o de sesión cerrada = 401/403 de Auth = sin sesión; 5xx/429/red = 500.
+* **Cachés:** el respaldo del menú es por restaurante; las respuestas con datos llevan `Vary: Host` y las de error `no-store`;
+  `/api/restaurante` es `no-store`. `sw.js` solo cachea `/Recursos/` y fuentes, por origen (nada de datos ni de `/api/`).
+* **Escapes perdidos (como `/s/` por `/\s/`):** se revisaron todas las expresiones regulares de `api/`, `supabase/` y las pruebas
+  con un script; la única `/s/` está en `diagnosticar-auth.mjs` y es a propósito. **Trampa nueva encontrada al corregir:** la
+  herramienta de edición convirtió escapes `\u200B`–`\uFEFF` en caracteres invisibles **crudos** dentro del fuente (funcionaba
+  igual, pero dejaba caracteres bidi ocultos); se reescribieron como escapes y se verificó que ningún archivo los tenga.
+
+### 13.3 Las 6 mutaciones "equivalentes": veredicto
+
+| Mutación | Veredicto |
+|---|---|
+| `buscarPedidoPorReferenciaGlobal` acepta referencias repetidas | **Confirmada**: `referencia` es `unique` en `schema.sql`. Depende de que la base real tenga esa restricción (ver 13.5, paso 3). |
+| `listarRestaurantes` sin orden estable | **Confirmada**: el orden no importa (y ahora el cron empieza por uno al azar a propósito). |
+| Subdominio sin validar el formato del slug (una capa) | **Confirmada**: `buscarRestaurantePorSlug` lo vuelve a validar antes de consultar. |
+| Subdominio sin validar en ninguna capa | **Confirmada, con matiz**: el valor entra sin codificar a `slug=eq.`, pero solo puede traer `[a-z0-9.-]` (lo garantiza `normalizarHost`) y el `CHECK` del slug prohíbe el punto: ni inyección ni coincidencia. |
+| Reembolso sin la comprobación de estado de `reembolso.js` | **Confirmada**: el `PATCH` condicional repite las condiciones; la respuesta sigue siendo 409 (otro texto). |
+| Tarifas sin `sort` | **Confirmada**: `order=hasta.asc` sobre `numeric(6,1)` (orden numérico, no de texto). |
+
+Dos candidatas que **parecían** equivalentes no lo eran y ahora tienen prueba: quitar el `toUpperCase()` de la comparación de la
+firma rompería **todos** los pagos reales (Wompi manda el checksum en mayúsculas; las pruebas usaban minúsculas) y quitar la
+comparación de largos cambia un 401 por un 500. Se declararon 3 equivalentes nuevas, con su razón en el archivo: `Bearer` sin
+`^`, un id de Auth que no es UUID y quitar la comprobación de duplicado por lectura del webhook (desde H2 la escritura
+condicional es la segunda capa; quitar las dos **sí** se detecta). La corrida también encontró dos pruebas mías que no
+distinguían lo que decían probar (alertas en serie y la apikey codificada en la URL); se corrigieron antes de entregar.
+Corrida final de `mutaciones-servidor.mjs`: **149 detectadas, 9 equivalentes, 0 sobrevivientes, 0 errores**. Batería local:
+`servidor.mjs` 167/167; `probar-servidor-multirestaurante.mjs` contra el falso 154/154.
+
+### 13.4 Pendientes de seguridad
+
+| # | Severidad | Pendiente | Qué hacer |
+|---|---|---|---|
+| P1 | **Crítico** el día que Taqueiros cobre de verdad | Taqueiros sin `otros.wompi_modo` sigue aceptando el modo del navegador: un cliente crea el pedido en "pruebas" y lo paga con tarjeta de prueba (el pedido nace en prueba, así que H1 no lo frena). Hoy `index.html` está en `"pruebas"`, así que no hay dinero real en juego. | **Antes** de cambiar `WOMPI_MODE` a `"produccion"` en `index.html`: `cargar-secretos.mjs --slug=taqueiros` con `WOMPI_MODO=produccion` (13.5, paso 2). Luego retirar el modo del navegador del código. |
+| P2 | **Alto** (configuración) | Los despliegues de Preview reciben la llave secreta y la base real: corren código de cualquier rama contra datos reales, aunque `?r=` ya no esté. | En Vercel → Settings → Environment Variables, dejar `SUPABASE_SERVICE_ROLE_KEY`, `WOMPI_*`, `CALLMEBOT_*` y `CRON_SECRET` **solo en Production**; activar Deployment Protection (Vercel Authentication) para Preview. Si hace falta probar en preview, usar otro proyecto de Supabase. |
+| P3 | **Alto** (antes del 2.º restaurante) | `numero` vs `id` (12.11 punto 2): WhatsApp, panel, ticket y seguimiento muestran `id`. | Pasar todo a `numero` antes de dar de alta restaurantes reales. |
+| P4 | Medio | Sin límite de peticiones por IP ni por restaurante en `crear-pedido`/`generar-firma` (ni en `buscar_mis_pedidos`, que inserta un intento por llamada). Un atacante crea miles de pedidos pendientes: consume números de pedido, llena la base compartida (plan gratuito: 500 MB, cae para todos) y multiplica las consultas a Nominatim (riesgo de bloqueo de la IP de Vercel). | Regla de rate limit en el Firewall de Vercel para `/api/crear-pedido` y `/api/generar-firma` (p. ej. 10 por minuto por IP). Decidir el tope por restaurante es de negocio (horas pico). |
+| P5 | Medio | Que la caché del borde de Vercel separe dominios (se marcó `Vary: Host`; ya estaba pendiente). | Probar con dos dominios reales antes de vender (`x-vercel-cache` y el menú de cada uno). |
+| P6 | Bajo | `wompi_transaction_id` no es único y la firma de Wompi no incluye la referencia: un evento aprobado **real** reenviado con otra referencia del mismo restaurante y el mismo monto la aprobaría. Solo puede hacerlo quien ve los cuerpos de los eventos (Wompi o el propio restaurante, que ya tiene su secreto). | Índice único parcial sobre `wompi_transaction_id`, o consultar la transacción a la API de Wompi antes de aprobar (función nueva). |
+| P7 | Bajo | Un evento `VOIDED` (anulación) después de aprobado se ignora como duplicado: el pedido sigue "aprobado". | Decisión de negocio (cómo reflejar anulaciones/reembolsos de Wompi). |
+| P8 | Bajo | El webhook espera hasta 8 s a CallMeBot; con Hobby (10 s) puede cortarse: el pedido ya quedó aprobado (el reintento de Wompi se corta como duplicado) pero `notificacion_ok` puede quedar vacío. | Aceptado; el panel es el canal principal. |
+| P9 | Bajo | Sesiones para el futuro panel de superadmin: un usuario **baneado** en Auth conserva su token hasta que vence (~1 h); `_sesion.js` no mira MFA (`aal`); si se activan los inicios de sesión anónimos, dan sesiones válidas. | Autorizar siempre por tabla (`superadmins`/`miembros`, se mira en cada petición) y quitar de ahí para revocar al instante; exigir `aal2` en el panel de superadmin. |
+| P10 | Bajo | El log de Vercel guarda datos personales (errores de PostgREST con "Failing row contains (...)", nombres y referencias). | Tratar el acceso al log de Vercel como acceso a datos de clientes. |
+| P11 | Bajo | Si dos restaurantes cargan el mismo secreto de eventos (misma cuenta de Wompi), cada dueño puede aprobar pedidos del otro. | No compartir cuentas de Wompi entre restaurantes; (futuro) que `cargar-secretos.mjs` avise de secretos repetidos. |
+| P12 | Bajo | Con `DOMINIO_BASE` (comodín), subdominios inventados: cada uno es una consulta (caché negativa de 10 s) y desplaza entradas buenas de la caché de 500; y 200/404 revela qué slugs existen (inherente: son sitios públicos). | Aceptado. |
+| P13 | Bajo | Ventana de milisegundos entre la relectura del restaurante y el insert: un pedido puede entrar justo al suspender. `seguimiento(ref)` sigue siendo global por referencia (impredecible); `?clave=` del cron sigue aceptándose. | Aceptado / tarea del front (ya listados en 12.11). |
+
+### 13.5 Qué correr (Windows) y qué cambia en Vercel
+
+Nada de esto toca la base real salvo el paso 3 (solo lectura) y el 2 (solo cuando decidas cobrar de verdad).
+
+1. **Vercel (P2 y H4):** si alguna vez quieres probar un preview con `?r=`, agrega `RESTAURANTE_POR_PARAMETRO` = `1` **solo**
+   en el entorno *Preview*. Revisa que las llaves estén marcadas solo para *Production* (P2).
+2. **Antes de cobrar de verdad en Taqueiros (P1):** en PowerShell, en la carpeta del proyecto:
+
+   ```powershell
+   $k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+   $env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+   $env:WOMPI_MODO = "produccion"
+   node supabase/cargar-secretos.mjs --slug=taqueiros --solo-verificar
+   node supabase/cargar-secretos.mjs --slug=taqueiros
+   Remove-Item Env:WOMPI_MODO, Env:SUPABASE_SERVICE_ROLE_KEY
+   ```
+
+   (si dice `DIFERENTE a la base`, repite el último `node` con `--sobrescribir`). Los secretos **prod** de integridad y de
+   eventos deben existir (en la base o, para Taqueiros, en las variables de Vercel): sin ellos no se podrá cobrar. Solo
+   después cambia `WOMPI_MODE` en `index.html`.
+3. **Comprobar la restricción única de `referencia` en la base real** (SQL Editor, "Run without RLS", solo lectura):
+
+   ```sql
+   select conname, pg_get_constraintdef(oid) from pg_constraint
+   where conrelid = 'public.pedidos'::regclass and contype = 'u';
+   ```
+
+   Debe aparecer `UNIQUE (referencia)`.
+4. **Prueba del servidor contra la base real** (como en 12.9 paso 5): `node supabase/probar-servidor-multirestaurante.mjs`.
+   Ahora son más escenarios (≈154 contra el falso en modo real); todos deben decir `PASA`.
