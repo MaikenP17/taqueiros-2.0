@@ -11,14 +11,17 @@ restaurantes**, con aislamiento estricto de datos. Este documento describe la ba
 > (`index.html`, `pedido.html`, manifest, número de pedido) lee los datos de cada restaurante en vez de llevar los de
 > Taqueiros escritos (más `supabase/12-config-publica.sql`). La **sección 15** es el paso después: las páginas **privadas** del
 > personal (`panel.html`, `menu-admin.html`, `historial.html`, el pie del ticket, `sw.js`) trabajan solo con el restaurante de su
-> dominio, con la membresía verificada y con la marca del restaurante (sin SQL nuevo). Siguen pendientes la interfaz de administración
-> (formulario de configuración, superadmin) y retirar los valores por defecto transitorios de la base (sección 7).
+> dominio, con la membresía verificada y con la marca del restaurante (sin SQL nuevo). La **sección 16** es el paso después: **endurecer la base**
+> (`supabase/13-endurecer.sql`: sin valores por defecto de `restaurante_id`, `config` validada en la base, mínimo privilegio) y **mover las fotos de la raíz del bucket**
+> (`migrar-fotos-raiz.mjs` + `14-retirar-regla-bucket.sql`). Siguen pendientes la interfaz de administración (formulario de datos del restaurante, superadmin),
+> agrupar endpoints y la vista previa de enlaces (16.10).
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
 8. Qué se probó y qué no · 9. Riesgos · 10. Revisión de seguridad del SQL 10 · 11. Fallo `pg_statistic` ·
 12. Servidor multi-restaurante (SQL 11 + api/) · 13. Revisión adversaria del servidor ·
-14. Frontend público multi-restaurante (SQL 12) · **15. Paneles del personal por restaurante**
+14. Frontend público multi-restaurante (SQL 12) · 15. Paneles del personal por restaurante ·
+**16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz**
 
 ---
 
@@ -385,12 +388,12 @@ los clientes.
 
 ## 7. Lo que queda para el siguiente paso (no se hizo a propósito)
 
-* Quitar `default restaurante_taqueiros_id()` de las columnas `restaurante_id` y borrar la función.
+* ~~Quitar `default restaurante_taqueiros_id()` de las columnas `restaurante_id`~~ **Hecho en la sección 16 (SQL 13)**; la función se conserva hasta que desaparezca la tabla legada `personal`.
 * API y front multi-restaurante: resolver el restaurante por slug/subdominio; `api/*.js` filtran por
   `restaurante_id`; llaves de Wompi/CallMeBot desde `restaurante_secretos`; tarifas y coordenadas desde
   `tarifas_domicilio` y `restaurantes.config`; el sitio manda `p_restaurante` a `buscar_mis_pedidos`; mostrar
   `numero` en lugar de `id` en panel, ticket, seguimiento y alertas.
-* Retirar la regla transitoria de Storage (raíz del bucket) y subir las fotos nuevas a `{restaurante_id}/`.
+* ~~Retirar la regla transitoria de Storage (raíz del bucket)~~ **Hecho en la sección 16** (`migrar-fotos-raiz.mjs` + SQL 14); las fotos nuevas ya van a `{restaurante_id}/` desde la sección 15.
 * Aplicar estado/vigencia/plan/módulos (hoy son solo estructura) y `restaurantes.zona_horaria`.
 * Alta de miembros y de restaurantes desde un endpoint del servidor (hoy se hace con la llave secreta o SQL).
 * ~~`crear-pedido`, webhook y alertas aún no son multi-restaurante~~ **Hecho** (sección 12): el servidor ya filtra
@@ -1714,10 +1717,10 @@ De 13.4 y 14.11, lo del frontend privado que era de bajo riesgo **se resolvió a
 `restaurante_id` explícito y fotos en carpeta, el panel sin "primera membresía" (ya no hace falta selector: el dominio decide), `TAQUEIROS_SUPABASE` y las
 tipografías. **No se hizo, y queda para 2B-4:**
 
-1. **Retirar los valores por defecto transitorios** de `restaurante_id` (y `restaurante_taqueiros_id()`). Antes, revisar quién inserta **sin** `restaurante_id`: el
+1. ~~**Retirar los valores por defecto transitorios**~~ **Hecho en la sección 16 (SQL 13).** de `restaurante_id` (y `restaurante_taqueiros_id()`). Antes, revisar quién inserta **sin** `restaurante_id`: el
    servidor y las tres páginas privadas ya lo mandan; fallarían los scripts antiguos `supabase/probar-menu-rls.js`, `probar-publishable.mjs` y `probar-impresion-rls.js`
    (ya estaban marcados como obsoletos en la sección 5) y cualquier carga manual.
-2. **Regla transitoria del bucket** (la raíz solo la escribe el dueño de Taqueiros). `menu-admin` ya no escribe en la raíz, pero las ~38 fotos antiguas siguen allí y
+2. ~~**Regla transitoria del bucket**~~ **Resuelto en la sección 16 (migración de fotos + SQL 14).** (la raíz solo la escribe el dueño de Taqueiros). `menu-admin` ya no escribe en la raíz, pero las ~38 fotos antiguas siguen allí y
    al borrar/cambiar una foto vieja la página intenta borrarla de la raíz: con la regla retirada, ese borrado fallaría en silencio (queda un aviso en consola). Decidir:
    mover las fotos a `{restaurante_id}/` (hay que copiar el archivo con la API de Storage y actualizar `productos.imagen`; con SQL solo no se mueve el archivo) o conservar
    solo el borrado en la raíz.
@@ -1737,3 +1740,314 @@ tipografías. **No se hizo, y queda para 2B-4:**
    se aplican a `DELETE` salvo por clave primaria, por eso el manejador además descarta todo lo que no sea de su restaurante.
 9. **Costo por página:** cada carga hace una petición más a `/api/restaurante` y una a `miembros`. Si pesa, cache corto de borde **después** de verificar `Vary: Host` con dos dominios (P5).
 10. P1, P2, P4–P8 y P10–P13 de 13.4 no tocan estas páginas y siguen como estaban.
+
+---
+
+## 16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz
+
+Hasta la sección 15 el servidor, las páginas públicas y las privadas ya trabajaban por restaurante, pero la base conservaba **residuos
+transitorios** del SQL 10 que había que cerrar **antes de dar de alta restaurantes reales**: (1) `restaurante_id` con un valor por defecto
+que apuntaba a Taqueiros (un insert que lo olvidara caía en Taqueiros sin avisar), (2) `restaurantes.config` sin ninguna validación en la
+base y escribible por el dueño, (3) permisos del dueño sobre su fila sin auditar con precisión, (4) la regla transitoria de Storage que deja
+al dueño de Taqueiros escribir en la **raíz** del bucket `productos`, y (5) scripts viejos que insertan sin `restaurante_id`.
+Esta sección es ese trabajo. **El SQL 13 no cambia datos ni toca Storage; el 14 retira la regla de la raíz solo después de mover las fotos.**
+No cambia la lógica del servidor revisada por Opus, ni las URL de servicios externos, ni `?clave=` del cron.
+
+### 16.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `supabase/13-endurecer.sql` (nuevo) | Atómico, idempotente, marcadores `-- >>> PASO n`, bloques `DO` con `MR paso n: ...`, barridos por OID, **35 comprobaciones OK/FALLA**, apto para "Run without RLS". (a) retira el valor por defecto de `restaurante_id` en todas las tablas de negocio (barrido de catálogo); (b) valida `restaurantes.config` con un trigger (16.4) y los rangos de `tarifas_domicilio`; (c) mínimo privilegio (16.5). Antes de activar el trigger comprueba que la config **actual** de Taqueiros pasa y, si no, se detiene listando los problemas. |
+| `supabase/13-revertir.sql` (nuevo) | Devuelve el valor por defecto transitorio, quita los triggers y funciones nuevos, repone `proteger_campos_restaurante()` del SQL 10 y el permiso de tarifas del dueño. Idempotente, atómico, 9 comprobaciones. |
+| `supabase/migrar-fotos-raiz.mjs` (nuevo) | Mueve las fotos de Taqueiros de la raíz del bucket a `{restaurante_id}/` (16.6). Simulación por defecto. |
+| `supabase/14-retirar-regla-bucket.sql` (nuevo) | Retira la regla de la raíz (Storage y `validar_producto`). Se detiene si algún producto aún apunta a una foto de la raíz. 8 comprobaciones. |
+| `supabase/14-revertir.sql` (nuevo) | Devuelve la regla de la raíz (por si hay que deshacer la migración de fotos). |
+| `supabase/probar-menu-rls.js`, `probar-publishable.mjs`, `probar-impresion-rls.js`, `probar-categoria-apagada.js`, `probar-aislamiento.mjs` | Todo intento de escritura manda `restaurante_id` explícito; expectativas actualizadas a la realidad multi-restaurante (el menú ya no se lee directo, el dueño ya no escribe tarifas, la config se valida). Las cuatro primeras aceptan `SUPABASE_URL` (se pueden correr contra el falso). |
+| `supabase/00-inspeccion-esquema.sql` | Dos secciones nuevas: `restaurante_id_con_valor_por_defecto` y `fotos_en_la_raiz_del_bucket`. |
+| `supabase/configuracion.sql`, `menu.sql`, `salud-notificaciones.sql` | Marcados **OBSOLETOS** en su encabezado (de antes del multi-restaurante; insertan sin `restaurante_id`, que ya es obligatorio; no se vuelven a correr). |
+| `pruebas/multirestaurante/` | `endurecer.mjs` + `mutaciones-13.mjs` (SQL 13), `migrar-fotos.mjs` + `mutaciones-fotos.mjs` (fotos y SQL 14). `fake-supabase.mjs` aplica el SQL 13 (y con `SQL14=1` el 14), guarda el contenido real de los archivos, implementa `copy` y admite cortes de conexión. `escenarios-servidor.mjs`, `rls.mjs` adaptados (16.9). |
+
+### 16.2 Inventario de rutas que insertan (o dependían del valor por defecto) y qué se corrigió
+
+Búsqueda en todo el repositorio de `insert into`, `upsert`, `Prefer: resolution=merge-duplicates`, `POST` a `/rest/v1/<tabla>` y funciones/triggers SQL:
+
+| Dónde | Qué inserta | `restaurante_id` | Acción |
+|---|---|---|---|
+| `api/_supabase.js` `insertarPedido(rid, …)` (lo usa `crear-pedido.js`) | `pedidos` | explícito (primer argumento, validado como UUID) | ninguna: ya era explícito |
+| `menu-admin.html` (2 inserts: categoría y producto) | `categorias`, `productos` | `restaurante_id: RID` | ninguna (sección 15) |
+| `panel.html`, `historial.html`, `index.html`, `pedido.html` | ningún insert directo (`index`/`pedido` llaman a `/api/crear-pedido`) | — | ninguna |
+| SQL 10: `aprovisionar_restaurante()` (trigger del alta), `personal_a_miembros()`, `siguiente_numero_pedido()`, `buscar_mis_pedidos()` (intentos), siembras de Taqueiros y tarifas | `restaurante_secretos`, `contadores_pedido`, `configuracion`, `salud_notificaciones`, `miembros`, `intentos_buscar_pedido`, `tarifas_domicilio` | explícito (`new.id`, `v_rid` o `restaurante_taqueiros_id()` a propósito) | ninguna. `personal_a_miembros()` usa `restaurante_taqueiros_id()` **a propósito**: `personal` es una tabla legada de Taqueiros |
+| SQL 12: `buscar_mis_pedidos()` | `intentos_buscar_pedido` | explícito | ninguna |
+| `supabase/configuracion.sql`, `menu.sql`, `salud-notificaciones.sql` | `configuracion`, `categorias`, `productos`, `salud_notificaciones` | **no lo mandan** | históricos de antes del SQL 10: marcados OBSOLETOS (no se vuelven a correr; el simulador los aplica **antes** del SQL 10, cuando la columna no existe) |
+| `supabase/probar-menu-rls.js`, `probar-publishable.mjs` | ataques de escritura de `anon` | no lo mandaban | corregidos: ahora lo mandan (la prueba mide los permisos, no un NOT NULL) |
+| `supabase/probar-impresion-rls.js` | `PATCH` de ataque sobre `pedidos` | filtro sin restaurante | corregido: filtra por el restaurante del pedido |
+| `supabase/probar-categoria-apagada.js` | `categorias`, `productos` de prueba | no lo mandaba (y llamaba a `validarItems(items)` con la firma anterior) | corregido: `restaurante_id` explícito, `validarItems(rid, items)` y `Host` en la llamada a `crear-pedido` |
+| `supabase/probar-aislamiento.mjs`, `probar-servidor-multirestaurante.mjs`, `cargar-secretos.mjs`, `probar-compatibilidad.mjs`, `exportar-respaldo.mjs` | pruebas / secretos | explícito o solo lectura | `probar-aislamiento.mjs` actualizado a los permisos nuevos (16.5) |
+| `pruebas/multirestaurante/rls.mjs` | ≈40 inserts | 2 dependían del defecto (`T-TAQ-N`, "menu-admin sin restaurante_id") | corregidos; ahora prueban que **falla** sin él |
+| `pruebas/multirestaurante/escenarios-servidor.mjs` | restaurantes, menús, pedidos | explícito | sus restaurantes de prueba usaban una config con claves que la base ya no acepta: ahora válida (16.9) |
+| simulador (`sim.mjs`) | 5 pedidos antiguos | sin él, **antes** del SQL 10 (no existe la columna) | sin cambio |
+
+Resultado: **ninguna ruta de producción dependía del valor por defecto**; solo scripts y pruebas viejos. Un insert sin `restaurante_id` ahora falla con
+`23502` (o con un error de los triggers de validación, que se ejecutan antes: p. ej. `productos` dice "La categoría elegida no existe").
+
+### 16.3 Valores por defecto: qué se retiró
+
+El barrido (`pg_class` + `pg_attribute.atthasdef`, por OID, solo tablas de `public` que no son de una extensión) encontró y retiró el valor por defecto de
+**`pedidos`, `categorias`, `productos`, `configuracion` y `salud_notificaciones`**. Siguen `NOT NULL` y con su llave foránea (el SQL lo comprueba para toda tabla con
+`restaurante_id`). La función `restaurante_taqueiros_id()` **se conserva**: la usan la regla de la raíz del bucket (hasta el SQL 14), el trigger `personal → miembros` y
+`validar_producto` (hasta el 14). Comprobación final con inserts reales que **se deshacen**: para cada tabla, el mismo insert **con** `restaurante_id` funciona (o choca con la
+llave primaria, que Postgres evalúa después del NOT NULL) y **sin** él falla. En `pedidos` la prueba usa `id = -1` con `OVERRIDING SYSTEM VALUE`, así no gasta ningún id de la secuencia.
+
+### 16.4 Reglas de validación de `restaurantes.config` (fuente de verdad)
+
+La implementa `public.config_restaurante_errores(config)` (función pura, devuelve la lista de problemas) y el trigger `restaurantes_validar_config` (`BEFORE INSERT OR UPDATE`).
+Se valida **siempre** en un `INSERT`; en un `UPDATE` solo si la config cambia (así suspender a un restaurante cuya config guardada es antigua nunca se frena).
+Aplica a **todos**: dueño, superadmin, servidor y editor SQL. Error: `23514` con el camino del campo y la regla; **nunca repite el valor** (podría ser un secreto).
+Se recorre el JSON entero: cada nodo debe ser una hoja de la tabla, un contenedor de una hoja (objeto) o un elemento de `colores_zonas`; lo demás es "clave desconocida".
+
+**Reglas para todo texto, en cualquier clave:** sin `<` ni `>`; sin valores que parezcan secretos (`prv_`, `test_integrity_`, `prod_integrity_`, `test_events_`, `prod_events_`,
+`sb_secret_`, `sb_publishable_`, `apikey`, `api_key`, `service_role`, un JWT `eyJ…`, `-----BEGIN`); sin claves cuyo nombre parezca de un secreto (`secret`, `secreto`, `apikey`,
+`password`, `token`, `private`, `service_role`, `integrity`, `webhook`, `bearer`, `credential`…). Tamaño total de la config ≤ 20 000 caracteres.
+
+| Campo (`config.`…) | Regla en la base | Servidor (`api/_publico.js`) y navegador (`restaurante-publico.js`) |
+|---|---|---|
+| `publico.marca.logo`, `icono_192`, `icono_512` | texto ≤ 500; **ruta relativa** del sitio (`^/?[A-Za-z0-9][A-Za-z0-9_./-]*$`, sin `..` ni `//`) **o** `https://<proyecto>.supabase.co/storage/v1/object/public/…` (sin `..`) | ruta relativa igual; `http(s)` solo del origen exacto de Supabase. **La base es más estricta** (solo https, solo Storage público) |
+| `publico.marca.emoji` | texto ≤ 8 | `texto(…, 8)` |
+| `publico.marca.colores.*` (12: `primario`, `primario_oscuro`, `primario_brillo`, `claro`, `claro_suave`, `oscuro`, `oscuro_2`, `acento`, `positivo`, `texto_secundario`, `texto_tenue`, `positivo_brillo`) | `^#[0-9A-Fa-f]{6}$` | igual |
+| `publico.marca.colores_zonas` | lista de ≤ 8 colores `#RRGGBB` | igual (`slice(0, 8)`) |
+| `publico.marca.tipografia.titulos` / `.cuerpo` | una de las **16**: Anton, Bebas Neue, Oswald, Montserrat, Poppins, Playfair Display, Fredoka, Lora, Merriweather, Libre Franklin, Open Sans, Nunito, Lato, DM Sans, Work Sans, Source Sans 3 | `FUENTES_PERMITIDAS` / `RP.FUENTES` (una prueba compara las tres listas) |
+| `publico.textos.*` (13: `titulo_pagina`, `descripcion_pagina`, `eslogan`, `tagline`, `descripcion_pie`, `servicios_linea`, `pie_final`, `ejemplo_nota`, `banner_abierto_icono`, `banner_abierto_titulo`, `banner_abierto_texto`, `banner_cerrado_icono`, `banner_cerrado_mensaje`) | texto ≤ 400, **una línea**: sin saltos ni caracteres de control, ancho cero ni marcas bidi; no puede ser una sola "palabra" de ≥ 32 letras/números (parece una clave) | `texto(v, 400)` (el servidor convierte los saltos en espacios; **la base los rechaza**) |
+| `publico.textos.seguimiento.*` (10: `tiempo_*`, `frase_*` × nuevo, preparacion, camino, recoger, entregado) | igual, ≤ 200 | `texto(v, 200)` |
+| `publico.contacto.whatsapp` | texto ≤ 25 que, quitando espacios, `+`, `(`, `)` y `-`, son 8 a 15 dígitos | igual (el servidor entrega solo los dígitos) |
+| `publico.contacto.telefono` | texto ≤ 40 | igual |
+| `publico.contacto.direccion`, `direccion_corta` | texto ≤ 200 | igual |
+| `publico.contacto.ciudad`, `region` | texto ≤ 80 | igual |
+| `publico.contacto.instagram`, `tiktok` | `^@?[A-Za-z0-9._]{1,60}$` | igual (sin `@` al entregarlo) |
+| `publico.wompi.llave_publica_test` / `llave_publica_prod` | `^pub_test_[A-Za-z0-9]{10,80}$` / `^pub_prod_[A-Za-z0-9]{10,80}$` (la de un modo **no** vale en el otro) | igual |
+| `publico.pwa.nombre` / `nombre_corto` | texto ≤ 45 / ≤ 12 | igual |
+| `ubicacion.lat` / `ubicacion.lng` | número en [-90, 90] / [-180, 180]; si hay `ubicacion`, **ambos** | `coordenadasValidas` (acepta números en texto: **la base no**) |
+| `domicilio.factor_recorrido` | número en [1, 3] | cualquier número > 0 (**la base es más estricta**) |
+| `domicilio.pin_minimo_metros` | número en [0, 5000] | cualquier número ≥ 0 |
+| `domicilio.area.latMin` / `latMax` / `lngMin` / `lngMax` | números en rango de latitud / longitud; mín ≤ máx | números cualquiera |
+| `tarifas_domicilio` (tabla, no config) | `hasta` en (0, 1000] km; `precio` vacío o en [0, 500 000] | sin tope |
+
+**Regla de oro (la prueba la comprueba con 700 configuraciones al azar):** *todo lo que acepta la base lo entrega el servidor sin recortes ni cambios* (la base es igual o más
+estricta; un texto vacío cuenta como ausente y los nombres de la PWA vacíos usan el valor por defecto). Si algún día se agrega un campo, hay que agregarlo en **cuatro** lugares:
+la lista `reglas` de `13-endurecer.sql`, `api/_publico.js`, `restaurante-publico.js` y esta tabla (la prueba `endurecer.mjs` compara la lista de la base con la del servidor).
+`supabase/13-endurecer.sql` ya comprobó, antes de activarse, que la config real de Taqueiros pasa (y `_respaldo-taqueiros.js` también).
+
+### 16.5 Permisos: auditoría y matriz final
+
+**Cómo se auditó:** catálogo (`has_table_privilege`, `has_column_privilege`, `pg_policies`, `pg_trigger`) + pruebas con roles reales (`anon`, `authenticated` con cada rol,
+`service_role`) por SQL y por REST con una sesión real (≈ 420 comprobaciones en `endurecer.mjs`).
+
+**Qué había (SQL 10) y qué cambia:**
+
+| Recurso | Antes | Ahora (SQL 13) |
+|---|---|---|
+| `restaurantes` | el dueño editaba `nombre` y **toda** la `config`; un trigger con lista de columnas prohibidas (una columna nueva quedaba sin proteger) | lista de **lo permitido**: el dueño solo cambia `nombre` (1–120 caracteres, sin `<`/`>`/controles) y, dentro de `config`, **solo `publico.textos` y `publico.contacto`**. Marca, ubicación, domicilio, llaves públicas y PWA: superadmin o servidor. `id`, `slug`, `estado`, `plan`, `modalidad_pago`, `vigente_hasta`, `dias_gracia`, `modulos`, `zona_horaria`, `hora_corte_jornada`, `creado_en` y cualquier columna futura: bloqueadas. Ninguna pantalla actual necesita que el dueño cambie nada de eso |
+| `configuracion` | el dueño cambiaba **cualquier** columna | solo `cerrado_temporal`, `horarios`, `mensaje_cerrado` (lo único que escribe el panel). `hora_corte_jornada`, `minutos_ocultar_terminados`, `id`, `restaurante_id`: superadmin o servidor. Ninguna pantalla escribe las dos primeras |
+| `tarifas_domicilio` | el dueño escribía | el dueño y el cajero **solo leen**; escribe superadmin o servidor (ninguna pantalla la escribe; el domicilio es configuración comercial como `config.domicilio`). Para reabrirlo: una política |
+| `restaurante_secretos`, `contadores_pedido`, `restaurante_dominios`, `intentos_buscar_pedido`, `personal` | ya sin privilegios ni políticas para clientes | igual, **re-afirmado** (el SQL revoca por si alguien dio un permiso a mano) |
+| `miembros`, `superadmins` | ya cerrados | igual (se comprobó: el dueño no agrega, asciende ni borra miembros; no se hace superadmin) |
+
+**Matriz final** (`—` = sin acceso; "servidor" = llave secreta; cualquier escritura de config pasa además por la validación 16.4):
+
+| Recurso | dueño | cajero | cocina | superadmin | servidor | sin membresía | anon |
+|---|---|---|---|---|---|---|---|
+| `restaurantes` | lee el suyo; edita `nombre` y `publico.textos`/`publico.contacto` | lee el suyo | lee el suyo | todo | todo | — | — |
+| `restaurante_secretos`, `contadores_pedido`, `restaurante_dominios`, `intentos_buscar_pedido`, `personal` | — | — | — | — | todo | — | — |
+| `miembros` | su fila | su fila | su fila | todo | todo | — | — |
+| `superadmins` | — | — | — | su fila (nadie escribe desde el navegador) | todo | — | — |
+| `configuracion` | lee; cambia `cerrado_temporal`, `horarios`, `mensaje_cerrado` | lee | — | todo | todo | — | — |
+| `tarifas_domicilio` | lee | lee | — | todo | todo | — | — |
+| `salud_notificaciones` | lee | lee | — | todo | todo | — | — |
+| `pedidos`, `categorias`, `productos` | sin cambios respecto de la sección 3 | | | | | | |
+| Storage (fotos) | su carpeta; **la raíz** hasta el SQL 14 solo el dueño de Taqueiros | — | — | todo | todo | — | lectura pública |
+
+### 16.6 Migración de las fotos antiguas (`migrar-fotos-raiz.mjs`) y SQL 14
+
+**Plan.** Las fotos que se subieron antes del multi-restaurante están en la **raíz** del bucket `productos` y su dirección pública está en `productos.imagen`. Mover un archivo con SQL
+no mueve el archivo físico, así que se usa la API de Storage. El script (solo para los productos del restaurante `--slug`, por defecto `taqueiros`):
+
+1. **Simulación por defecto** (solo lee): lista cada foto, su destino `{restaurante_id}/archivo`, cuántos productos la usan, y avisa de lo que **no** tocará. No escribe nada (ni base, ni Storage, ni registro).
+2. **`--aplicar`** exige antes una **copia de seguridad reciente** hecha con `exportar-respaldo.mjs`: carpeta de `respaldos\` de este mismo proyecto, de menos de 24 h (`--respaldo-max-horas`),
+   con todas las tablas coincidiendo con la base, con `productos` y `productos.json`. Si no, no hace nada y dice qué correr.
+3. Por cada foto, en este orden y solo si el paso anterior salió bien: **copiar** (API `copy`, nunca pisa un archivo que ya exista) → **actualizar** `productos.imagen` (condicional: solo si el
+   producto todavía tiene la dirección antigua; si el dueño la cambió mientras tanto, no se toca) → **verificar** que la dirección pública nueva responde con **exactamente los mismos bytes**
+   (SHA-256; si no, devuelve el producto a la dirección antigua y no borra nada) → **borrar** la antigua, solo después de comprobar que ningún producto (de ningún restaurante) la usa.
+4. **No toca:** fotos que usa también un producto de otro restaurante, archivos que ningún producto usa, fotos del sitio (`Recursos/…`), carpetas de otros restaurantes, nombres de archivo que
+   la base no acepta. Una foto cuyo archivo ya no existe se reporta como **ROTA** (hay que cambiarla en menu-admin; el SQL 14 se detiene mientras un producto la use).
+5. **Idempotente y reanudable:** el estado se deduce de Storage y de la base (ayudado por el registro); se puede cortar en cualquier punto y volver a correr. Probado matando el proceso en
+   **cada una** de las 10 peticiones que modifican y volviendo a correr (siempre termina bien).
+6. **Registro JSON** (`respaldos\migracion-fotos-taqueiros.json`, ignorado por git): mapa antiguo → nuevo, hash, estado y los productos afectados con su dirección antigua. Con
+   `--deshacer=<registro>` (simulación) y `--deshacer=<registro> --aplicar` devuelve las fotos a la raíz (necesita antes `14-revertir.sql` si el 14 ya se corrió).
+7. `--no-borrar`: copia y cambia las direcciones pero deja las antiguas (una corrida normal después las borra).
+8. **La llave** se lee de `SUPABASE_SERVICE_ROLE_KEY` (la que pegas UNA vez con `Read-Host`), se detecta el pegado doble y **nunca se imprime** (ni en errores ni en el registro).
+
+**Cuántas fotos son.** El repositorio sugiere que las ~38 fotos "de origen" son rutas del sitio (`Recursos/…`) y no están en el bucket; solo las subidas con menu-admin antes de la sección 15
+están en la raíz. **La simulación lo dice con exactitud** (`Productos de taqueiros: N (…, en la RAIZ del bucket M, …)`); si M = 0 no hay nada que mover y se puede ir directo al SQL 14.
+
+**SQL 14 (`14-retirar-regla-bucket.sql`).** Se corre **solo después** de migrar y verificar. Se detiene (sin cambiar nada) y nombra los productos si alguno aún apunta a una foto de la
+raíz (también con `?t=…`). Si pasa: `puede_gestionar_fotos()` ya no tiene el caso "raíz = Taqueiros" (solo la carpeta propia del dueño; el superadmin sigue siendo superadmin) y
+`validar_producto()` ya no acepta rutas planas, ni para Taqueiros. No mueve ni borra archivos; los archivos sueltos que queden en la raíz solo los puede borrar el servidor
+(la comprobación final los cuenta). Reversa: `14-revertir.sql`.
+
+### 16.7 Cómo revertir cada paso
+
+| Paso | Reversa | Qué deja |
+|---|---|---|
+| SQL 13 | `supabase/13-revertir.sql` ("Run without RLS") | valor por defecto transitorio otra vez, sin validación de config ni de tarifas, `configuracion` sin guarda de columnas, dueño escribe tarifas y edita toda su config (pero **no** plan/estado/vigencia/módulos/slug, como con el SQL 10) |
+| Migración de fotos | `node supabase/migrar-fotos-raiz.mjs --deshacer=<registro> --aplicar` | las fotos vuelven a la raíz con los mismos bytes y los productos a su dirección de siempre |
+| SQL 14 | `supabase/14-revertir.sql` | vuelve la regla de la raíz (hace falta antes de deshacer la migración de fotos) |
+| Código (scripts y pruebas) | `git revert` de los commits de la sección 16 | los scripts viejos vuelven a insertar sin restaurante |
+
+Ninguna reversa toca datos. Orden inverso: SQL 14 → fotos → SQL 13.
+
+### 16.8 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. Las llaves se piden con `Read-Host` (no se ven): pega **UNA sola vez** (clic derecho **o** Ctrl+V, nunca ambos); los scripts
+detectan el pegado doble y no hacen nada. No pegues ninguna llave en el chat.
+
+**0. Una vez:** `git pull` (ya está en `main`) y `npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2` si vas a correr las pruebas locales.
+
+**1. Respaldo** (solo lee; deja `respaldos\<fecha>\`):
+
+```powershell
+$k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/exportar-respaldo.mjs
+```
+
+Esperado: filas por tabla y "Respaldo completo". Si dice "NO coincide", no sigas. (Deja la variable puesta para los pasos 2, 4, 5, 6 y 7; al final `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.)
+
+**2. (Recomendado, solo lectura) Inspección:** SQL Editor → pega `supabase/00-inspeccion-esquema.sql` → Run. Mira las filas nuevas `restaurante_id_con_valor_por_defecto` (deben ser las 5 tablas) y
+`fotos_en_la_raiz_del_bucket` (cuántos archivos hay en la raíz y cuántos productos apuntan a ella).
+
+**3. SQL 13.** VS Code → abre `supabase/13-endurecer.sql` → **Ctrl+A, Ctrl+C** → SQL Editor → New query → pega → **"Run without RLS"**. Esperado: **35 filas, todas `OK`**.
+Si falla verás `MR paso n: …` o `LA MIGRACION 13 SE REVIRTIO` con la lista, y **no se cambió nada**. Lo más probable: *"La config actual de Taqueiros NO cumple las reglas"* (te dice qué campo; corrígelo
+en Table editor → `restaurantes` → `config`) o una tabla que el repo no conoce. Se puede repetir. **Si algo se rompe en producción:** `supabase/13-revertir.sql` (9 filas `OK`).
+
+**4. Pruebas contra la base real** (crean y borran sus propios restaurantes `test-…`; no tocan Taqueiros):
+
+```powershell
+node supabase/probar-compatibilidad.mjs                  # esperado: 26 PASAN
+node supabase/probar-servidor-multirestaurante.mjs       # esperado: todo PASA (≈174), "Limpieza: todo lo creado se borro."
+node supabase/probar-aislamiento.mjs                     # esperado: todo PASA (con Realtime real; ≈259 pruebas)
+node supabase/probar-menu-rls.js                         # esperado: "TODO BLOQUEADO"
+node supabase/probar-impresion-rls.js                    # esperado: "TODO BLOQUEADO"
+```
+
+(`probar-publishable.mjs` no necesita la llave secreta; los 5 de arriba sí.) Si algo falla, **no sigas**: pégame la línea `FALLA`.
+
+**5. Recorrido a mano** (lo único que ninguna prueba reemplaza): panel (cerrar/abrir el local, horario y mensaje de cerrado), menu-admin (agotar un producto, subir una foto de prueba y borrarla),
+un pedido con Wompi sandbox (llega, suena, imprime), Reimprimir, historial.
+
+**6. Migración de fotos, simulación** (no cambia nada):
+
+```powershell
+node supabase/migrar-fotos-raiz.mjs
+```
+
+Esperado: `SIMULACION`, "Productos de taqueiros: N (…, en la RAIZ del bucket M, …)" y una línea `mf… -> {restaurante_id}/mf…` por foto. Si M = 0 (**Nada que hacer**), pasa al paso 9.
+Si hay `ROTA` o `SALTA`, léelas antes de seguir.
+
+**7. Migración de fotos, de verdad** (hace falta el respaldo del paso 1, de menos de 24 h):
+
+```powershell
+node supabase/migrar-fotos-raiz.mjs --aplicar
+```
+
+Esperado: una línea `OK` por foto y `Resumen: M movida(s) … 0 con error`. Si se corta, **vuelve a correr el mismo comando** (retoma). Registro: `respaldos\migracion-fotos-taqueiros.json`.
+
+**8. Verificación:** `node supabase/migrar-fotos-raiz.mjs` otra vez → "Nada que hacer". Abre menu-admin y el menú público: las fotos se ven igual. (Si no: `--deshacer=respaldos\migracion-fotos-taqueiros.json --aplicar`.)
+
+**9. SQL 14** (solo si el paso 8 dijo "Nada que hacer" y no quedan `ROTA`): `supabase/14-retirar-regla-bucket.sql` → "Run without RLS". Esperado: **8 filas `OK`**. Si dice *"Todavía hay N producto(s) que apuntan a una foto de la RAIZ"*,
+te los nombra: arréglalos (cambia o quita la foto en menu-admin) o vuelve al paso 7. Después, en menu-admin sube una foto de prueba y bórrala: va a `{restaurante_id}/`. **Reversa:** `supabase/14-revertir.sql`.
+
+**10.** `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+
+### 16.9 Qué se probó y qué no
+
+**Probado por mí (local, Postgres 16 real en PGlite con los SQL 10 a 13, sin tocar la base real):**
+
+* `endurecer.mjs` (nuevo): **426**. El SQL 13 corre dos veces (35 comprobaciones OK cada una) sin tocar ningún dato; **la sonda de comportamiento** con roles reales (`anon`,
+  `authenticated` como dueño / cajero / cocina / sin membresía, `service_role`, superadmin): ninguna tabla conserva el valor por defecto y un insert **sin** `restaurante_id` falla en las 5 tablas
+  (como servidor, dueño y superadmin); **110 configuraciones hostiles rechazadas** (claves desconocidas a cualquier nivel, tipos, largos, colores, URLs `http`/`javascript:`/`data:`/`..`/`//`/otros dominios,
+  tipografías fuera de la lista, HTML, saltos de línea, ancho cero y bidi, secretos `prv_`/`sb_secret_`/`test_integrity_`/`prod_events_`… en cualquier campo, claves con nombre de secreto, coordenadas,
+  factor, área incoherente, config enorme) y 30 válidas aceptadas (incluye las 16 tipografías y la config real de Taqueiros); los mensajes de error **no repiten el valor**; el trigger rechaza hostiles también al
+  servidor y al superadmin, en INSERT y UPDATE, y no frena un cambio de estado cuando la config guardada es antigua; el dueño: **no** cambia `id`, `slug`, `estado`, `plan`, `modalidad_pago`,
+  `vigente_hasta`, `dias_gracia`, `modulos`, `zona_horaria`, `hora_corte_jornada`, `creado_en` (ni mezclándolos con el nombre), **no** cambia marca, ubicación, domicilio, llaves ni PWA, **sí** cambia el nombre,
+  `publico.textos` y `publico.contacto`, y dentro de su zona tampoco guarda HTML, secretos ni textos largos; ni cajero, cocina, dueño de otro restaurante ni sin membresía tocan `restaurantes`; superadmin y
+  servidor sí (con config válida); `restaurante_secretos`, `contadores_pedido`, `restaurante_dominios`, `intentos_buscar_pedido` y `personal` cerradas a cada rol (4 operaciones × 6 roles); `miembros` y `superadmins`
+  (el dueño no agrega, asciende ni borra miembros ni se hace superadmin); `configuracion` por columna; `tarifas_domicilio` (dueño y cajero solo leen; rangos); los flujos con `restaurante_id` explícito
+  (menu-admin, crear-pedido, webhook, alertas, panel, impresión, historial, seguimiento). **Por REST directo con la sesión real de un dueño** (PostgREST falso sobre la misma base): 403 `42501` al cambiar plan, estado,
+  vigencia, módulos, slug, hora de corte, marca, ubicación, secretos, dominios, contadores, miembros o tarifas; 400 `23514` con HTML o un secreto en un texto; sí puede cerrar/abrir el local.
+  Propiedades: 700 configuraciones al azar (todo lo que acepta la base lo entrega el servidor sin recortes), 150 claves inventadas (siempre rechazadas), 34 campos × 9 secretos y × 4 formas de HTML (ninguno se guarda), y las
+  reglas del SQL = las claves que lee `api/_publico.js` = las 16 tipografías del servidor y del navegador. Escenarios: se detiene sin cambiar nada si la config de Taqueiros no cumple las reglas o si una tabla admite
+  nulos; barre una tabla desconocida y no toca otros esquemas; el SQL 10 y el 12 se pueden volver a correr después; `13-revertir.sql` y volver a aplicar el 13.
+* **Revisión por mutación del SQL 13** (`endurecer.mjs --mutaciones`, `mutaciones-13.mjs`): **111 mutaciones** (cada lista de columnas permitidas, cada zona de la config, cada regla de validación, cada política, cada
+  trigger, cada guarda de servidor/superadmin, cada `revoke`): **104 detectadas, 7 equivalentes declaradas con su razón, 0 sin detectar**. La primera pasada dejó pasar 18: 13 eran mutaciones mal armadas
+  (el `$'` de un reemplazo se interpretaba como patrón) o que reventaban la sonda (se corrigió el arnés), y 5 mostraron pruebas que faltaban (la clave con nombre de secreto, un dueño que agrega textos a una config
+  sin `publico`, un cambio **real** de la hora de corte por servidor/superadmin, un esquema sin paréntesis como `javascript:x`). **Las equivalentes:** el tope de profundidad del recorrido y el de 20 000
+  caracteres (solo acotan trabajo: lo que los pasa trae algo que otra regla ya rechaza), precio negativo y km cero en tarifas (la tabla ya tiene `CHECK`), cambiar el `id` del restaurante (RLS `WITH CHECK` y la
+  llave primaria), la guarda de un `publico` que no es objeto (se rechaza igual con otro error) y el `revoke ... anon` de una función de trigger (no da acceso a nada). Un hallazgo real de la sonda **antes** de entregar:
+  tres mensajes de la validación (`ubicacion`/`area`) hacían `text[] || 'literal'`, que Postgres interpreta como arreglo y revienta ("malformed array literal"); se corrigió con `::text` y la autoprueba de la
+  propia migración ahora cubre esas ramas.
+* `migrar-fotos.mjs` (nuevo): **126**, corriendo el script de verdad como proceso aparte contra el Storage falso con contenido real: llave (sin llave, pegada dos veces, publicable); simulación que no escribe nada (ni una
+  petición que modifique); `--aplicar` sin respaldo / viejo / de otro proyecto / que no coincide / sin `productos` / futuro; migración con los **mismos bytes**, foto compartida por dos productos, orden copia → producto →
+  borrado; no toca la foto de otro restaurante, la compartida, la suelta, las del sitio ni la rota; registro; segunda corrida sin peticiones que modifiquen; **cortes de conexión y procesos matados** en 5 puntos
+  y un **barrido que mata el proceso en cada una de las 10 peticiones que modifican** (siempre termina bien al volver a correr); verificación que falla (devuelve el producto y no borra), copia corrupta, destino con otro
+  archivo, destino ya correcto, producto que cambió de foto mientras corría, otro producto que empieza a usar la antigua, borrado que dice OK y no borra, pendiente del registro, `--no-borrar`, deshacer (simulación,
+  aplicar, con el SQL 14 puesto, registro ajeno), slug; el **SQL 14** (se detiene y nombra los productos, también con `?t=`; después el dueño de Taqueiros ya no escribe en la raíz pero sí en su carpeta; el trigger de productos
+  rechaza rutas planas; idempotente) y `14-revertir.sql`. **Revisión por mutación del script** (`mutaciones-fotos.mjs`): **37 mutaciones: 35 detectadas, 2 equivalentes (con su razón), 0 sin detectar** (la primera
+  pasada dejó 4: se agregaron pruebas de "no menciona las fotos ya movidas", del borrado que dice OK y no borra, del pendiente sin copia completa; la mutación de la comprobación de usos del pendiente es equivalente porque `grupos.has` ya la cubre).
+* `inspeccion.mjs` (nuevo): 4 — las dos secciones nuevas de la inspección.
+* Baterías anteriores, **todas verdes**: unitarias **72**, `e2e.js` del panel **180**, `comparar-tickets.mjs` **7 de 7**, `panel.mjs` **272**, `front.mjs` **104**, `servidor.mjs` **187**, `rls.mjs` **237** (234 + 3 nuevas;
+  `SQL13_NO=1` la corre como antes: 234), `hallazgos.mjs` 32, `planes.mjs` 11, `sim.mjs` 34 OK (con y sin `conPendientes`), `dominios.mjs` 35, `config-publica.mjs` 49, `cargar-secretos-test.mjs` 20,
+  `probar-compatibilidad` contra el falso **26**, `probar-servidor-multirestaurante` contra el falso **174** (con la validación **activa**), `probar-aislamiento` contra el falso **252 de 259** (las 7 que fallan son las de
+  Realtime, que el falso no emula, igual que antes), `probar-menu-rls`, `probar-impresion-rls` y `probar-categoria-apagada` contra el falso: todo bloqueado / en orden. `mutaciones-servidor.mjs` (el servidor no
+  cambió; cambiaron sus escenarios): **174 detectadas, 10 equivalentes (declaradas), 0 sobrevivientes, 0 errores**.
+* Cambió lo esperado solo en: `rls.mjs` (los 2 tests que dependían del valor por defecto, el dueño ya no escribe tarifas, la config del dueño), `probar-aislamiento.mjs` (lo mismo + 24 pruebas nuevas del SQL 13),
+  `escenarios-servidor.mjs` (sus restaurantes de prueba ahora tienen una config **válida**; las pruebas de "dato hostil en la config" siguen corriendo en la batería local, donde se apaga **solo** el trigger de validación con
+  `levantar({ validarConfig: false })`, y contra la base real pasan a comprobar que la base **rechaza** ese dato con `23514` sin cambiar nada), y los scripts viejos de 16.2.
+
+**Solo se puede probar contra la base real (pendiente de Carlos):** el SQL 13 y el 14 sobre el esquema verdadero (por si hay tablas/políticas que el repo no conoce: la inspección del paso 2 lo anticipa); que
+`has_table_privilege`/`atthasdef` se comporten en Supabase como en PGlite (son catálogo estándar); `probar-aislamiento.mjs` completo con Realtime real y códigos HTTP reales de PostgREST; que la API `copy` de Storage real se
+comporte como el falso (no pisa un destino existente → 409; copia el contenido y el tipo) y que `DELETE /storage/v1/object/productos` con `{prefixes:[…]}` borre de verdad; la lectura pública real de las
+direcciones nuevas; el recorrido a mano del panel y de menu-admin; un pago real con Wompi.
+
+### 16.10 Riesgos y pendientes para el prompt siguiente (2B-5) y la revisión de Opus
+
+1. **Agrupación de endpoints:** siguen siendo **11 de 12** funciones de Vercel Hobby; esta fase no agregó ninguna. Candidatos: `estado` + `disponibilidad`, `restaurante` + `manifest`, `keep-alive` + `alertas`. Al unir
+   endpoints, el espía de URLs y el arnés (`escenarios-servidor.mjs`) llaman a los manejadores por nombre de archivo (`M.restaurante`, `M.manifest`…): habrá que actualizarlos.
+2. **Formulario de datos del restaurante (2B-5):** el dueño **solo** puede escribir `nombre`, `config.publico.textos` y `config.publico.contacto`; la marca, tipografías, ubicación, domicilio, llaves públicas y PWA
+   requieren superadmin o servidor (una función de servidor con sesión; `api/_sesion.js` ya existe). El formulario puede usar `public.config_restaurante_errores(config)` (RPC; lo pueden llamar `authenticated` y el
+   servidor) para **avisar antes de guardar** con los mismos mensajes. Si se quiere que el dueño edite la marca: ampliar la lista `#- '{publico,textos}' #- '{publico,contacto}'` del trigger (una línea) **y** decidir
+   si pasa por `api/` con auditoría. El texto de un campo vacío cuenta como ausente (no es un error).
+3. **Vista previa de enlaces:** sin cambios; sigue pendiente servir el HTML desde una función que inyecte `<title>` y `og:` (agregaría una función de Vercel: ver el punto 1).
+4. **Valores que aceptan las dos capas:** si el formulario guarda un texto con salto de línea o una URL `http`, la base lo rechaza (el servidor los toleraba). Cualquier campo nuevo se agrega en cuatro lugares (16.4).
+5. **`restaurante_taqueiros_id()` sigue existiendo** (trigger `personal → miembros`, `validar_producto` hasta el 14 y la regla de la raíz hasta el 14). Después del SQL 14 solo la usa `personal_a_miembros()`: se puede
+   borrar junto con la tabla legada `personal` cuando ya no se use.
+6. **Tablas privadas nuevas:** cualquier tabla nueva con `restaurante_id` nace sin valor por defecto (bien) pero **con privilegios de Supabase para `anon`/`authenticated`** (`ALTER DEFAULT PRIVILEGES`): el SQL que la cree
+   debe revocarlos y activar RLS; las comprobaciones "anon sin privilegios sobre ninguna tabla" y "RLS en todas" del 10, 11, 13 y 14 la detendrían.
+7. **`configuracion.horarios` y `mensaje_cerrado`** los escribe el dueño sin validación de forma en la base (solo `HH:MM` en el navegador y el parseo del servidor). No es una superficie nueva, pero es la única
+   escritura de JSON libre que le queda al dueño: candidata a una validación parecida a la de `config`.
+8. **Archivos sueltos en la raíz del bucket** (fotos subidas y reemplazadas antes de la sección 15 que ningún producto usa): después del SQL 14 solo el servidor puede borrarlos; no estorban. El script los cuenta y no los toca.
+9. **Realtime y `DELETE`, el registro público de Auth, el límite de peticiones (P4), Preview de Vercel (P2) y `?clave=`** del cron: sin cambios (secciones 9, 13 y 15).
+10. **Para la revisión de Opus:** (a) el barrido `atthasdef` ignora tablas de extensiones; (b) `proteger_campos_restaurante()` pasó de lista de columnas prohibidas a lista de permitidas (`to_jsonb(new) - permitidas`):
+    comparar contra tipos que `to_jsonb` formatea distinto (hoy `time`, `date`, `jsonb`, `timestamptz` son estables); (c) el SQL 13 vuelve a definir la función del SQL 10 — **no vuelvas a correr el SQL 10 después**
+    (la comprobación 20 lo detecta y el 13 se reaplica); (d) `13-endurecer.sql` hace `INSERT`s de prueba dentro de subtransacciones que se deshacen (`pedidos` con `id = -1`); no gasta ids ni números de pedido, pero sí toma los
+    bloqueos normales de esas tablas por milisegundos; (e) el script de fotos usa la llave de servicio para `copy`/`DELETE` de Storage y para `PATCH productos`; el `PATCH` es condicional por la dirección antigua.
+
+**Para repetir las pruebas de esta sección** (necesitan una vez `npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2`):
+
+```powershell
+node pruebas/multirestaurante/endurecer.mjs                  # SQL 13: sonda, REST, escenarios, propiedades (426, ~25 s)
+node pruebas/multirestaurante/endurecer.mjs --mutaciones     # ademas, la revision por mutacion (111 mutaciones, ~10 min)
+node pruebas/multirestaurante/migrar-fotos.mjs               # migracion de fotos y SQL 14 (126, ~25 s)
+node pruebas/multirestaurante/mutaciones-fotos.mjs --paralelo=2   # revision por mutacion del script de fotos (37, ~5 min)
+node pruebas/multirestaurante/inspeccion.mjs                 # secciones nuevas de la inspeccion (4)
+node pruebas/multirestaurante/rls.mjs                        # 237 con el SQL 13 (SQL13_NO=1: 234 como antes)
+node pruebas/multirestaurante/contra-falso.mjs probar-aislamiento.mjs   # etc.: cualquier script de supabase/ contra el falso
+```
