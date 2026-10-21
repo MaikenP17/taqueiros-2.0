@@ -853,13 +853,15 @@ Después de esto el servidor usa la base y ya no el entorno para Taqueiros. **No
 Limpia la sesión: `Remove-Item Env:WOMPI_* , Env:CALLMEBOT_*`.
 
 **5. Prueba del servidor contra la base real.** Crea y borra restaurantes de prueba (`test-srv-...`); no toca Taqueiros (solo lee).
+Antes, si las sesiones de usuario vuelven a dar 401, corre `node supabase/diagnosticar-auth.mjs` (12.12): dice qué
+combinación de cabeceras acepta Supabase.
 
 ```powershell
 node supabase/probar-servidor-multirestaurante.mjs
 Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Esperado: todos `PASA` (≈127), `Limpieza: todo lo creado se borro.` y código de salida 0. Si dice que no pudo limpiar,
+Esperado: todos `PASA` (≈134), `Limpieza: todo lo creado se borro.` y código de salida 0. Si dice que no pudo limpiar,
 vuelve a correrlo: al empezar barre los restos. Con Ctrl+C también limpia.
 
 **6. (Recomendado) Aislamiento de la base, igual que antes.** `node supabase/probar-aislamiento.mjs` (con la llave secreta
@@ -885,7 +887,7 @@ sandbox (aparece en el panel, suena, imprime, llega el WhatsApp), Reimprimir, hi
 
 **Probado por mí (batería local con el Supabase falso, Postgres 16 real en PGlite con el SQL 10 y el SQL 11):**
 
-* `servidor.mjs`: **131 escenarios** sobre los manejadores reales con dos restaurantes (más otros dos) de menús, tarifas,
+* `servidor.mjs`: **145 escenarios** sobre los manejadores reales con dos restaurantes (más otros dos) de menús, tarifas,
   secretos, horarios y zonas distintos: cada host ve solo lo suyo; un producto de A no se pide en B (mismo id, otro precio);
   números de pedido independientes y sin repetirse bajo concurrencia; domicilio distinto por restaurante; un webhook
   firmado con los secretos de A no toca pedidos de B (y al revés); alertas sin cruzar contactos ni salud; host
@@ -894,7 +896,7 @@ sandbox (aparece en el panel, suena, imprime, llega el WhatsApp), Reimprimir, hi
   URLs** que exige que toda consulta a tablas de negocio lleve el filtro de su restaurante.
 * `dominios.mjs`: **35** (SQL 11 dos veces, el SQL 10 después del 11, roles, restricciones, 8 mutaciones del SQL 11).
 * `cargar-secretos-test.mjs`: **20** (no imprime valores ni huellas, pegado doble, no pisa sin `--sobrescribir`, `--solo-verificar`).
-* `probar-servidor-multirestaurante.mjs` contra el falso: 127 (los 4 de escribir en Taqueiros se omiten en modo real).
+* `probar-servidor-multirestaurante.mjs` contra el falso: 134 (en modo real se omiten 4 de escribir en Taqueiros y 7 que solo tienen sentido con el falso).
 * `probar-compatibilidad.mjs` contra el falso: 25/25.
 * Baterías anteriores, con el SQL 11 aplicado y el servidor nuevo (todas siguen verdes): `rls.mjs` 234/234, `hallazgos.mjs` 32/32,
   `planes.mjs` 11/11, `sim.mjs` (34 comprobaciones OK, con y sin `conPendientes`), `probar-aislamiento` contra el falso 227/234 (las 7 que
@@ -913,8 +915,8 @@ dejaba al restaurante en caché como activo. Se agregaron esas pruebas.
 
 **Solo se puede probar contra la base real (pendiente de Carlos):** el SQL 11 sobre el esquema verdadero; los códigos de error
 reales de PostgREST (la transición sin tabla reconoce `PGRST205` y `42P01`); que `/auth/v1/user` acepte la llave secreta en
-`apikey` con el JWT del usuario como Bearer (lo ejercita el escenario de reembolsos de `probar-servidor-multirestaurante.mjs`;
-si falla, definir `SUPABASE_PUBLISHABLE_KEY` en Vercel: `usuarioDeToken` la usa si existe); que la caché del borde de Vercel
+`apikey` con el JWT del usuario como Bearer (lo mide `supabase/diagnosticar-auth.mjs`, variante B; ver 12.12; si no
+funciona, definir `SUPABASE_PUBLISHABLE_KEY` en Vercel: `api/_sesion.js` la usa si existe); que la caché del borde de Vercel
 separe los dominios (se marcó `Vary: Host`; verifícalo con dos dominios antes de vender); un pago real con Wompi y el
 WhatsApp real.
 
@@ -939,3 +941,50 @@ WhatsApp real.
 8. **`?clave=` del cron** y el defecto transitorio no se retiraron (se pidió dejarlos).
 9. **Anomalía de `restaurante_dominios` si se borra a mano:** el servidor usa la última resolución conocida hasta 6 h si
    Supabase falla; borrar un dominio no lo "desconecta" al instante en instancias con la caché (30 s) o en caída de la base.
+
+### 12.12 Sesiones de usuario rechazadas contra la base real (causa, arreglo y por qué el falso no lo vio)
+
+**Síntoma.** `probar-servidor-multirestaurante.mjs` contra la base real: 117 PASA y 10 FALLA, todas en REEMBOLSO, todas con
+`401 {"error":"Inicia sesión para continuar"}` aunque el token fuera el de un dueño válido. Contra el Supabase falso pasaban.
+
+**Causa (encontrada por lectura de `api/_supabase.js`, línea de `usuarioDeToken`).** Una guarda previa a la red escrita
+`/s/.test(t)` en lugar de `/\s/.test(t)`: la barra del escape se perdió (la trampa de escapes de las herramientas ya
+documentada) y el código descartaba **todo token que contuviera la letra "s"**. Un JWT real (~800 caracteres en base64url)
+casi siempre la contiene (su propio encabezado `eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9` ya la lleva), así que ningún dueño
+real pasaba la validación y ni siquiera se llamaba a Supabase. Las otras hipótesis quedaron descartadas por lectura:
+la secreta ya iba solo en `apikey` (nunca como Bearer; lo decide `_llave.js`), no se verifica nada con un secreto local,
+no se usa supabase-js en el servidor, el script de prueba crea el usuario por la API de administración confirmado y
+entra con la publishable, y el 401 sale únicamente de `reembolso.js` cuando el helper devuelve `null`.
+(`supabase/diagnosticar-auth.mjs` lo confirma con la base real: imprime si el token real contiene la "s".)
+
+**Por qué el falso no lo detectaba.** Sus tokens eran `tok_<16 hex>`: 20 caracteres de `0-9a-f` y nunca una "s". Además no
+imitaba las puertas del gateway real (aceptaba un Bearer desconocido, una `sb_secret_` como Bearer, o un token sin `apikey`).
+
+**Arreglo.**
+* `api/_sesion.js` (nuevo, UN solo lugar; lo usará también el panel de superadmin): `usuarioDeSolicitud(req)` /
+  `usuarioDeToken(token)` llaman a `GET /auth/v1/user` con `apikey` = la publishable (`SUPABASE_PUBLISHABLE_KEY`, y si falta
+  la secreta, **solo en `apikey`**) y `Authorization: Bearer <token del usuario>`. Solo se descartan antes de la red tokens
+  vacíos, con espacios en blanco o de más de 4096 caracteres. 400/401/403 de Auth = "sin sesión"; **cualquier otro fallo
+  (5xx, red caída, la llave del proyecto rechazada) lanza un error** y `reembolso.js` responde 500 con la causa en el log
+  en vez de un 401 que mande al usuario a iniciar sesión otra vez.
+* `api/_supabase.js` ya no define `usuarioDeToken`; `api/reembolso.js` usa el helper. Las reglas de autorización (dueño activo
+  o superadmin, en el restaurante del host) y los filtros por restaurante no cambiaron.
+
+**El falso miente menos** (`pruebas/multirestaurante/fake-supabase.mjs`): sus tokens tienen forma de JWT real (3 partes
+base64url, ~790 caracteres, alg ES256); rechaza con 401 lo que rechaza el gateway real: petición sin `apikey` válida (el
+token del usuario solo no basta, un JWT tampoco sirve de `apikey`), una `sb_secret_` como Bearer, un Bearer que no es una sesión
+conocida, y un `Authorization` sin la palabra Bearer. **14 pruebas nuevas** (131 -> 145) en `escenarios-servidor.mjs` (grupo reembolso):
+token real con "s" aceptado; cabeceras exactas que llegan a Auth (token del usuario en Authorization, llave del proyecto
+en apikey, nunca la secreta como Bearer); sin la publishable usa la secreta solo en `apikey`; entradas que no llegan a la red;
+token mal firmado = sin sesión; Auth caído / 5xx / llave rechazada = 500; y 4 de "falso realista" (solo con el falso). 11 mutaciones
+nuevas en `mutaciones-servidor.mjs` (incluida la causa: `/s/` en lugar de `/\s/`): 11/11 detectadas.
+
+**Diagnóstico con la base real:** `supabase/diagnosticar-auth.mjs` (usuario temporal `test-auth-<hex>@example.invalid`,
+confirmado por la API de administración, borrado al terminar). Prueba 11 combinaciones de cabeceras contra `/auth/v1/user`
+(A documentada … K), `supabase-js` `auth.getUser` con publishable y con secreta, y el helper real con y sin
+`SUPABASE_PUBLISHABLE_KEY`. Imprime solo variante, HTTP y código de error. Se puede probar contra el falso:
+`node pruebas/multirestaurante/contra-falso.mjs diagnosticar-auth.mjs`.
+
+**Recomendación independiente del resultado:** define `SUPABASE_PUBLISHABLE_KEY` en Vercel (es la llave pública que ya está
+en `supabase-publico.js`): es la forma documentada para validar sesiones y no depende de que la secreta sea aceptada en
+`apikey` de Auth.

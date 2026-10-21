@@ -3,6 +3,8 @@
 
      node pruebas/multirestaurante/contra-falso.mjs probar-aislamiento.mjs
      node pruebas/multirestaurante/contra-falso.mjs probar-compatibilidad.mjs
+     node pruebas/multirestaurante/contra-falso.mjs probar-servidor-multirestaurante.mjs
+     node pruebas/multirestaurante/contra-falso.mjs diagnosticar-auth.mjs
 
    Necesita (una vez):  npm i --no-save @electric-sql/pglite@0.2.17 @supabase/supabase-js@2.117.2
    Realtime NO se emula: en probar-aislamiento.mjs esas 7 pruebas fallan aqui, y es lo esperado.
