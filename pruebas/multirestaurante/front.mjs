@@ -145,7 +145,7 @@ function adaptar(res) {
   return res;
 }
 
-function crearSitio({ raiz, puerto, falsoUrl, rutaApi }) {
+function crearSitio({ raiz, puerto, falsoUrl, rutaApi, globalName = 'SUPABASE_PUBLICO' }) {
   raiz = path.resolve(raiz);
   const api = {};
   const handler = (n) => api[n] || (api[n] = require(path.join(rutaApi, n + '.js')));
@@ -159,7 +159,7 @@ function crearSitio({ raiz, puerto, falsoUrl, rutaApi }) {
       // El sitio apunta su "Supabase publico" al propio origen; aqui se reenvia al falso
       if (url.pathname === '/supabase-publico.js') {
         res.writeHead(200, { 'Content-Type': TIPOS['.js'] });
-        res.end(`window.TAQUEIROS_SUPABASE = Object.freeze({ url: location.origin, publishableKey: "sb_publishable_FAKE_0000" });`);
+        res.end(`window.${globalName} = Object.freeze({ url: location.origin, publishableKey: "sb_publishable_FAKE_0000" });`);   // (el sitio ANTERIOR usa el nombre antiguo del objeto)
         return;
       }
       if (url.pathname.startsWith('/rest/v1/')) {
@@ -369,7 +369,7 @@ async function escenario(nombre, fn) {
   } catch (e) { hayAntiguo = false; console.log('(sin historial de ' + COMMIT_ANTERIOR + ': se omite la comparacion con la version anterior)'); }
 
   const sitioNuevo = await crearSitio({ raiz: RAIZ_NUEVA, puerto: PUERTO_WEB, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api') });
-  const sitioAntiguo = hayAntiguo ? await crearSitio({ raiz: raizAntigua, puerto: PUERTO_ANTIGUO, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api') }) : null;
+  const sitioAntiguo = hayAntiguo ? await crearSitio({ raiz: raizAntigua, puerto: PUERTO_ANTIGUO, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api'), globalName: 'TAQUEIROS_SUPABASE' }) : null;
   const URL_N = (host) => `http://${host}:${PUERTO_WEB}`;
 
   // ---- Chrome ---------------------------------------------------------------------------------------------------------------
@@ -827,15 +827,15 @@ async function escenario(nombre, fn) {
     const leer = (f) => fs.readFileSync(path.join(f === 'vercel.json' || f === 'sw.js' ? REPO : RAIZ_NUEVA, f), 'utf8');
     const html = leer('index.html'), ped = leer('pedido.html'), lib = leer('restaurante-publico.js'), sw = leer('sw.js');
     const prohibidos = [/Taqueiros/i, /C[uú]cuta/i, /573125249438/, /312 524/, /1AN/, /La Ceiba/, /lostaqueiros/i, /pub_(test|prod)_[A-Za-z0-9]{20}/, /vercel\.app/, /\bWOMPI_MODE\b/, /#C1272D/i, /#F7ECD6/i, /#1C1210/i, /#E3A008/i, /#8A1B1F/i, /#5C7A3B/i, /Birria|Tacos|dorilocos|comal/i];
-    // permitido: el nombre del objeto global compartido (window.TAQUEIROS_SUPABASE, definido en supabase-publico.js)
-    const limpio = (s) => s.split('TAQUEIROS_SUPABASE').join('');
+    // permitido: el nombre del objeto global compartido (window.SUPABASE_PUBLICO, definido en supabase-publico.js)
+    const limpio = (s) => s.split('SUPABASE_PUBLICO').join('');
     for (const [n, c] of [['index.html', html], ['pedido.html', ped], ['restaurante-publico.js', lib]]) {
       const malos = prohibidos.filter((re) => re.test(limpio(c))).map(String);
       comprobar(malos.length === 0, `${n}: ningun valor propio de Taqueiros escrito`, malos.join(' '));
     }
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
     comprobar(/"source":\s*"\/manifest\.json"/.test(leer('vercel.json')) && /"destination":\s*"\/api\/manifest"/.test(leer('vercel.json')), 'vercel.json reescribe /manifest.json a /api/manifest');
-    comprobar(/const VERSION = "v9"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v9, sin precache y el manifest siempre por la red');
+    comprobar(/const VERSION = "v10"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v10, sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
   });
 

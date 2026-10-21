@@ -114,6 +114,13 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
     const txt = Buffer.concat(trozos).toString('utf8');
     return txt;
   }
+  /* Como PostgREST: con "Accept: application/vnd.pgrst.object+json" (supabase-js .single()) la respuesta es UN objeto,
+     y si no son exactamente una fila, error 406 (PGRST116). */
+  const comoObjeto = (req, res, status, rows) => {
+    if (!(req.headers.accept || '').includes('vnd.pgrst.object')) return enviar(res, status, rows);
+    if (rows.length === 1) return enviar(res, status, rows[0]);
+    return enviar(res, 406, { code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' });
+  };
   const enviar = (res, status, cuerpo, tipo = 'application/json') => {
     res.writeHead(status, { 'Content-Type': tipo });
     res.end(typeof cuerpo === 'string' || Buffer.isBuffer(cuerpo) ? cuerpo : JSON.stringify(cuerpo));
@@ -190,14 +197,14 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
             if (ord) { const [c, d] = ord.split('.'); sqlTxt += ` order by ${q(c)} ${d === 'desc' ? 'desc' : 'asc'}`; }
             if (url.searchParams.get('limit')) sqlTxt += ` limit ${Number(url.searchParams.get('limit'))}`;
             const rows = await enRol(ctx, async (tx) => (await tx.query(sqlTxt, params)).rows);
-            return enviar(res, 200, rows);
+            return comoObjeto(req, res, 200, rows);
           }
           if (req.method === 'POST') {
             const lote = Array.isArray(cuerpo) ? cuerpo : [cuerpo];
             const cols = [...new Set(lote.flatMap((o) => Object.keys(o)))];
             const sqlTxt = `insert into public.${q(tabla)} (${cols.map(q).join(',')}) select ${cols.map(q).join(',')} from json_populate_recordset(null::public.${q(tabla)}, $1::json)` + (conRep ? ' returning *' : '');
             const rows = await enRol(ctx, async (tx) => (await tx.query(sqlTxt, [JSON.stringify(lote)])).rows);
-            return conRep ? enviar(res, 201, rows) : (res.writeHead(201), res.end());
+            return conRep ? comoObjeto(req, res, 201, rows) : (res.writeHead(201), res.end());
           }
           if (req.method === 'PATCH') {
             const cols = Object.keys(cuerpo);
@@ -205,7 +212,7 @@ export async function levantar({ puerto = 54329, migrar = true } = {}) {
             params.push(JSON.stringify(cuerpo));
             const sqlTxt = `update public.${q(tabla)} set ${sets}` + filtros(url, params) + (conRep ? ' returning *' : '');
             const rows = await enRol(ctx, async (tx) => (await tx.query(sqlTxt, params)).rows);
-            return conRep ? enviar(res, 200, rows) : (res.writeHead(204), res.end());
+            return conRep ? comoObjeto(req, res, 200, rows) : (res.writeHead(204), res.end());
           }
           if (req.method === 'DELETE') {
             const sqlTxt = `delete from public.${q(tabla)}` + filtros(url, params) + (conRep ? ' returning *' : '');

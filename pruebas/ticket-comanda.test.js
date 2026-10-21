@@ -364,3 +364,39 @@ test("el modo D es el unico que parte hojas: A, B y C no llevan linea de continu
     assert.deepEqual(T.paginarHojas(doc, T.planHoja(m, 500)), { cortes: [], hojas: 1 });
   }
 });
+
+/* PIE DEL TICKET: ya no lleva el nombre de ningun restaurante escrito. Es el nombre del
+   restaurante en mayusculas + " · PEDIDO WEB" (fijarRestaurante lo recibe de /api/restaurante). */
+test("el pie es el nombre del restaurante en mayusculas + PEDIDO WEB (para el original, el mismo de siempre)", () => {
+  T.fijarRestaurante("Los Taqueiros");
+  const antes = "LOS TAQUEIROS " + String.fromCharCode(0xB7) + " PEDIDO WEB";   // el texto que estaba escrito en el codigo
+  assert.equal(T.preparar(base).pie, antes);
+  T.fijarRestaurante("Casa Alfa");
+  assert.equal(T.preparar(base).pie, "CASA ALFA " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+  T.fijarRestaurante("");
+});
+
+test("sin nombre el pie es solo PEDIDO WEB (nunca el de otro restaurante)", () => {
+  T.fijarRestaurante("");
+  assert.equal(T.preparar(base).pie, "PEDIDO WEB");
+  assert.equal(T.textoPie(null), "PEDIDO WEB");
+  assert.equal(T.textoPie(undefined), "PEDIDO WEB");
+});
+
+test("el nombre del pie pasa por limpiarTexto: sin emojis, controles ni marcas de direccion; el HTML queda literal", () => {
+  assert.equal(T.textoPie("Casa \u{1F355} Alfa"), "CASA ALFA " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+  assert.equal(T.textoPie("Sushi\u202E Beta\u0007\n"), "SUSHI BETA " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+  assert.equal(T.textoPie("<img src=x onerror=alert(1)>"), "<IMG SRC=X ONERROR=ALERT(1)> " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+});
+
+test("opciones.restaurante manda sobre el fijado, solo para esa impresion", () => {
+  T.fijarRestaurante("Casa Alfa");
+  assert.equal(T.preparar(base, { restaurante: "Sushi Beta" }).pie, "SUSHI BETA " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+  assert.equal(T.preparar(base).pie, "CASA ALFA " + String.fromCharCode(0xB7) + " PEDIDO WEB");
+  T.fijarRestaurante("");
+});
+
+test("las claves de las preferencias del ticket son neutras (la migracion desde las anteriores la hace panel-restaurante.js)", () => {
+  assert.equal(T.TAMANO_KEY, "panel-ticket-tamano-v1");
+  assert.equal(T.MODO_HOJA_KEY, "panel-ticket-hoja-v1");
+});

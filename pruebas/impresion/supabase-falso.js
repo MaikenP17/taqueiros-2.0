@@ -45,14 +45,20 @@
       _es: null,
       on(tipo, filtro, cb) { c._manejadores.push({ filtro, cb }); return c; },
       subscribe(cb) {
+        // El servidor de prueba anota con que filtros abrio el panel sus canales (las pruebas lo revisan)
+        post("/canal", { nombre: c._nombre, filtros: c._manejadores.map(h => h.filtro) });
         c._es = new EventSource("/__db/eventos");
         c._es.onmessage = (ev) => {
           const m = JSON.parse(ev.data);
           if (c.state !== "joined") return;
           c._manejadores.forEach(h => {
-            if (h.filtro && h.filtro.table === m.table) {
-              h.cb({ eventType: m.type, new: m.new, old: null });
+            if (!h.filtro || h.filtro.table !== m.table) return;
+            // Igual que Supabase Realtime: el filtro "columna=eq.valor" se aplica a la fila nueva
+            if (h.filtro.filter) {
+              const f = /^([a-z_]+)=eq.(.+)$/.exec(h.filtro.filter);
+              if (f && !(m.new && String(m.new[f[1]]) === f[2])) return;
             }
+            h.cb({ eventType: m.type, new: m.new, old: null });
           });
         };
         c._es.onopen = () => {
@@ -73,7 +79,7 @@
         getSession: async () => ({ data: { session: sesion }, error: null }),
         onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
         signInWithPassword: async () => ({ data: { session: sesion }, error: null }),
-        signOut: async () => ({ error: null })
+        signOut: async (opciones) => { window.__signOut = (window.__signOut || []).concat([opciones || null]); return { error: null }; }
       },
       from: consulta,
       rpc(nombre, args) {
@@ -82,7 +88,7 @@
         llamada.select = () => llamada;
         return llamada;
       },
-      channel: () => crearCanal(),
+      channel: (nombre) => { const c = crearCanal(); c._nombre = nombre; return c; },
       removeChannel: async (c) => { if (c._es) c._es.close(); c.state = "closed"; },
       realtime: { isConnected: () => socketVivo }
     };

@@ -1769,7 +1769,7 @@ function sonar(){
 
 function anunciarPedido(pedido){
   sonar();
-  avisar("🌮 Nuevo pedido " + numeroPedido(pedido) + " · " + formatoCOP(pedido.total));
+  avisar(RP.emoji(PR.R) + " Nuevo pedido " + numeroPedido(pedido) + " · " + formatoCOP(pedido.total));   // el emoji es el del restaurante
 
   if(("Notification" in window) && Notification.permission === "granted"){
     try{

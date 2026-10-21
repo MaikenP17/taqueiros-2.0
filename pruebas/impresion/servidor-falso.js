@@ -7,7 +7,9 @@
    impresion: dos pantallas peleando por el mismo pedido.
 
    Lo que simula (lo justo para el panel):
-     /__db/consulta   select / update sobre pedidos, configuracion...
+     /api/restaurante el restaurante del dominio (Taqueiros por defecto), armado
+                      con el MISMO codigo del servidor (api/_publico.js)
+     /__db/consulta   select / update sobre pedidos, configuracion, miembros...
      /__db/rpc        limites_jornada, reclamar_impresion,
                       registrar_reimpresion
      /__db/eventos    Realtime (Server-Sent Events)
@@ -26,6 +28,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const RAIZ = path.resolve(__dirname, "..", "..");
+const { construirPublico } = require(path.join(RAIZ, "api", "_publico.js"));
+
+const TAQUEIROS_ID = "00000000-0000-4000-8000-000000000001";
+const TARIFAS = [{ hasta: 2, precio: 5000 }, { hasta: 4, precio: 7000 }, { hasta: 6, precio: 9000 },
+                 { hasta: 8, precio: 12000 }, { hasta: 999, precio: null }];
+
+function restauranteBase() {
+  return {
+    id: TAQUEIROS_ID, slug: "taqueiros", nombre: "Los Taqueiros", estado: "activo", plan: "completo",
+    vigente_hasta: null, dias_gracia: 5, zona_horaria: "America/Bogota", config: {},
+    modulos: { pasarela: true, seguimiento: true, comandas: true, impresion: true }
+  };
+}
 const MOCK = path.join(__dirname, "supabase-falso.js");
 
 const TIPOS = {
@@ -41,6 +56,14 @@ function crearServidor(opciones) {
   const estado = {
     pedidos: [],
     modo: { columnas: true, esPersonal: true, latenciaRpcMs: 0 },
+    restaurante: restauranteBase(),   // lo que devuelve /api/restaurante (se cambia con /__admin/restaurante)
+    restauranteFalla: 0,              // cuantas respuestas de /api/restaurante fallan antes de responder bien
+    miembros: [{ user_id: "u1", restaurante_id: TAQUEIROS_ID, rol: "dueno", activo: true }],
+    configuracion: { id: 1, restaurante_id: TAQUEIROS_ID, cerrado_temporal: false, horarios: [], mensaje_cerrado: null },
+    salud: { id: 1, restaurante_id: TAQUEIROS_ID, ultimo_ok: true, fallos_seguidos: 0 },
+    consultas: [],         // { tabla, op, filtros } de cada consulta que hace el panel
+    rpcs: [],              // { nombre, args }
+    canales: [],           // filtros con los que el panel abrio sus canales de Realtime
     reclamos: [],          // { id, gano, t }
     reimpresiones: [],
     clientes: new Set()    // conexiones SSE
@@ -92,11 +115,19 @@ function crearServidor(opciones) {
   const pausa = ms => new Promise(r => setTimeout(r, ms));
 
   async function consulta(q) {
-    if (q.tabla === "configuracion") {
-      return { data: { id: 1, cerrado_temporal: false, horarios: [], mensaje_cerrado: null }, error: null };
+    estado.consultas.push({ tabla: q.tabla, op: q.op, filtros: q.filtros });
+
+    if (q.tabla === "miembros") {
+      return { data: aplicarFiltros(estado.miembros, q.filtros).slice(0, q.limite || undefined), error: null };
     }
-    if (q.tabla === "salud_notificaciones") {
-      return { data: { id: 1, ultimo_ok: true, fallos_seguidos: 0 }, error: null };
+    if (q.tabla === "configuracion" || q.tabla === "salud_notificaciones") {
+      const fila = q.tabla === "configuracion" ? estado.configuracion : estado.salud;
+      const coincide = aplicarFiltros([fila], q.filtros).length === 1;
+      if (q.op === "update") {
+        if (coincide) Object.assign(fila, q.valores);
+        return { data: null, error: null };
+      }
+      return { data: coincide ? { ...fila } : null, error: null };
     }
     if (q.tabla !== "pedidos") return { data: [], error: null };
 
@@ -133,7 +164,12 @@ function crearServidor(opciones) {
   async function rpc(nombre, args) {
     if (estado.modo.latenciaRpcMs) await pausa(estado.modo.latenciaRpcMs);
 
-    if (nombre === "limites_jornada") return { data: [jornada()], error: null };
+    estado.rpcs.push({ nombre, args });
+
+    if (nombre === "limites_jornada") {
+      // Como la funcion real: quien pide un restaurante que no es el suyo recibe vacio
+      return { data: args.p_restaurante === estado.restaurante.id ? [jornada()] : [], error: null };
+    }
 
     if (nombre === "reclamar_impresion" || nombre === "registrar_reimpresion") {
       if (!estado.modo.columnas) {
@@ -180,6 +216,20 @@ function crearServidor(opciones) {
       return;
     }
 
+    // ---- El restaurante del dominio (mismo codigo que el servidor real) ----
+    if (ruta === "/api/restaurante") {
+      if (estado.restauranteFalla > 0) {
+        estado.restauranteFalla--;
+        res.writeHead(503, { "content-type": "application/json" });
+        return res.end("{\"error\":\"Servicio no disponible en este momento\"}");
+      }
+      const original = console.warn; console.warn = () => {};   // el aviso del respaldo de Taqueiros
+      try {
+        return json(res, construirPublico(estado.restaurante, { tarifas: TARIFAS, modo: null, integridadOk: false, env: {} }));
+      } finally { console.warn = original; }
+    }
+    if (ruta === "/__db/canal") { estado.canales.push(await leerCuerpo(req)); return json(res, { ok: true }); }
+
     if (ruta === "/__db/consulta") return json(res, await consulta(await leerCuerpo(req)));
     if (ruta === "/__db/rpc") {
       const c = await leerCuerpo(req);
@@ -190,9 +240,21 @@ function crearServidor(opciones) {
     if (ruta === "/__admin/reset") {
       const c = await leerCuerpo(req);
       estado.pedidos = (c.pedidos || []).map(p => ({ ...p }));
+      estado.consultas = []; estado.rpcs = []; estado.canales = [];
+      estado.restaurante = restauranteBase(); estado.restauranteFalla = 0;
+      estado.miembros = [{ user_id: "u1", restaurante_id: TAQUEIROS_ID, rol: "dueno", activo: true }];
+      estado.configuracion = { id: 1, restaurante_id: TAQUEIROS_ID, cerrado_temporal: false, horarios: [], mensaje_cerrado: null };
+      estado.salud = { id: 1, restaurante_id: TAQUEIROS_ID, ultimo_ok: true, fallos_seguidos: 0 };
       estado.reclamos = [];
       estado.reimpresiones = [];
       estado.modo = { columnas: true, esPersonal: true, latenciaRpcMs: 0, ...(c.modo || {}) };
+      return json(res, { ok: true });
+    }
+    if (ruta === "/__admin/restaurante") {      // cambia lo que devuelve /api/restaurante o los miembros
+      const c = await leerCuerpo(req);
+      if (c.restaurante) estado.restaurante = { ...estado.restaurante, ...c.restaurante };
+      if (c.miembros) estado.miembros = c.miembros;
+      if (typeof c.falla === "number") estado.restauranteFalla = c.falla;
       return json(res, { ok: true });
     }
     if (ruta === "/__admin/modo") {
@@ -211,6 +273,7 @@ function crearServidor(opciones) {
       return json(res, {
         pedidos: estado.pedidos, reclamos: estado.reclamos,
         reimpresiones: estado.reimpresiones, modo: estado.modo,
+        consultas: estado.consultas, rpcs: estado.rpcs, canales: estado.canales,
         sse: estado.clientes.size
       });
     }
@@ -247,7 +310,7 @@ function crearServidor(opciones) {
   return { servidor, estado };
 }
 
-module.exports = { crearServidor };
+module.exports = { crearServidor, TAQUEIROS_ID };
 
 if (require.main === module) {
   const { servidor } = crearServidor();

@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const commit = process.argv[2] || 'debc1c5';
+const commit = process.argv[2] || '1c35320';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'taq-tickets-'));
 const arbol = path.join(tmp, 'antes');
 

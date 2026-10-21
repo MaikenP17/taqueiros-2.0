@@ -205,7 +205,7 @@ function pedido(id, extra) {
   // 'numero' = el del restaurante (pedidos.numero). Con un solo restaurante coincide con el id; un escenario
   // propio (21) prueba el caso en que difieren.
   return {
-    id, numero: id, referencia: "TAQ-" + id, estado: "nuevo", estado_pago: "aprobado",
+    id, numero: id, restaurante_id: RESTAURANTE_ID, referencia: "TAQ-" + id, estado: "nuevo", estado_pago: "aprobado",
     cliente_nombre: "Cliente " + id, cliente_telefono: "3001234567", cliente_email: null,
     tipo_pedido: "domicilio", direccion: "Calle 1 # 2-3", barrio: "Centro", indicaciones: null,
     items: [{ id: "t", nombre: "Tacos al pastor", cantidad: 2, precio: 12000 }],
@@ -217,6 +217,8 @@ function pedido(id, extra) {
 }
 
 /* ---------------- Ejecucion ---------------- */
+// El restaurante que simula el servidor de prueba (Taqueiros: su id fijo del SQL 10)
+const RESTAURANTE_ID = "00000000-0000-4000-8000-000000000001";
 const resultados = [];
 function comprobar(ok, texto) {
   resultados.push({ ok, texto });
@@ -309,7 +311,9 @@ async function escenario(nombre, fn) {
     estado: async () => (await fetch(URL + "/__admin/estado")).json()
   };
 
-  const IMPRESION_KEY = "taqueiros-panel-imprimir-v1";
+  // Las preferencias del panel llevan el id del restaurante (panel-restaurante.js, PR.clave)
+  const IMPRESION_KEY = "panel-imprimir-v2:" + RESTAURANTE_ID;
+  const SONIDO_KEY = "panel-sonido-v2:" + RESTAURANTE_ID;
 
   /* Abre el panel; 'activo' deja el interruptor encendido o apagado
      como si el equipo ya lo tuviera guardado. */
@@ -606,7 +610,7 @@ async function escenario(nombre, fn) {
       await admin.reset([pedido(710, { impreso_en: original })]);
       const p = await abrirPanel("A", false);
       const escalaDe = (html) => (html.match(/--escala:\s*([\d.]+)/g) || []).shift();   // la 1a: el style de <html>, no el :root por defecto
-      const KEY = "taqueiros-panel-ticket-tamano-v1";
+      const KEY = "panel-ticket-tamano-v1";
 
       // Por defecto: Pequeno (.75)
       await p.eval("document.getElementById('impresionBtn').click(); true");
@@ -652,7 +656,7 @@ async function escenario(nombre, fn) {
       const original = new Date(Date.now() - 600000).toISOString();
       await admin.reset([pedido(720, { impreso_en: original })]);
       const p = await abrirPanel("A", false);
-      const KEY = "taqueiros-panel-ticket-hoja-v1";
+      const KEY = "panel-ticket-hoja-v1";
       const reglaDe = async (i) => (await p.impresos())[i].pagina || "";
       const elegir = (m) => p.eval("(function(){var s=document.getElementById('impModoHoja');s.value='" + m +
         "';s.dispatchEvent(new Event('change'));})(); true");
@@ -952,11 +956,11 @@ async function escenario(nombre, fn) {
 
       await p.clic("#soundBtn");
       comprobar(await p.eval("document.getElementById('soundBtn').getAttribute('aria-pressed')") === "false" &&
-        await p.eval("localStorage.getItem('taqueiros-panel-sonido-v1')") === "off", "Sonido: se silencia y se guarda");
+        await p.eval("localStorage.getItem('" + SONIDO_KEY + "')") === "off", "Sonido: se silencia y se guarda");
       comprobar(await p.eval("getComputedStyle(document.querySelector('#soundBtn .txt')).display") === "none" &&
         await p.eval("document.querySelector('#soundBtn .ico').textContent") === "🔇", "en celular el boton de sonido es solo icono (🔇)");
       await p.clic("#soundBtn");
-      comprobar(await p.eval("localStorage.getItem('taqueiros-panel-sonido-v1')") === "on", "y se reactiva");
+      comprobar(await p.eval("localStorage.getItem('" + SONIDO_KEY + "')") === "on", "y se reactiva");
 
       // En vivo: punto en celular mientras todo va bien; la palabra aparece cuando se pierde
       comprobar(await p.eval("document.getElementById('conn').classList.contains('online')") &&

@@ -741,6 +741,23 @@ export async function correrEscenarios(opts) {
         && c2.marca.logo === origenOk && c2.marca.icono_192 === null && c2.marca.icono_512 === null, t.slice(0, 400));
     });
 
+    await T('tipografias de las paginas del personal: solo NOMBRES de la lista permitida; lo demas se omite; sin eleccion el campo no sale', async () => {
+      const con = (tip) => conConfig(A, configCompleta('a', { publico: { marca: { tipografia: tip } } }), async () => (await publico(hA)).cuerpo.marca);
+      const ok = await con({ titulos: 'Bebas Neue', cuerpo: 'Open Sans' });
+      const una = await con({ titulos: 'Anton', cuerpo: 'Comic Sans' });
+      const inyeccion = await con({ titulos: 'Anton;} body{display:none} /*', cuerpo: 'https://evil.example/f.css?family=x' });
+      const tipos = await con({ titulos: ['Anton'], cuerpo: { toString: 'Anton' } });
+      const minusculas = await con({ titulos: ' Lora ', cuerpo: 'lora' });
+      const ninguna = await con(undefined);
+      const texto = await con('Anton');
+      R.invalidarCache();
+      const taq = (await invocar(M.restaurante, { host: HOST_TAQUEIROS, ruta: '/api/restaurante' })).cuerpo;
+      return es(igual(ok.tipografia, { titulos: 'Bebas Neue', cuerpo: 'Open Sans' }) && igual(una.tipografia, { titulos: 'Anton' })
+        && !('tipografia' in inyeccion) && !('tipografia' in tipos) && igual(minusculas.tipografia, { titulos: 'Lora' }) && !('tipografia' in ninguna) && !('tipografia' in texto)
+        && !('tipografia' in taq.marca) && PUB.FUENTES_PERMITIDAS.includes('Anton') && PUB.FUENTES_PERMITIDAS.includes('Libre Franklin'),
+        JSON.stringify([ok.tipografia, una.tipografia, inyeccion.tipografia, tipos.tipografia, minusculas.tipografia, ninguna.tipografia, taq.marca.tipografia]));
+    });
+
     await T('el nombre del restaurante es texto plano (una linea, sin invisibles)', async () => {
       await parchear('restaurantes', `id=eq.${B.id}`, { nombre: `  Taqueria  ${bidi}Los${cero}  Tres\n ` }); R.invalidarCache();
       const r = await publico(hB);
