@@ -5,14 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Panel de Comandas</title>
 <meta name="robots" content="noindex, nofollow">
-<!-- Nombre y logo del restaurante: UNA sola copia, en marca.js. Ese
-     archivo tambien completa el titulo y los iconos de la pestana. -->
-<script src="marca.js?v=1"></script>
+<!-- Nombre, logo, colores, tipografias, titulo y iconos de la pestana: los pone
+     panel-restaurante.js con los datos del restaurante de este dominio
+     (/api/restaurante). Aqui no hay ninguna marca escrita. -->
 
 <!-- Instalable como aplicacion: sin barra de direcciones y sin
-     pestanas que cerrar por accidente -->
+     pestanas que cerrar por accidente. El manifest es por restaurante. -->
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#C1272D">
+<meta name="theme-color" content="#3B5B8C">
+<!-- Icono provisional vacio: evita que el navegador pida /favicon.ico mientras llega el logo del restaurante -->
+<link rel="icon" href="data:,">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -20,44 +22,68 @@
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Las tipografias las carga panel-restaurante.js (solo de la lista permitida). -->
 
 <style>
   :root{
-    --rojo:#C1272D;
-    --rojo-oscuro:#8A1B1F;
-    --rojo-brillo:#E14A42;
-    --crema:#F7ECD6;
-    --crema-suave:#FFF8EA;
-    --carbon:#1C1210;
-    --carbon-2:#241714;
-    --carbon-3:#2E1D19;
-    --mostaza:#E3A008;
-    --verde:#5C7A3B;
-    --verde-brillo:#7FA855;
-    --texto-claro:#F7ECD6;
-    --texto-secundario:#B9A88C;
-    --borde:rgba(247,236,214,.10);
+    /* Paleta NEUTRA: es lo unico que se ve si el restaurante no define la suya. La marca de cada
+       restaurante la pone panel-restaurante.js sobre estas variables (colores y tipografias). */
+    --rojo:#3B5B8C;
+    --rojo-oscuro:#2A4266;
+    --rojo-brillo:#5B84C4;
+    --crema:#F2F2F2;
+    --crema-suave:#FAFAFA;
+    --carbon:#16181D;
+    --carbon-2:#1F2229;
+    --carbon-3:#292D36;
+    --mostaza:#D4A72C;
+    --verde:#4F8A5B;
+    --verde-brillo:#6FB07A;
+    --texto-claro:#F2F2F2;
+    --texto-secundario:#A0A4AE;
+    --rojo-rgb:59,91,140;
+    --rojo-brillo-rgb:91,132,196;
+    --crema-rgb:242,242,242;
+    --carbon-rgb:22,24,29;
+    --carbon-2-rgb:31,34,41;
+    --mostaza-rgb:212,167,44;
+    --verde-rgb:79,138,91;
+    --verde-brillo-rgb:111,176,122;
+    --borde:rgba(var(--crema-rgb),.10);
     --radio:14px;
+    --fuente-titulos:'Anton', sans-serif;
+    --fuente-cuerpo:'Libre Franklin', sans-serif;
   }
+
+  /* ---------- CARGA DEL RESTAURANTE / SIN RESTAURANTE (neutra) ---------- */
+  #rp-estado{position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+    background:var(--carbon); color:var(--texto-claro); padding:1.5rem; text-align:center;}
+  #rp-estado .rp-spin{width:38px; height:38px; border-radius:50%; border:4px solid rgba(var(--crema-rgb),.2);
+    border-top-color:var(--rojo); animation:rp-giro .9s linear infinite;}
+  @keyframes rp-giro{to{transform:rotate(360deg);}}
+  #rp-estado .rp-caja{max-width:420px;}
+  #rp-estado .rp-ic{font-size:3rem; margin-bottom:1rem;}
+  #rp-estado h1{font-size:1.5rem; margin-bottom:.7rem; color:var(--crema-suave);}
+  #rp-estado p{color:var(--texto-secundario); line-height:1.6; margin-bottom:1.2rem;}
+  #rp-estado button{background:var(--rojo); color:var(--crema-suave); padding:.8rem 1.6rem; border-radius:999px; font-weight:700; font-size:1rem;}
 
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
-    font-family:'Libre Franklin', sans-serif;
+    font-family:var(--fuente-cuerpo);
     background:var(--carbon);
     color:var(--texto-claro);
     min-height:100vh;
     -webkit-font-smoothing:antialiased;
   }
   button{font-family:inherit; cursor:pointer; border:none;}
-  h1,h2,h3{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+  h1,h2,h3{font-family:var(--fuente-titulos); text-transform:uppercase; letter-spacing:.02em; line-height:1;}
 
   /* ---------- LOGIN ---------- */
   .login-screen{
     position:fixed; inset:0; z-index:900;
     display:flex; align-items:center; justify-content:center; padding:1.5rem;
     background:
-      radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+      radial-gradient(circle at 25% 20%, rgba(var(--rojo-rgb),.30), transparent 55%),
       linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
   }
   .login-screen.hidden{display:none;}
@@ -100,7 +126,7 @@
   }
   @keyframes latir-verif{0%,100%{opacity:.3;}50%{opacity:1;}}
   .login-aviso{
-    background:rgba(227,160,8,.14); border:1px solid rgba(227,160,8,.45);
+    background:rgba(var(--mostaza-rgb),.14); border:1px solid rgba(var(--mostaza-rgb),.45);
     color:var(--mostaza); border-radius:12px; padding:.7rem .8rem;
     font-size:.82rem; font-weight:700; line-height:1.5;
     text-align:center; margin-bottom:1.1rem;
@@ -120,7 +146,7 @@
     position:sticky; top:0; z-index:100;
     display:flex; align-items:center; gap:.6rem;
     padding:.6rem 1.2rem;
-    background:rgba(28,18,16,.96); backdrop-filter:blur(10px);
+    background:rgba(var(--carbon-rgb),.96); backdrop-filter:blur(10px);
     border-bottom:1px solid var(--borde);
   }
   .barra-servicio{display:contents;}
@@ -132,7 +158,7 @@
     transition:background .2s ease, border-color .2s ease;
   }
   .menu-btn:hover,
-  .menu-btn[aria-expanded="true"]{background:var(--carbon-3); border-color:rgba(247,236,214,.28);}
+  .menu-btn[aria-expanded="true"]{background:var(--carbon-3); border-color:rgba(var(--crema-rgb),.28);}
   .menu-lineas, .menu-lineas::before, .menu-lineas::after{
     display:block; width:20px; height:2px; border-radius:2px; background:var(--texto-claro);
   }
@@ -145,7 +171,7 @@
   .brand img{height:40px; width:40px; flex:none; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px;}
   .brand .txt{display:flex; flex-direction:column; line-height:1.15; min-width:0;}
   .brand .txt strong{
-    font-family:'Anton', sans-serif; font-size:1.05rem; letter-spacing:.03em;
+    font-family:var(--fuente-titulos); font-size:1.05rem; letter-spacing:.03em;
     text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
   }
   .brand .txt small{
@@ -163,7 +189,7 @@
     height:36px; padding:0 .75rem; border-radius:999px; white-space:nowrap;
   }
   .conn .dot{width:8px; height:8px; border-radius:50%; flex:none; background:var(--mostaza);}
-  .conn.online .dot{background:var(--verde-brillo); box-shadow:0 0 0 3px rgba(127,168,85,.2);}
+  .conn.online .dot{background:var(--verde-brillo); box-shadow:0 0 0 3px rgba(var(--verde-brillo-rgb),.2);}
   .conn.offline .dot{background:var(--rojo-brillo);}
 
   .tool-btn{
@@ -173,7 +199,7 @@
     display:inline-flex; align-items:center; gap:.4rem;
     transition:background .2s ease, border-color .2s ease;
   }
-  .tool-btn:hover{background:var(--carbon-3); border-color:rgba(247,236,214,.25);}
+  .tool-btn:hover{background:var(--carbon-3); border-color:rgba(var(--crema-rgb),.25);}
   .tool-btn.activo{background:var(--verde); border-color:var(--verde); color:var(--crema-suave);}
   .tool-btn.peligro:hover{background:var(--rojo-oscuro); border-color:var(--rojo);}
 
@@ -185,8 +211,8 @@
     font-size:.78rem; font-weight:800;
   }
   .switch-local .etiqueta{white-space:nowrap;}
-  .switch-local.abierto{border-color:rgba(92,122,59,.6); color:var(--verde-brillo);}
-  .switch-local.cerrado{border-color:rgba(225,74,66,.6); color:var(--rojo-brillo);}
+  .switch-local.abierto{border-color:rgba(var(--verde-rgb),.6); color:var(--verde-brillo);}
+  .switch-local.cerrado{border-color:rgba(var(--rojo-brillo-rgb),.6); color:var(--rojo-brillo);}
   .switch-pista{
     width:44px; height:24px; border-radius:999px; position:relative;
     background:var(--rojo-oscuro); transition:background .25s ease; flex:none;
@@ -216,7 +242,7 @@
   .modal-horarios .ayuda{font-size:.8rem; color:var(--texto-secundario); margin-bottom:1.1rem; line-height:1.5;}
   .fila-dia{
     display:flex; align-items:center; gap:.6rem;
-    padding:.5rem 0; border-bottom:1px solid rgba(247,236,214,.05);
+    padding:.5rem 0; border-bottom:1px solid rgba(var(--crema-rgb),.05);
   }
   .fila-dia .nombre{flex:1; font-size:.85rem; font-weight:700; min-width:80px;}
   .fila-dia input[type="time"]{
@@ -241,8 +267,8 @@
   }
   .btn-guardar{background:var(--verde); color:var(--crema-suave);}
   .btn-guardar:hover{background:var(--verde-brillo);}
-  .btn-cancelar{background:rgba(247,236,214,.08); color:var(--texto-claro);}
-  .btn-cancelar:hover{background:rgba(247,236,214,.16);}
+  .btn-cancelar{background:rgba(var(--crema-rgb),.08); color:var(--texto-claro);}
+  .btn-cancelar:hover{background:rgba(var(--crema-rgb),.16);}
 
   /* ---------- KANBAN ---------- */
   .board{
@@ -290,18 +316,18 @@
     border-radius:12px; padding:.9rem; cursor:pointer;
     transition:border-color .2s ease, transform .15s ease;
   }
-  .pedido:hover{border-color:rgba(247,236,214,.28); transform:translateY(-2px);}
+  .pedido:hover{border-color:rgba(var(--crema-rgb),.28); transform:translateY(-2px);}
   .pedido.sin-ver{
     border-color:var(--rojo-brillo);
     animation:latido 1.4s ease-in-out infinite;
   }
   @keyframes latido{
-    0%,100%{box-shadow:0 0 0 0 rgba(225,74,66,.55);}
-    50%{box-shadow:0 0 0 7px rgba(225,74,66,0);}
+    0%,100%{box-shadow:0 0 0 0 rgba(var(--rojo-brillo-rgb),.55);}
+    50%{box-shadow:0 0 0 7px rgba(var(--rojo-brillo-rgb),0);}
   }
 
   .pedido-top{display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem; flex-wrap:wrap;}
-  .pedido-num{font-family:'Anton', sans-serif; font-size:1.1rem; letter-spacing:.03em;}
+  .pedido-num{font-family:var(--fuente-titulos); font-size:1.1rem; letter-spacing:.03em;}
   .pedido-hora{color:var(--texto-secundario); font-size:.74rem; margin-left:auto;}
   .badge-pagado{
     background:var(--verde); color:var(--crema-suave);
@@ -324,7 +350,7 @@
   .pedido-envio .fuera{color:var(--mostaza);}
   .badge-verificar{
     display:block; margin-top:.5rem; padding:.5rem .6rem; border-radius:8px;
-    background:rgba(227,160,8,.16); border:1px solid rgba(227,160,8,.5);
+    background:rgba(var(--mostaza-rgb),.16); border:1px solid rgba(var(--mostaza-rgb),.5);
     color:var(--mostaza); font-size:.74rem; font-weight:800; line-height:1.45;
   }
   .badge-verificar .motivo{display:block; font-weight:600; opacity:.9; margin-top:.15rem;}
@@ -340,7 +366,7 @@
 
   .pedido-nota{
     margin-top:.4rem; font-size:.76rem; color:var(--mostaza);
-    background:rgba(227,160,8,.09); border-left:2px solid var(--mostaza);
+    background:rgba(var(--mostaza-rgb),.09); border-left:2px solid var(--mostaza);
     padding:.4rem .55rem; border-radius:0 6px 6px 0; line-height:1.45;
   }
 
@@ -376,8 +402,8 @@
   }
   .acc-btn:hover{background:var(--rojo-brillo);}
   .acc-btn:active{transform:scale(.96);}
-  .acc-btn.sec{background:rgba(247,236,214,.09); color:var(--texto-claro); flex:0 0 auto; padding:.6rem .7rem;}
-  .acc-btn.sec:hover{background:rgba(247,236,214,.16);}
+  .acc-btn.sec{background:rgba(var(--crema-rgb),.09); color:var(--texto-claro); flex:0 0 auto; padding:.6rem .7rem;}
+  .acc-btn.sec:hover{background:rgba(var(--crema-rgb),.16);}
   .acc-btn.cancel{background:rgba(255,255,255,.05); color:#c98d86; flex:0 0 auto; padding:.6rem .7rem;}
   .acc-btn.cancel:hover{background:var(--rojo-oscuro); color:var(--crema-suave);}
   .acc-btn.copiar{background:var(--mostaza); color:var(--carbon);}
@@ -392,14 +418,14 @@
   .cronometro{
     display:inline-flex; align-items:center; gap:.25rem;
     font-size:.72rem; font-weight:800; font-variant-numeric:tabular-nums;
-    background:rgba(247,236,214,.08); color:var(--texto-secundario);
+    background:rgba(var(--crema-rgb),.08); color:var(--texto-secundario);
     padding:.2rem .45rem; border-radius:6px;
     transition:background .3s ease, color .3s ease;
   }
 
   /* A los 3 minutos: amarillo */
   .pedido.espera-media{ border-color:var(--mostaza); }
-  .pedido.espera-media .cronometro{ background:rgba(227,160,8,.2); color:var(--mostaza); }
+  .pedido.espera-media .cronometro{ background:rgba(var(--mostaza-rgb),.2); color:var(--mostaza); }
 
   /* A los 5 minutos: rojo parpadeante, mas insistente */
   .pedido.espera-alta{
@@ -411,8 +437,8 @@
     animation:parpadeo .8s ease-in-out infinite;
   }
   @keyframes alerta-alta{
-    0%,100%{box-shadow:0 0 0 0 rgba(225,74,66,.7);}
-    50%{box-shadow:0 0 0 9px rgba(225,74,66,0);}
+    0%,100%{box-shadow:0 0 0 0 rgba(var(--rojo-brillo-rgb),.7);}
+    50%{box-shadow:0 0 0 9px rgba(var(--rojo-brillo-rgb),0);}
   }
   @keyframes parpadeo{ 0%,100%{opacity:1;} 50%{opacity:.45;} }
 
@@ -426,17 +452,17 @@
   .aviso-wsp{
     display:none; align-items:center; justify-content:center; flex:none;
     width:36px; height:36px; border-radius:50%;
-    background:rgba(227,160,8,.16); border:1px solid rgba(227,160,8,.55);
+    background:rgba(var(--mostaza-rgb),.16); border:1px solid rgba(var(--mostaza-rgb),.55);
     color:var(--mostaza); font-size:1rem; line-height:1;
     cursor:pointer;
   }
-  .aviso-wsp:hover, .aviso-wsp[aria-expanded="true"]{background:rgba(227,160,8,.3);}
+  .aviso-wsp:hover, .aviso-wsp[aria-expanded="true"]{background:rgba(var(--mostaza-rgb),.3);}
   .aviso-wsp.visible{display:inline-flex;}
   .wsp-detalle{
     /* Por encima del banner de desconexion (150): es lo que se acaba de pedir ver */
     position:fixed; top:calc(var(--alto-barra) + .5rem); right:.75rem; z-index:160;
     width:min(340px, calc(100vw - 1.5rem));
-    background:var(--carbon-2); border:1px solid rgba(227,160,8,.55);
+    background:var(--carbon-2); border:1px solid rgba(var(--mostaza-rgb),.55);
     border-radius:12px; padding:.8rem .9rem; box-shadow:0 18px 44px rgba(0,0,0,.55);
     color:var(--texto-claro); font-size:.8rem; line-height:1.5;
   }
@@ -482,19 +508,19 @@
   .switch-imp .et-larga{display:none;}
   .switch-imp .estado-imp, .switch-imp .switch-pista{flex:none;}
   .switch-imp .switch-pista{background:#4a3a33;}
-  .switch-imp.on{border-color:rgba(92,122,59,.6); color:var(--verde-brillo);}
+  .switch-imp.on{border-color:rgba(var(--verde-rgb),.6); color:var(--verde-brillo);}
   .switch-imp.on .switch-pista{background:var(--verde);}
   .switch-imp.on .switch-pista::after{transform:translateX(20px);}
   .switch-imp .estado-imp{
     font-size:.66rem; letter-spacing:.06em; padding:.15rem .4rem; border-radius:6px;
-    background:rgba(247,236,214,.1); color:var(--texto-secundario);
+    background:rgba(var(--crema-rgb),.1); color:var(--texto-secundario);
   }
-  .switch-imp.on .estado-imp{background:rgba(92,122,59,.3); color:var(--verde-brillo);}
+  .switch-imp.on .estado-imp{background:rgba(var(--verde-rgb),.3); color:var(--verde-brillo);}
 
   .aviso-impresion{
     display:flex; flex-direction:column; gap:.5rem;
     padding:.7rem 1.2rem;
-    background:rgba(227,160,8,.16); border-bottom:1px solid rgba(227,160,8,.5);
+    background:rgba(var(--mostaza-rgb),.16); border-bottom:1px solid rgba(var(--mostaza-rgb),.5);
     color:var(--mostaza); font-size:.82rem; font-weight:700; line-height:1.45;
   }
   .aviso-impresion[hidden]{display:none;}
@@ -509,7 +535,7 @@
   .imp-lista{display:flex; flex-direction:column; margin:.2rem 0 1rem;}
   .imp-lista .fila{
     display:flex; justify-content:space-between; gap:1rem; padding:.5rem 0;
-    border-bottom:1px solid rgba(247,236,214,.06); font-size:.84rem;
+    border-bottom:1px solid rgba(var(--crema-rgb),.06); font-size:.84rem;
   }
   .imp-lista .fila span:first-child{color:var(--texto-secundario);}
   .imp-lista .fila span:last-child{font-weight:800; text-align:right;}
@@ -572,7 +598,7 @@
   /* El nombre del restaurante puede ser largo: aqui hay sitio para que
      pase a dos lineas en vez de cortarse. */
   .menu-cabecera .txt strong{
-    font-family:'Anton', sans-serif; font-size:1rem; letter-spacing:.03em;
+    font-family:var(--fuente-titulos); font-size:1rem; letter-spacing:.03em;
     text-transform:uppercase; overflow-wrap:anywhere;
   }
   .menu-cabecera .txt small{color:var(--texto-secundario); font-size:.72rem;}
@@ -672,6 +698,9 @@
 </head>
 <body>
 
+<!-- Telon mientras se sabe de que restaurante es esta pagina (panel-restaurante.js lo quita) -->
+<div id="rp-estado" role="status"><div class="rp-spin" aria-label="Cargando"></div></div>
+
 <!-- ================= LOGIN ================= -->
 <div class="login-screen" id="loginScreen">
   <form class="login-card" id="loginForm" data-estado="verificando">
@@ -750,6 +779,7 @@
       <div class="txt">
         <strong data-marca-nombre></strong>
         <small>Panel de comandas</small>
+        <small data-pr-rol hidden></small>
       </div>
       <button class="menu-cerrar" id="menuCerrar" type="button" aria-label="Cerrar menú" title="Cerrar menú">✕</button>
     </div>
@@ -832,8 +862,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
-<script src="supabase-publico.js?v=1"></script>
-<script src="ticket-comanda.js?v=4"></script>
+<script src="supabase-publico.js?v=2"></script>
+<script src="restaurante-publico.js?v=2"></script>
+<script src="panel-restaurante.js?v=1"></script>
+<script src="ticket-comanda.js?v=5"></script>
 <script>
 /* =========================================================
    CONFIGURACIÓN DE SUPABASE
@@ -842,8 +874,8 @@
    porque la tabla tiene RLS activo y solo responde a usuarios
    autenticados.
 ========================================================= */
-const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
-const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
+const SUPABASE_URL = window.SUPABASE_PUBLICO.url;
+const SUPABASE_PUBLISHABLE_KEY = window.SUPABASE_PUBLICO.publishableKey;
 
 /* La sesion del panel debe sobrevivir a que cierren la pestana, se
    reinicie el equipo o se caiga el internet. En una cocina eso pasa
@@ -856,7 +888,7 @@ const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
    intencion y protegen si un dia cambian los valores por defecto. */
 /* NO se define 'storageKey' a proposito.
    -------------------------------------------------------------
-   Se habia puesto una clave propia ("taqueiros-panel-sesion") y eso
+   Se habia puesto una clave propia y eso
    dejo DOS entradas en el almacenamiento del navegador: la nueva y
    la oficial de Supabase, que quedo huerfana con un token viejo.
 
@@ -876,9 +908,16 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, 
   }
 });
 
-/* Limpieza del resto que dejo la clave propia. Se puede borrar esta
-   linea dentro de unas semanas, cuando ningun equipo la conserve. */
-try{ localStorage.removeItem("taqueiros-panel-sesion"); }catch(e){}
+/* (La limpieza de la clave propia que se uso un tiempo la hace
+   PR.migrarClaves() en panel-restaurante.js.) */
+
+/* El restaurante de ESTE dominio (lo decide el servidor por el Host; ver
+   panel-restaurante.js). Es el filtro explicito de TODA consulta, escritura,
+   canal de Realtime y funcion SQL de esta pagina: RLS deja ver a un usuario
+   todos los restaurantes de los que es miembro, asi que sin este filtro un
+   usuario de dos restaurantes veria los pedidos de los dos mezclados.
+   Se fija una sola vez, en alListo(), antes de pedir ningun dato. */
+let RID = null;
 
 /* Columnas del tablero, en orden */
 const COLUMNAS = [
@@ -905,8 +944,9 @@ const ANTERIOR = {
 const ICONO_TIPO = { domicilio:"🛵", llevar:"🥡", local:"🍽️" };
 const TEXTO_TIPO = { domicilio:"Domicilio", llevar:"Para llevar", local:"En el local" };
 
-const VISTOS_KEY = "taqueiros-pedidos-vistos-v1";
-const SONIDO_KEY = "taqueiros-panel-sonido-v1";
+/* Nombres base de las preferencias del navegador; PR.clave() les agrega el id del restaurante. */
+const VISTOS_KEY = "panel-vistos-v2";
+const SONIDO_KEY = "panel-sonido-v2";
 
 let pedidos = [];
 
@@ -917,15 +957,15 @@ let pedidos = [];
    solo la jornada en curso; lo anterior sigue completo en la base y
    se consulta desde historial.html.
 
-   OJO CON LA ZONA HORARIA: Supabase guarda en UTC y Cucuta es UTC-5.
+   OJO CON LA ZONA HORARIA: Supabase guarda en UTC y Colombia es UTC-5.
    Los limites NO se calculan aqui: los da la base con
    limites_jornada(), que hace la conversion a hora de Colombia. Si
    se calcularan en el navegador, la medianoche UTC caeria a las 7 de
    la noche en Colombia y el tablero se limpiaria en plena cena.
 ------------------------------------------------------------- */
 let jornada = null;   // { jornada, inicio, fin, corte, minutos_ocultar }
-let vistos = cargarVistos();
-let sonidoActivo = localStorage.getItem(SONIDO_KEY) !== "off";
+let vistos = new Set();     // se cargan en alListo(): las claves llevan el id del restaurante
+let sonidoActivo = true;
 
 /* =========================================================
    UTILIDADES
@@ -958,12 +998,12 @@ function escapar(texto){
   return d.innerHTML;
 }
 function cargarVistos(){
-  try{ return new Set(JSON.parse(localStorage.getItem(VISTOS_KEY) || "[]")); }
+  try{ return new Set(JSON.parse(PR.leerLocal(VISTOS_KEY) || "[]")); }
   catch(e){ return new Set(); }
 }
 function guardarVistos(){
   // Solo se conservan los últimos 300 para no llenar el almacenamiento
-  localStorage.setItem(VISTOS_KEY, JSON.stringify([...vistos].slice(-300)));
+  PR.guardarLocal(VISTOS_KEY, JSON.stringify([...vistos].slice(-300)));
 }
 
 let toastTimer = null;
@@ -979,8 +1019,9 @@ function avisar(mensaje, esError){
 /* =========================================================
    MARCA Y MENÚ LATERAL
 
-   MARCA (nombre y logo) viene de marca.js: es el UNICO sitio donde
-   se escribe el nombre del restaurante.
+   El nombre, el logo y los colores del restaurante NO se escriben
+   aqui: los pone panel-restaurante.js con lo que entrega
+   /api/restaurante para el dominio (R = PR.R).
 
    MENU_LATERAL es la lista de opciones del menu (☰), en orden. Para
    agregar una (Pedidos manuales, Dashboard, Caja...) basta con
@@ -1002,8 +1043,6 @@ function avisar(mensaje, esError){
 
    Siempre que se elige una opcion el menu se cierra solo.
 ========================================================= */
-const MARCA = window.TAQUEIROS_MARCA;
-
 const MENU_LATERAL = [
   { id:"menuHistorial",  icono:"📊", texto:"Historial",
     href:"historial.html", titulo:"Pedidos anteriores y resumen del día" },
@@ -1142,6 +1181,18 @@ const loginAviso = document.getElementById("loginAviso");
    pueden resolver casi a la vez al cargar la pagina. */
 let panelIniciado = false;
 
+/* Cambia el texto de la pantalla de "verificando" (el formulario queda oculto). */
+function textoVerificando(texto){
+  const v = document.getElementById("loginVerificando");
+  v.textContent = "";
+  const punto = document.createElement("span");
+  punto.className = "punto";
+  v.appendChild(punto);
+  v.appendChild(document.createTextNode(texto));
+  loginForm.dataset.estado = "verificando";
+  loginScreen.classList.remove("hidden");
+}
+
 /* Muestra el formulario, opcionalmente con un aviso arriba. */
 function mostrarLogin(aviso){
   loginForm.dataset.estado = "listo";
@@ -1194,9 +1245,44 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
 /* =========================================================
    ARRANQUE
 ========================================================= */
+let vigilandoAcceso = false;
+
+/* Perdio la membresia mientras el panel seguia abierto (se la quitaron): se borra todo dato de
+   la pantalla y se cierra la sesion de este navegador. */
+async function alPerderAcceso(){
+  document.getElementById("app").hidden = true;
+  pedidos = [];
+  panelIniciado = false;
+  colaImpresion.length = 0;
+  enCola.clear();
+  pendientesSinImprimir = [];
+  if(canalPedidos){ try{ await db.removeChannel(canalPedidos); }catch(e){} canalPedidos = null; }
+  render();
+  PR.mostrarRol(null);
+  await PR.cerrarSesionLocal(db);
+  mostrarLogin(PR.MENSAJE_SIN_ACCESO);
+}
+
 async function entrarAlPanel(){
   if(panelIniciado) return;
   panelIniciado = true;
+
+  /* ANTES de pedir un solo dato: este usuario tiene que ser miembro activo de ESTE restaurante.
+     Si no lo es: mensaje claro, se cierra la sesion de este navegador y no se muestra nada.
+     Si no se pudo saber (sin red), se reintenta solo en vez de rendirse. */
+  const acceso = await PR.verificarAccesoPersistente(db, () => textoVerificando(PR.MENSAJE_ERROR));
+  if(!acceso.ok){
+    panelIniciado = false;
+    if(acceso.motivo === "sin_acceso"){
+      await PR.cerrarSesionLocal(db);
+      mostrarLogin(PR.MENSAJE_SIN_ACCESO);
+    }else{
+      mostrarLogin();
+    }
+    return;
+  }
+  PR.mostrarRol(acceso.rol);
+  if(!vigilandoAcceso){ vigilandoAcceso = true; PR.vigilarAcceso(db, alPerderAcceso); }
 
   loginScreen.classList.add("hidden");
   document.getElementById("app").hidden = false;
@@ -1219,8 +1305,9 @@ async function entrarAlPanel(){
 
 /* Se decide ANTES de mostrar nada: o entra directo, o pide la
    contrasena. Nunca se ve el formulario un instante para luego
-   desaparecer, ni queda una pantalla a medias. */
-(async function comprobarSesion(){
+   desaparecer, ni queda una pantalla a medias.
+   Arranca cuando ya se sabe de que restaurante es la pagina (ver alListo al final). */
+async function comprobarSesion(){
   try{
     const { data, error } = await db.auth.getSession();
 
@@ -1244,7 +1331,7 @@ async function entrarAlPanel(){
     console.error("[Sesion] Error inesperado:", err);
     mostrarLogin("Ocurrió un problema al abrir el panel. Inicia sesión de nuevo.");
   }
-})();
+}
 
 /* Ciclo de vida de la sesion.
      TOKEN_REFRESHED -> el token se renovo solo, todo sigue igual.
@@ -1261,6 +1348,7 @@ db.auth.onAuthStateChange((evento, sesion) => {
     // Se borra de pantalla todo dato de clientes
     pedidos = [];
     panelIniciado = false;
+    PR.mostrarRol(null);
     colaImpresion.length = 0;
     enCola.clear();
     pendientesSinImprimir = [];
@@ -1277,7 +1365,8 @@ db.auth.onAuthStateChange((evento, sesion) => {
    DATOS
 ========================================================= */
 async function cargarJornada(){
-  const { data, error } = await db.rpc("limites_jornada").select();
+  // p_restaurante explicito: sin el, la funcion usaria la PRIMERA membresia del usuario
+  const { data, error } = await db.rpc("limites_jornada", { p_restaurante: RID }).select();
   if(error){
     console.error("[Jornada] No se pudo leer:", error.message);
     return false;
@@ -1311,6 +1400,7 @@ async function cargarPedidos(){
   const { data, error } = await db
     .from("pedidos")
     .select("*")
+    .eq("restaurante_id", RID)
     .neq("estado", "pendiente_pago")
     .gte("creado_en", jornada.inicio)
     .lt("creado_en", jornada.fin)
@@ -1387,12 +1477,12 @@ const CICLOS_PARA_AVISAR = 2;
 /* Diagnostico por ciclo. Se activa desde la consola con:
      depurarConexion(true)
    y queda guardado para las siguientes sesiones. */
-let DEPURAR_CONEXION = false;
-try{ DEPURAR_CONEXION = localStorage.getItem("taqueiros-depurar-conexion") === "1"; }catch(e){}
+const DEPURAR_KEY = "panel-depurar-conexion-v2";
+let DEPURAR_CONEXION = false;      // se lee en alListo() (la clave lleva el id del restaurante)
 
 window.depurarConexion = function(activar){
   DEPURAR_CONEXION = activar !== false;
-  try{ localStorage.setItem("taqueiros-depurar-conexion", DEPURAR_CONEXION ? "1" : "0"); }catch(e){}
+  PR.guardarLocal(DEPURAR_KEY, DEPURAR_CONEXION ? "1" : "0");
   console.log("[Conexion] Diagnóstico por ciclo:", DEPURAR_CONEXION ? "ACTIVADO" : "apagado");
   return DEPURAR_CONEXION;
 };
@@ -1584,10 +1674,14 @@ function suscribirse(){
   // Nombre unico por suscripcion: si se reutiliza el mismo topic
   // mientras el canal viejo sigue adjunto, Supabase puede responder
   // CHANNEL_ERROR y dejar el panel creyendose caido.
-  canalPedidos = db.channel("pedidos-panel-" + Date.now())
-    .on("postgres_changes", { event:"*", schema:"public", table:"pedidos" }, (payload) => {
+  /* Los tres canales escuchan SOLO a este restaurante (filtro en el canal) y ademas cada manejador
+     descarta lo que no sea de el: un usuario de dos restaurantes recibe eventos de los dos por RLS. */
+  const filtro = "restaurante_id=eq." + RID;
+  canalPedidos = db.channel("pedidos-panel-" + RID + "-" + Date.now())
+    .on("postgres_changes", { event:"*", schema:"public", table:"pedidos", filter: filtro }, (payload) => {
       const fila = payload.new;
       if(!fila || !fila.id) return;
+      if(fila.restaurante_id !== RID) return;
 
       const i = pedidos.findIndex(p => p.id === fila.id);
 
@@ -1610,13 +1704,13 @@ function suscribirse(){
       // El pedido que acaba de entrar se imprime de una vez
       revisarImpresion(esNuevoEnElTablero && fila.estado === "nuevo" ? fila : null);
     })
-    .on("postgres_changes", { event:"*", schema:"public", table:"salud_notificaciones" }, (payload) => {
+    .on("postgres_changes", { event:"*", schema:"public", table:"salud_notificaciones", filter: filtro }, (payload) => {
       // Si el WhatsApp automatico se cae, el aviso aparece sin recargar
-      if(payload.new) pintarSaludNotificaciones(payload.new);
+      if(payload.new && payload.new.restaurante_id === RID) pintarSaludNotificaciones(payload.new);
     })
-    .on("postgres_changes", { event:"*", schema:"public", table:"configuracion" }, (payload) => {
+    .on("postgres_changes", { event:"*", schema:"public", table:"configuracion", filter: filtro }, (payload) => {
       // Si cierran el local desde otro dispositivo, este panel se entera
-      if(payload.new){
+      if(payload.new && payload.new.restaurante_id === RID){
         configuracion = payload.new;
         pintarSwitch();
       }
@@ -1682,7 +1776,7 @@ function anunciarPedido(pedido){
       new Notification("Nuevo pedido " + numeroPedido(pedido), {
         body: pedido.cliente_nombre + " · " + formatoCOP(pedido.total)
               + "\n" + (TEXTO_TIPO[pedido.tipo_pedido] || ""),
-        icon: MARCA.logo,
+        icon: PR.R.marca.logo || undefined,
         tag: "pedido-" + pedido.id
       });
     }catch(e){ /* algunos navegadores lo bloquean */ }
@@ -1702,7 +1796,7 @@ function pintarSonido(){
 
 document.getElementById("soundBtn").addEventListener("click", () => {
   sonidoActivo = !sonidoActivo;
-  localStorage.setItem(SONIDO_KEY, sonidoActivo ? "on" : "off");
+  PR.guardarLocal(SONIDO_KEY, sonidoActivo ? "on" : "off");
   pintarSonido();
   if(sonidoActivo) sonar();
 });
@@ -1738,7 +1832,7 @@ const DIAS_SEMANA = ["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes",
 let configuracion = null;
 
 async function cargarConfiguracion(){
-  const { data, error } = await db.from("configuracion").select("*").eq("id", 1).maybeSingle();
+  const { data, error } = await db.from("configuracion").select("*").eq("restaurante_id", RID).maybeSingle();
   if(error){
     console.error(error);
     return;
@@ -1766,7 +1860,7 @@ document.getElementById("switchLocal").addEventListener("click", async () => {
   if(nuevoValor && !confirm("¿Cerrar el local? Los clientes no podrán pagar en línea hasta que lo vuelvas a abrir.")) return;
 
   const { error } = await db.from("configuracion")
-    .update({ cerrado_temporal: nuevoValor }).eq("id", 1);
+    .update({ cerrado_temporal: nuevoValor }).eq("restaurante_id", RID);
 
   if(error){
     avisar("No se pudo cambiar el estado", true);
@@ -1781,6 +1875,11 @@ document.getElementById("switchLocal").addEventListener("click", async () => {
 /* ---- Modal de horarios ---- */
 const modalHorarios = document.getElementById("modalHorarios");
 
+/* El horario viene de la base y se escribe dentro de atributos: solo entra una hora HH:MM valida. */
+function horaValida(v, porDefecto){
+  return typeof v === "string" && /^([01]\d|2[0-4]):[0-5]\d$/.test(v) ? v : porDefecto;
+}
+
 function abrirHorarios(){
   if(!configuracion){ avisar("Todavía no se cargó la configuración", true); return; }
 
@@ -1791,9 +1890,9 @@ function abrirHorarios(){
     return '<div class="fila-dia" data-dia="' + i + '">' +
       '<span class="nombre">' + dia + '</span>' +
       '<span class="abre-cierra">' +
-        '<input type="time" class="abre" value="' + h.abre + '"' + (activo ? "" : " disabled") + '>' +
+        '<input type="time" class="abre" value="' + horaValida(h.abre, "11:00") + '"' + (activo ? "" : " disabled") + '>' +
         '<span style="color:var(--texto-secundario);">a</span>' +
-        '<input type="time" class="cierra" value="' + h.cierra + '"' + (activo ? "" : " disabled") + '>' +
+        '<input type="time" class="cierra" value="' + horaValida(h.cierra, "22:00") + '"' + (activo ? "" : " disabled") + '>' +
       '</span>' +
       '<label class="activo"><input type="checkbox" class="chk-activo"' + (activo ? " checked" : "") + '> abre</label>' +
     '</div>';
@@ -1837,7 +1936,7 @@ document.getElementById("guardarHorarios").addEventListener("click", async (e) =
   const mensaje = document.getElementById("mensajeCerrado").value.trim();
 
   const { error } = await db.from("configuracion")
-    .update({ horarios, mensaje_cerrado: mensaje || null }).eq("id", 1);
+    .update({ horarios, mensaje_cerrado: mensaje || null }).eq("restaurante_id", RID);
   boton.disabled = false;
 
   if(error){
@@ -1862,7 +1961,7 @@ document.getElementById("guardarHorarios").addEventListener("click", async (e) =
 ========================================================= */
 async function cargarSaludNotificaciones(){
   const { data, error } = await db
-    .from("salud_notificaciones").select("*").eq("id", 1).maybeSingle();
+    .from("salud_notificaciones").select("*").eq("restaurante_id", RID).maybeSingle();
 
   if(error){
     console.warn("No se pudo leer la salud de notificaciones:", error.message);
@@ -2203,7 +2302,7 @@ document.getElementById("board").addEventListener("click", async (e) => {
     nivelAvisado.delete("m" + id);
 
     btnMover.disabled = true;
-    const { error } = await db.from("pedidos").update({ estado: nuevoEstado }).eq("id", id);
+    const { error } = await db.from("pedidos").update({ estado: nuevoEstado }).eq("id", id).eq("restaurante_id", RID);
     btnMover.disabled = false;
 
     if(error){
@@ -2309,20 +2408,19 @@ function construirComanda(p){
    imprimen uno a uno; si son mas de LIMITE_AUTOMATICO se muestra un
    aviso con un boton, para no vaciar medio rollo de papel de golpe.
 ========================================================= */
-const IMPRESION_KEY = "taqueiros-panel-imprimir-v1";     // "on" | "off", por equipo
-const IMPRESOS_KEY  = "taqueiros-impresos-local-v1";     // respaldo sin SQL
+const IMPRESION_KEY = "panel-imprimir-v2";               // "on" | "off", por equipo (y por restaurante)
+const IMPRESOS_KEY  = "panel-impresos-local-v2";         // respaldo sin SQL
 const LIMITE_AUTOMATICO = 5;           // mas pendientes que esto: se pregunta
 const PAUSA_ENTRE_TICKETS_MS = 2500;   // la termica corta entre un ticket y otro
 const REINTENTO_RECLAMO_MS = 15000;    // si no hubo red al reclamar
 const ESTADOS_IMPRIMIBLES = ["nuevo", "en_preparacion", "listo"];
 
-let impresionActiva = false;
-try{ impresionActiva = localStorage.getItem(IMPRESION_KEY) === "on"; }catch(e){}
+let impresionActiva = false;       // se lee en alListo(): la clave lleva el id del restaurante
 
 /* "desconocido" | "ok" | "faltan" (falta correr el SQL 02) */
 let columnasImpresion = "desconocido";
 
-let impresosLocal = cargarImpresosLocal();
+let impresosLocal = new Set();     // se carga en alListo()
 const enCola = new Set();            // ids de pedidos en cola o imprimiendose (auto)
 const colaImpresion = [];            // { tipo: "auto"|"reimpresion"|"prueba", pedido }
 const reclamoFallido = new Map();    // id -> momento del ultimo reclamo sin red
@@ -2335,14 +2433,14 @@ let pidiendoWakeLock = false;
 let reintentoProgramado = false;
 
 function cargarImpresosLocal(){
-  try{ return new Set(JSON.parse(localStorage.getItem(IMPRESOS_KEY) || "[]").map(Number)); }
+  try{ return new Set(JSON.parse(PR.leerLocal(IMPRESOS_KEY) || "[]").map(Number)); }
   catch(e){ return new Set(); }
 }
 function guardarImpresosLocal(){
   try{
     // Solo los ultimos 500 (los ids crecen, los viejos ya no importan)
     const ids = [...impresosLocal].sort((a, b) => a - b).slice(-500);
-    localStorage.setItem(IMPRESOS_KEY, JSON.stringify(ids));
+    PR.guardarLocal(IMPRESOS_KEY, JSON.stringify(ids));
   }catch(e){ /* sin almacenamiento: queda solo en memoria */ }
 }
 
@@ -2359,7 +2457,7 @@ async function reclamarLocal(id){
     return true;
   };
   if(navigator.locks && typeof navigator.locks.request === "function"){
-    try{ return await navigator.locks.request("taqueiros-impresion-local", tomar); }
+    try{ return await navigator.locks.request("impresion-local:" + RID, tomar); }
     catch(e){ /* sin candado: se intenta igual */ }
   }
   return tomar();
@@ -2378,7 +2476,7 @@ function faltaElSql(error){
 
 async function comprobarColumnasImpresion(){
   try{
-    const { error } = await db.from("pedidos").select("impreso_en").limit(1);
+    const { error } = await db.from("pedidos").select("impreso_en").eq("restaurante_id", RID).limit(1);
     if(!error) columnasImpresion = "ok";
     else if(faltaElSql(error)) columnasImpresion = "faltan";
     // Cualquier otro error (red): se queda como estaba y se reintenta luego
@@ -2388,7 +2486,8 @@ async function comprobarColumnasImpresion(){
 
 /* ---------- Que pedidos se pueden imprimir solos ---------- */
 function esImprimible(p){
-  if(!p || p.estado_pago !== "aprobado") return false;
+  if(!p || p.restaurante_id !== RID) return false;     // nunca se imprime algo de otro restaurante
+  if(p.estado_pago !== "aprobado") return false;
   if(!ESTADOS_IMPRIMIBLES.includes(p.estado)) return false;
 
   // Solo la jornada en curso (un evento en vivo puede traer un pedido viejo)
@@ -2733,7 +2832,7 @@ function pintarModalImpresion(){
 
 document.getElementById("switchImpresion").addEventListener("click", () => {
   impresionActiva = !impresionActiva;
-  try{ localStorage.setItem(IMPRESION_KEY, impresionActiva ? "on" : "off"); }catch(e){}
+  PR.guardarLocal(IMPRESION_KEY, impresionActiva ? "on" : "off");
 
   if(impresionActiva){
     pedirPantallaEncendida();
@@ -2900,6 +2999,31 @@ async function copiarComanda(p, boton){
     boton.classList.remove("copiado");
   }, 1600);
 }
+
+/* =========================================================
+   ARRANQUE POR RESTAURANTE
+
+   Lo primero es saber de que restaurante es esta pagina (lo decide
+   el servidor por el dominio): hasta entonces el telon cubre todo y
+   no se pide ningun dato. Con el restaurante conocido ya se pintan su
+   marca y sus preferencias de este equipo, y recien ahi se comprueba
+   la sesion y la membresia (comprobarSesion -> entrarAlPanel).
+========================================================= */
+PR.arrancar({
+  tituloBase: "Panel de Comandas",
+  alListo: (R) => {
+    RID = R.id;
+    if(window.TicketComanda) TicketComanda.fijarRestaurante(R.nombre);   // pie del ticket
+
+    vistos = cargarVistos();
+    sonidoActivo = PR.leerLocal(SONIDO_KEY) !== "off";
+    impresionActiva = PR.leerLocal(IMPRESION_KEY) === "on";
+    impresosLocal = cargarImpresosLocal();
+    DEPURAR_CONEXION = PR.leerLocal(DEPURAR_KEY) === "1";
+
+    comprobarSesion();
+  }
+});
 </script>
 </body>
 </html>

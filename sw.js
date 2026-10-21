@@ -72,9 +72,20 @@
    otro. Lo unico que se guarda es lo que se pide bajo /Recursos/ y las fuentes
    (archivos estaticos que no dicen nada del estado del negocio). Subir la
    version borra las caches viejas, que traian el manifest y el logo de
-   Taqueiros precacheados. */
-const VERSION = "v9";
-const CACHE_ESTATICO = "taqueiros-panel-" + VERSION;
+   Taqueiros precacheados.
+
+   v10: paneles por restaurante (panel.html, menu-admin.html, historial.html leen su
+   marca y su membresia de /api/restaurante y de la base; marca.js desaparece y entra
+   panel-restaurante.js; supabase-publico.js pasa a llamarse window.SUPABASE_PUBLICO).
+   Mismo criterio: el HTML y los scripts van a la red; el cambio de version fuerza la
+   reinstalacion del worker y borra las caches viejas. El nombre de la cache ya no lleva el
+   de ningun restaurante, y NUNCA se guarda aqui un dato de un restaurante: este worker solo
+   guarda archivos de /Recursos/ y fuentes, y la cache es por origen (cada restaurante tiene
+   el suyo), asi que ni siquiera un archivo estatico puede pasar de un restaurante a otro. */
+const VERSION = "v10";
+const CACHE_ESTATICO = "panel-estatico-" + VERSION;
+/* Prefijos de las caches de versiones anteriores (se borran al activarse la nueva). */
+const PREFIJOS_VIEJOS = ["taqueiros-panel-", "panel-estatico-"];
 
 /* Nada se precachea (ver v9): solo se guarda lo que se va pidiendo de los recursos estaticos. */
 const CASCARON = [];
@@ -95,7 +106,7 @@ self.addEventListener("activate", (evento) => {
     caches.keys()
       .then((nombres) => Promise.all(
         nombres
-          .filter((n) => n.startsWith("taqueiros-panel-") && n !== CACHE_ESTATICO)
+          .filter((n) => PREFIJOS_VIEJOS.some((p) => n.startsWith(p)) && n !== CACHE_ESTATICO)
           .map((n) => caches.delete(n))
       ))
       .then(() => self.clients.claim())  // tomar el control de inmediato

@@ -1036,7 +1036,7 @@
 <script src="https://checkout.wompi.co/widget.js"></script>
 
 <!-- Direccion y llave publishable de Supabase (una sola copia) -->
-<script src="supabase-publico.js?v=1"></script>
+<script src="supabase-publico.js?v=2"></script>
 
 <!-- Datos del restaurante de este dominio (nombre, logo, colores, textos, WhatsApp, domicilio, pago) -->
 <script src="restaurante-publico.js?v=1"></script>
@@ -2673,8 +2673,8 @@ function comprobarRegresoDePago(){
    celular Y total exacto, mira solo las ultimas 24 horas y nunca
    devuelve direccion, correo ni productos.
 ========================================================= */
-const SUPABASE_URL_PUBLICO = window.TAQUEIROS_SUPABASE.url;
-const SUPABASE_KEY_PUBLICA = window.TAQUEIROS_SUPABASE.publishableKey;
+const SUPABASE_URL_PUBLICO = window.SUPABASE_PUBLICO.url;
+const SUPABASE_KEY_PUBLICA = window.SUPABASE_PUBLICO.publishableKey;
 
 const ESTADO_LEGIBLE = {
   nuevo:          "✅ Recibido",

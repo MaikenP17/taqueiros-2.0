@@ -40,7 +40,7 @@
   /* Papel en blanco debajo de la ultima linea. El driver ya alimenta
      el papel hasta la cuchilla antes de cortar, asi que esto solo es
      aire: mas margen = mas papel desperdiciado en cada ticket. Si algun
-     dia el corte se come "LOS TAQUEIROS · PEDIDO WEB", subir ESTE valor
+     dia el corte se come el pie ("<NOMBRE DEL RESTAURANTE> · PEDIDO WEB"), subir ESTE valor
      (probar 8) y nada mas. */
   const MARGEN_INFERIOR_MM = 4;
 
@@ -58,7 +58,7 @@
 
   /* Se guarda por equipo: la impresora de la cocina decide el tamano,
      no el cliente ni el resto de pantallas. */
-  const TAMANO_KEY = "taqueiros-panel-ticket-tamano-v1";
+  const TAMANO_KEY = "panel-ticket-tamano-v1";
 
   /* MODO DE HOJA. Con la DIG-POS892 (driver "80mm Series Printer", hoja
      del driver 80 x 297 mm, "Cut at end of document") las pruebas
@@ -97,7 +97,7 @@
   const HOLGURA_HOJA_MM = 1;
 
   /* Por equipo, igual que el tamano. */
-  const MODO_HOJA_KEY = "taqueiros-panel-ticket-hoja-v1";
+  const MODO_HOJA_KEY = "panel-ticket-hoja-v1";
 
   /* La hoja de calibracion mide ~150 mm (un ticket tipico) y su regla
      llega hasta 300 mm para poder ver una hoja de 297 mm completa. */
@@ -165,6 +165,22 @@
   function numeroPedido(p) {
     const n = p.numero != null ? p.numero : p.id;
     return "#" + String(n).padStart(3, "0");
+  }
+
+  /* NOMBRE DEL RESTAURANTE EN EL PIE. El ticket no lleva ninguna marca escrita: el pie es el nombre del
+     restaurante en mayusculas + " · PEDIDO WEB" ("Casa Alfa" -> "CASA ALFA · PEDIDO WEB"; para el
+     restaurante original sale exactamente el mismo pie que antes). El panel lo fija una vez con fijarRestaurante(nombre) al saber de que restaurante es;
+     preparar() tambien acepta opciones.restaurante para una sola impresion. Pasa por limpiarTexto como
+     todo lo que viene de la base (una termica no imprime emojis). Sin nombre, el pie es solo "PEDIDO WEB". */
+  let nombreRestaurante = "";
+
+  function fijarRestaurante(nombre) {
+    nombreRestaurante = limpiarTexto(nombre);
+  }
+
+  function textoPie(nombre) {
+    const n = limpiarTexto(nombre).toUpperCase();
+    return n ? n + " · PEDIDO WEB" : "PEDIDO WEB";
   }
 
   function telefonoBonito(t) {
@@ -235,6 +251,7 @@
       numeroReimpresion: op.reimpresion && op.numeroReimpresion ? Number(op.numeroReimpresion) : 0,
       impresoEn: op.reimpresion ? fechaHora(op.impresoEn) : "",
       franja: franja(tipo),
+      pie: textoPie(op.restaurante != null ? op.restaurante : nombreRestaurante),
       esDomicilio: tipo === "domicilio",
       numero: numeroPedido(p),
       fecha: fechaHora(p.pagado_en || p.creado_en),
@@ -401,7 +418,7 @@
 
     totales.appendChild(el(doc, "div", "pago", "Pago: " + d.metodoPago + " · PAGADO"));
 
-    const pie = el(doc, "div", "pie", "LOS TAQUEIROS · PEDIDO WEB");
+    const pie = el(doc, "div", "pie", d.pie);
     if (d.marca === "REIMPRESIÓN") {
       pie.appendChild(el(doc, "span", "chico",
         "Reimpresión" + (d.numeroReimpresion ? " " + d.numeroReimpresion : "")));
@@ -827,7 +844,7 @@
     MODOS_HOJA, MODO_HOJA_POR_DEFECTO, MODO_HOJA_KEY, ALTO_HOJA_FIJA_MM,
     CONTINUACION_MM, HOLGURA_HOJA_MM,
     PLANTILLA, ESTILOS, ESTILOS_CALIBRACION,
-    limpiarTexto, preparar, pintar, aplicarEscala, ajustarPagina,
+    limpiarTexto, fijarRestaurante, textoPie, preparar, pintar, aplicarEscala, ajustarPagina,
     planHoja, repartirHojas, paginarHojas, ajustarHoja, pintarCalibracion, dibujarCalibracion,
     leerTamano, guardarTamano, leerModoHoja, guardarModoHoja,
     imprimir, imprimirCalibracion, pedidoDePrueba

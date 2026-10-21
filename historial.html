@@ -3,38 +3,59 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Historial y Resumen | Los Taqueiros</title>
+<title>Historial y Resumen</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
-<meta name="theme-color" content="#C1272D">
+<!-- Titulo, favicon, colores y tipografias: los pone panel-restaurante.js con los datos del
+     restaurante de este dominio (/api/restaurante). Aqui no hay ninguna marca escrita. -->
+<meta name="theme-color" content="#3B5B8C">
+<!-- Icono provisional vacio: evita que el navegador pida /favicon.ico mientras llega el logo del restaurante -->
+<link rel="icon" href="data:,">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
   :root{
-    --rojo:#C1272D; --rojo-oscuro:#8A1B1F; --rojo-brillo:#E14A42;
-    --crema:#F7ECD6; --crema-suave:#FFF8EA;
-    --carbon:#1C1210; --carbon-2:#241714; --carbon-3:#2E1D19;
-    --mostaza:#E3A008; --verde:#5C7A3B; --verde-brillo:#7FA855;
-    --texto-claro:#F7ECD6; --texto-secundario:#B9A88C;
-    --borde:rgba(247,236,214,.10);
+    /* Paleta NEUTRA: es lo unico que se ve si el restaurante no define la suya. La marca de cada
+       restaurante la pone panel-restaurante.js sobre estas variables (colores y tipografias). */
+    --rojo:#3B5B8C; --rojo-oscuro:#2A4266; --rojo-brillo:#5B84C4;
+    --crema:#F2F2F2; --crema-suave:#FAFAFA;
+    --carbon:#16181D; --carbon-2:#1F2229; --carbon-3:#292D36;
+    --mostaza:#D4A72C; --verde:#4F8A5B; --verde-brillo:#6FB07A;
+    --texto-claro:#F2F2F2; --texto-secundario:#A0A4AE;
+    --rojo-rgb:59,91,140; --rojo-brillo-rgb:91,132,196; --crema-rgb:242,242,242;
+    --carbon-rgb:22,24,29; --carbon-2-rgb:31,34,41; --mostaza-rgb:212,167,44;
+    --verde-rgb:79,138,91; --verde-brillo-rgb:111,176,122;
+    --borde:rgba(var(--crema-rgb),.10);
+    --fuente-titulos:'Anton', sans-serif;
+    --fuente-cuerpo:'Libre Franklin', sans-serif;
   }
+
+  /* ---------- CARGA DEL RESTAURANTE / SIN RESTAURANTE (neutra) ---------- */
+  #rp-estado{position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+    background:var(--carbon); color:var(--texto-claro); padding:1.5rem; text-align:center;}
+  #rp-estado .rp-spin{width:38px; height:38px; border-radius:50%; border:4px solid rgba(var(--crema-rgb),.2);
+    border-top-color:var(--rojo); animation:rp-giro .9s linear infinite;}
+  @keyframes rp-giro{to{transform:rotate(360deg);}}
+  #rp-estado .rp-caja{max-width:420px;}
+  #rp-estado .rp-ic{font-size:3rem; margin-bottom:1rem;}
+  #rp-estado h1{font-size:1.5rem; margin-bottom:.7rem; color:var(--crema-suave);}
+  #rp-estado p{color:var(--texto-secundario); line-height:1.6; margin-bottom:1.2rem;}
+  #rp-estado button{background:var(--rojo); color:var(--crema-suave); padding:.8rem 1.6rem; border-radius:999px; font-weight:700; font-size:1rem;}
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
-    font-family:'Libre Franklin', sans-serif;
+    font-family:var(--fuente-cuerpo);
     background:var(--carbon); color:var(--texto-claro);
     min-height:100vh; -webkit-font-smoothing:antialiased; padding-bottom:3rem;
   }
   button{font-family:inherit; cursor:pointer; border:none; -webkit-tap-highlight-color:transparent;}
-  h1,h2{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+  h1,h2{font-family:var(--fuente-titulos); text-transform:uppercase; letter-spacing:.02em; line-height:1;}
 
   /* ---------- LOGIN ---------- */
   .login-screen{
     position:fixed; inset:0; z-index:900;
     display:flex; align-items:center; justify-content:center; padding:1.5rem;
-    background:radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+    background:radial-gradient(circle at 25% 20%, rgba(var(--rojo-rgb),.30), transparent 55%),
       linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
   }
   .login-screen.hidden{display:none;}
@@ -62,12 +83,12 @@
   header{
     position:sticky; top:0; z-index:100;
     display:flex; align-items:center; gap:.7rem; padding:.85rem 1rem;
-    background:rgba(28,18,16,.97); backdrop-filter:blur(10px);
+    background:rgba(var(--carbon-rgb),.97); backdrop-filter:blur(10px);
     border-bottom:1px solid var(--borde);
   }
   header img{height:38px; width:38px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px; flex:none;}
   header .txt{flex:1; min-width:0; line-height:1.2;}
-  header .txt strong{font-family:'Anton', sans-serif; font-size:1rem; display:block;}
+  header .txt strong{font-family:var(--fuente-titulos); font-size:1rem; display:block;}
   header .txt small{color:var(--texto-secundario); font-size:.7rem;}
   .btn-volver{
     background:var(--carbon-2); color:var(--texto-claro); border:1px solid var(--borde);
@@ -100,8 +121,8 @@
 
   /* El número grande, que es lo que se mira primero */
   .cifra-principal{
-    background:linear-gradient(160deg, rgba(92,122,59,.22), rgba(92,122,59,.06));
-    border:1px solid rgba(127,168,85,.4);
+    background:linear-gradient(160deg, rgba(var(--verde-rgb),.22), rgba(var(--verde-rgb),.06));
+    border:1px solid rgba(var(--verde-brillo-rgb),.4);
     border-radius:18px; padding:1.6rem 1.2rem; text-align:center; margin-bottom:1rem;
   }
   .cifra-principal .etiqueta{
@@ -109,7 +130,7 @@
     text-transform:uppercase; letter-spacing:.08em; margin-bottom:.5rem;
   }
   .cifra-principal .valor{
-    font-family:'Anton', sans-serif; font-size:2.8rem; line-height:1;
+    font-family:var(--fuente-titulos); font-size:2.8rem; line-height:1;
     color:var(--crema-suave); font-variant-numeric:tabular-nums;
   }
   .cifra-principal .nota{font-size:.75rem; color:var(--texto-secundario); margin-top:.6rem; line-height:1.5;}
@@ -120,8 +141,8 @@
     border-radius:14px; padding:1rem; text-align:center;
   }
   .tarjeta .etiqueta{font-size:.68rem; font-weight:800; color:var(--texto-secundario); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.4rem; line-height:1.3;}
-  .tarjeta .valor{font-family:'Anton', sans-serif; font-size:1.6rem; color:var(--crema-suave); font-variant-numeric:tabular-nums;}
-  .tarjeta .valor.chico{font-size:1.05rem; font-family:'Libre Franklin'; font-weight:800; line-height:1.3;}
+  .tarjeta .valor{font-family:var(--fuente-titulos); font-size:1.6rem; color:var(--crema-suave); font-variant-numeric:tabular-nums;}
+  .tarjeta .valor.chico{font-size:1.05rem; font-family:var(--fuente-cuerpo); font-weight:800; line-height:1.3;}
   .tarjeta.aviso .valor{color:var(--mostaza);}
   /* Bajo la cifra: de donde sale, para que no haya que adivinar */
   .tarjeta .pieta{
@@ -151,7 +172,7 @@
     transition:background .2s ease;
   }
   .barra-hora.pico .barra{background:var(--mostaza);}
-  .barra-hora.vacia .barra{background:rgba(247,236,214,.09);}
+  .barra-hora.vacia .barra{background:rgba(var(--crema-rgb),.09);}
   .barra-hora .n{
     font-size:.6rem; font-weight:800; color:var(--texto-claro);
     font-variant-numeric:tabular-nums; height:.85rem; line-height:.85rem;
@@ -180,7 +201,7 @@
   .campo input:focus{outline:2px solid var(--rojo); outline-offset:1px;}
   .dos{display:grid; grid-template-columns:1fr 1fr; gap:.6rem;}
   .btn-buscar{width:100%; background:var(--rojo); color:var(--crema-suave); padding:.95rem; border-radius:12px; font-weight:800; font-size:.92rem;}
-  .btn-limpiar{width:100%; background:rgba(247,236,214,.07); color:var(--texto-claro); padding:.8rem; border-radius:12px; font-weight:700; font-size:.82rem; margin-top:.5rem;}
+  .btn-limpiar{width:100%; background:rgba(var(--crema-rgb),.07); color:var(--texto-claro); padding:.8rem; border-radius:12px; font-weight:700; font-size:.82rem; margin-top:.5rem;}
 
   /* ---------- RESULTADOS ---------- */
   .pedido{
@@ -188,7 +209,7 @@
     border-radius:14px; margin-bottom:.8rem; overflow:hidden;
   }
   .ped-cab{display:flex; align-items:center; gap:.7rem; padding:.9rem 1rem; cursor:pointer;}
-  .ped-cab .num{font-family:'Anton', sans-serif; font-size:1.05rem;}
+  .ped-cab .num{font-family:var(--fuente-titulos); font-size:1.05rem;}
   .ped-cab .info{flex:1; min-width:0;}
   .ped-cab .cliente{font-size:.85rem; font-weight:700; line-height:1.3;}
   .ped-cab .cuando{font-size:.72rem; color:var(--texto-secundario); margin-top:.15rem;}
@@ -196,12 +217,12 @@
 
   .marca{font-size:.64rem; font-weight:800; padding:.2rem .45rem; border-radius:5px; text-transform:uppercase; white-space:nowrap;}
   .marca.entregado{background:rgba(107,143,168,.2); color:#9cc4dd;}
-  .marca.cancelado{background:rgba(193,39,45,.2); color:var(--rojo-brillo);}
-  .marca.activo{background:rgba(227,160,8,.2); color:var(--mostaza);}
+  .marca.cancelado{background:rgba(var(--rojo-rgb),.2); color:var(--rojo-brillo);}
+  .marca.activo{background:rgba(var(--mostaza-rgb),.2); color:var(--mostaza);}
 
   .ped-detalle{display:none; padding:0 1rem 1rem; border-top:1px solid var(--borde);}
   .pedido.abierto .ped-detalle{display:block;}
-  .dato{display:flex; gap:.6rem; padding:.5rem 0; font-size:.85rem; border-bottom:1px solid rgba(247,236,214,.05);}
+  .dato{display:flex; gap:.6rem; padding:.5rem 0; font-size:.85rem; border-bottom:1px solid rgba(var(--crema-rgb),.05);}
   .dato .k{color:var(--texto-secundario); flex:none; min-width:85px; font-size:.78rem;}
   .dato .v{flex:1; min-width:0; word-break:break-word;}
   .dato a{color:var(--mostaza); font-weight:700; text-decoration:none;}
@@ -219,9 +240,12 @@
 </head>
 <body>
 
+<!-- Telon mientras se sabe de que restaurante es esta pagina (panel-restaurante.js lo quita) -->
+<div id="rp-estado" role="status"><div class="rp-spin" aria-label="Cargando"></div></div>
+
 <div class="login-screen" id="loginScreen">
   <form class="login-card" id="loginForm" data-estado="verificando">
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <img data-marca-logo alt="">
     <h1>Historial</h1>
     <div class="login-verificando" id="loginVerificando">Verificando sesión…</div>
     <label for="loginEmail">Usuario</label>
@@ -235,7 +259,7 @@
 
 <div id="app" hidden>
   <header>
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <img data-marca-logo alt="">
     <div class="txt">
       <strong>HISTORIAL</strong>
       <small>Resumen del día y pedidos anteriores</small>
@@ -273,11 +297,11 @@
         </div>
         <div class="campo">
           <label for="bTelefono">Teléfono del cliente</label>
-          <input type="tel" id="bTelefono" inputmode="numeric" placeholder="3125249438">
+          <input type="tel" id="bTelefono" inputmode="numeric" placeholder="Ej: 3001234567">
         </div>
         <div class="campo">
           <label for="bReferencia">Referencia del pedido</label>
-          <input type="text" id="bReferencia" placeholder="TAQ-...">
+          <input type="text" id="bReferencia" placeholder="Código de referencia">
         </div>
         <button class="btn-buscar" id="btnBuscar">Buscar</button>
         <button class="btn-limpiar" id="btnLimpiar">Limpiar filtros</button>
@@ -290,7 +314,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
-<script src="supabase-publico.js?v=1"></script>
+<script src="supabase-publico.js?v=2"></script>
+<script src="restaurante-publico.js?v=2"></script>
+<script src="panel-restaurante.js?v=1"></script>
 <script>
 /* =========================================================
    HISTORIAL Y RESUMEN
@@ -304,12 +330,18 @@
    Todos los calculos vienen agregados de la base (resumen_jornada).
    No se traen los pedidos al navegador para sumarlos aqui.
 ========================================================= */
-const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
-const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
+const SUPABASE_URL = window.SUPABASE_PUBLICO.url;
+const SUPABASE_PUBLISHABLE_KEY = window.SUPABASE_PUBLICO.publishableKey;
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storage:window.localStorage }
 });
+
+/* El restaurante de ESTE dominio (lo decide el servidor por el Host; ver panel-restaurante.js).
+   Se manda como p_restaurante a TODAS las funciones SQL de esta pagina: sin el, la base usaria la
+   PRIMERA membresia del usuario, y un usuario de dos restaurantes veria el historial equivocado.
+   Se fija una sola vez, en alListo(), antes de pedir ningun dato. */
+let RID = null;
 
 const cop = (n) => "$" + Number(n || 0).toLocaleString("es-CO");
 function escapar(t){ const d=document.createElement("div"); d.textContent = t==null?"":String(t); return d.innerHTML; }
@@ -331,10 +363,19 @@ function fechaLarga(d){
 const loginScreen = document.getElementById("loginScreen");
 const loginForm = document.getElementById("loginForm");
 
-function mostrarLogin(){
+/* Muestra el formulario, opcionalmente con un aviso (por ejemplo, "sin acceso a este restaurante"). */
+function mostrarLogin(aviso){
   loginForm.dataset.estado = "listo";
+  document.getElementById("loginError").textContent = aviso || "";
   loginScreen.classList.remove("hidden");
   document.getElementById("app").hidden = true;
+}
+
+/* Cambia el texto de la pantalla de "verificando" (el formulario queda oculto). */
+function textoVerificando(texto){
+  document.getElementById("loginVerificando").textContent = texto;
+  loginForm.dataset.estado = "verificando";
+  loginScreen.classList.remove("hidden");
 }
 
 loginForm.addEventListener("submit", async (e) => {
@@ -351,15 +392,31 @@ loginForm.addEventListener("submit", async (e) => {
 });
 
 async function entrar(){
+  /* ANTES de pedir un solo dato: este usuario tiene que ser miembro activo de ESTE restaurante.
+     Si no lo es: mensaje claro, se cierra la sesion de este navegador y no se muestra nada.
+     Si no se pudo saber (sin red), se reintenta solo en vez de rendirse. */
+  const acceso = await PR.verificarAccesoPersistente(db, () => textoVerificando(PR.MENSAJE_ERROR));
+  if(!acceso.ok){
+    if(acceso.motivo === "sin_acceso"){
+      await PR.cerrarSesionLocal(db);
+      mostrarLogin(PR.MENSAJE_SIN_ACCESO);
+    }else{
+      mostrarLogin();
+    }
+    return;
+  }
+  PR.mostrarRol(acceso.rol);
+
   loginScreen.classList.add("hidden");
   document.getElementById("app").hidden = false;
   await cargarJornadas();
 }
 
-(async function comprobarSesion(){
+/* Arranca cuando ya se sabe de que restaurante es la pagina (ver alListo al final). */
+async function comprobarSesion(){
   const { data } = await db.auth.getSession();
   if(data && data.session) await entrar(); else mostrarLogin();
-})();
+}
 
 db.auth.onAuthStateChange((ev, ses) => { if(ev === "SIGNED_OUT" && !ses) mostrarLogin(); });
 
@@ -374,7 +431,7 @@ document.querySelectorAll(".pestanas button").forEach(b => {
 
 /* ---------------- RESUMEN ---------------- */
 async function cargarJornadas(){
-  const { data, error } = await db.rpc("jornadas_con_pedidos", { limite: 60 });
+  const { data, error } = await db.rpc("jornadas_con_pedidos", { limite: 60, p_restaurante: RID });
   const sel = document.getElementById("selJornada");
 
   if(error || !data || !data.length){
@@ -404,7 +461,7 @@ async function cargarResumen(fecha){
   const caja = document.getElementById("resumen");
   caja.innerHTML = '<div class="cargando">Calculando…</div>';
 
-  const { data, error } = await db.rpc("resumen_jornada", { fecha });
+  const { data, error } = await db.rpc("resumen_jornada", { fecha, p_restaurante: RID });
   if(error){ caja.innerHTML = '<div class="vacio">No se pudo calcular el resumen.</div>'; console.error(error); return; }
 
   const r = data;
@@ -525,7 +582,8 @@ async function buscar(){
     fecha_desde: document.getElementById("bDesde").value || null,
     fecha_hasta: document.getElementById("bHasta").value || null,
     telefono:    document.getElementById("bTelefono").value.replace(/[^0-9]/g, "") || null,
-    referencia:  document.getElementById("bReferencia").value.trim() || null
+    referencia:  document.getElementById("bReferencia").value.trim() || null,
+    p_restaurante: RID
   });
 
   btn.disabled = false; btn.textContent = "Buscar";
@@ -576,10 +634,10 @@ function pintarPedido(p){
 
       '<div class="items">' + items +
         (Number(p.costo_domicilio) > 0
-          ? '<div class="it" style="border-top:1px solid rgba(247,236,214,.1); margin-top:.4rem; padding-top:.4rem;">' +
+          ? '<div class="it" style="border-top:1px solid rgba(var(--crema-rgb),.1); margin-top:.4rem; padding-top:.4rem;">' +
             '<span>🛵 Domicilio' + (p.distancia_km ? " (" + p.distancia_km + " km)" : "") + '</span>' +
             '<span>' + cop(p.costo_domicilio) + '</span></div>' : "") +
-        '<div class="it" style="border-top:1px solid rgba(247,236,214,.1); margin-top:.4rem; padding-top:.4rem; font-weight:800;">' +
+        '<div class="it" style="border-top:1px solid rgba(var(--crema-rgb),.1); margin-top:.4rem; padding-top:.4rem; font-weight:800;">' +
           '<span>Total</span><span>' + cop(p.total) + '</span></div>' +
       '</div>' +
 
@@ -592,6 +650,23 @@ document.getElementById("resultados").addEventListener("click", (e) => {
   const cab = e.target.closest(".ped-cab");
   if(!cab || e.target.closest("a")) return;
   cab.closest(".pedido").classList.toggle("abierto");
+});
+
+/* =========================================================
+   ARRANQUE POR RESTAURANTE
+
+   Lo primero es saber de que restaurante es esta pagina (lo decide
+   el servidor por el dominio): hasta entonces el telon cubre todo y
+   no se pide ningun dato. Con el restaurante conocido ya se pintan su
+   marca y sus colores, y recien ahi se comprueba la sesion y la
+   membresia (comprobarSesion -> entrar).
+========================================================= */
+PR.arrancar({
+  tituloBase: "Historial y Resumen",
+  alListo: (R) => {
+    RID = R.id;
+    comprobarSesion();
+  }
 });
 </script>
 </body>

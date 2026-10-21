@@ -127,6 +127,18 @@ const TEXTOS_SEGUIMIENTO = ["tiempo_nuevo", "tiempo_preparacion", "tiempo_camino
 
 const MODULOS = ["pasarela", "seguimiento", "comandas", "impresion"];
 
+/* Tipografias que un restaurante puede elegir para las paginas del personal (marca.tipografia.titulos y
+   .cuerpo). Es una LISTA DE NOMBRES: ningun valor de la config se vuelve URL ni CSS; el navegador arma la
+   direccion de Google Fonts solo con las entradas de su propia copia de esta lista (restaurante-publico.js,
+   RP.FUENTES). Si se agrega una, hay que agregarla en los DOS archivos (una prueba compara ambas listas). */
+const FUENTES_PERMITIDAS = ["Anton", "Bebas Neue", "Oswald", "Montserrat", "Poppins", "Playfair Display", "Fredoka",
+                            "Lora", "Merriweather", "Libre Franklin", "Open Sans", "Nunito", "Lato", "DM Sans",
+                            "Work Sans", "Source Sans 3"];
+
+function fuente(valor) {
+  return typeof valor === "string" && FUENTES_PERMITIDAS.includes(valor.trim()) ? valor.trim() : null;
+}
+
 /* ---------------------------------------------------------------
    RESPALDO (solo Taqueiros)
 --------------------------------------------------------------- */
@@ -177,7 +189,7 @@ function marcaPublica(m, origenes) {
 
   const zonas = (Array.isArray(marca.colores_zonas) ? marca.colores_zonas : []).map(color).filter(Boolean).slice(0, 8);
 
-  return {
+  const sal = {
     logo: urlSegura(marca.logo, origenes),
     icono_192: urlSegura(marca.icono_192, origenes),
     icono_512: urlSegura(marca.icono_512, origenes),
@@ -185,6 +197,17 @@ function marcaPublica(m, origenes) {
     colores,
     colores_zonas: zonas
   };
+
+  // Solo sale si el restaurante eligio alguna (y de la lista); si no, las paginas usan las de siempre
+  const tip = objeto(marca.tipografia);
+  const tipografia = {};
+  const titulos = fuente(tip.titulos);
+  const cuerpo = fuente(tip.cuerpo);
+  if (titulos) tipografia.titulos = titulos;
+  if (cuerpo) tipografia.cuerpo = cuerpo;
+  if (titulos || cuerpo) sal.tipografia = tipografia;
+
+  return sal;
 }
 
 function textosPublicos(t) {
@@ -325,5 +348,5 @@ function datosManifest(restaurante, env) {
 module.exports = {
   texto, color, urlSegura, origenesPermitidos, configEfectiva,
   construirPublico, datosPublicos, datosManifest,
-  COLORES, TEXTOS, TEXTOS_SEGUIMIENTO
+  COLORES, TEXTOS, TEXTOS_SEGUIMIENTO, FUENTES_PERMITIDAS
 };

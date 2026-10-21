@@ -7,7 +7,7 @@
    WhatsApp, ubicacion, tarifas de domicilio y llave publica de pago.
 
    COMO SE USA
-     <script src="supabase-publico.js?v=1"></script>
+     <script src="supabase-publico.js?v=2"></script>
      <script src="restaurante-publico.js?v=1"></script>
    y despues, en el script de la pagina:
      RP.cargar().then(function (R) { ... }, function (err) { RP.mostrarNeutral(err.tipo, ...) });
@@ -86,8 +86,35 @@
   };
   var EMOJI_NEUTRO = "\u{1F37D}️";
 
+  /* Tipografias permitidas para las paginas del personal. NUNCA una URL ni un nombre libre:
+     lo unico que llega de la configuracion es uno de estos nombres, y la direccion de Google Fonts
+     se arma aqui con 'familia'. Debe ser la misma lista de nombres que api/_publico.js
+     (FUENTES_PERMITIDAS; una prueba las compara). 'familia' es el texto del parametro family= de
+     la API css2 con los pesos que esa fuente SI tiene. */
+  var FUENTES = {
+    "Anton": { familia: "Anton", generica: "sans-serif" },
+    "Bebas Neue": { familia: "Bebas+Neue", generica: "sans-serif" },
+    "Oswald": { familia: "Oswald:wght@400;500;600;700", generica: "sans-serif" },
+    "Montserrat": { familia: "Montserrat:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Poppins": { familia: "Poppins:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Playfair Display": { familia: "Playfair+Display:wght@400;500;600;700;800", generica: "serif" },
+    "Fredoka": { familia: "Fredoka:wght@400;500;600;700", generica: "sans-serif" },
+    "Lora": { familia: "Lora:wght@400;500;600;700", generica: "serif" },
+    "Merriweather": { familia: "Merriweather:wght@400;700", generica: "serif" },
+    "Libre Franklin": { familia: "Libre+Franklin:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Open Sans": { familia: "Open+Sans:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Nunito": { familia: "Nunito:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Lato": { familia: "Lato:wght@400;700", generica: "sans-serif" },
+    "DM Sans": { familia: "DM+Sans:wght@400;500;600;700", generica: "sans-serif" },
+    "Work Sans": { familia: "Work+Sans:wght@400;500;600;700;800", generica: "sans-serif" },
+    "Source Sans 3": { familia: "Source+Sans+3:wght@400;500;600;700", generica: "sans-serif" }
+  };
+  var FUENTE_TITULOS = "Anton";           // las de siempre: lo que se usa si el restaurante no elige
+  var FUENTE_CUERPO = "Libre Franklin";
+
   var RP = {};
   RP.datos = null;
+  RP.FUENTES = FUENTES;
 
   /* ---------------------------------------------------------------
      VALIDADORES
@@ -98,11 +125,14 @@
     return t || null;
   }
   function color(v) { return typeof v === "string" && COLOR.test(v.trim()) ? v.trim() : null; }
+  function fuente(v) {
+    return typeof v === "string" && Object.prototype.hasOwnProperty.call(FUENTES, v.trim()) ? v.trim() : null;
+  }
 
   function origenesPermitidos() {
     var lista = [location.origin];
     try {
-      var s = window.TAQUEIROS_SUPABASE && window.TAQUEIROS_SUPABASE.url;
+      var s = window.SUPABASE_PUBLICO && window.SUPABASE_PUBLICO.url;
       if (s) lista.push(new URL(s).origin);
     } catch (e) { /* sin Supabase configurado */ }
     return lista;
@@ -187,7 +217,11 @@
       servicio: { sirve: serv.sirve !== false },
       marca: {
         logo: urlSegura(marca.logo), icono_192: urlSegura(marca.icono_192), icono_512: urlSegura(marca.icono_512),
-        emoji: texto(marca.emoji, 8), colores: colores, coloresZonas: zonas
+        emoji: texto(marca.emoji, 8), colores: colores, coloresZonas: zonas,
+        tipografia: {
+          titulos: fuente(objeto(marca.tipografia).titulos) || FUENTE_TITULOS,
+          cuerpo: fuente(objeto(marca.tipografia).cuerpo) || FUENTE_CUERPO
+        }
       },
       textos: textos,
       textosSeguimiento: textosSeguimiento,

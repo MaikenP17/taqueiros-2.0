@@ -3,36 +3,62 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Administrar Menú | Los Taqueiros</title>
+<title>Administrar Menú</title>
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" type="image/png" href="Recursos/logo/logo.png">
-<meta name="theme-color" content="#C1272D">
+<!-- Titulo, favicon, colores y tipografias: los pone panel-restaurante.js con los datos del
+     restaurante de este dominio (/api/restaurante). Aqui no hay ninguna marca escrita. -->
+<meta name="theme-color" content="#3B5B8C">
+<!-- Icono provisional vacio: evita que el navegador pida /favicon.ico mientras llega el logo del restaurante -->
+<link rel="icon" href="data:,">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Fredoka:wght@500;600;700&family=Libre+Franklin:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
   :root{
-    --rojo:#C1272D;
-    --rojo-oscuro:#8A1B1F;
-    --rojo-brillo:#E14A42;
-    --crema:#F7ECD6;
-    --crema-suave:#FFF8EA;
-    --carbon:#1C1210;
-    --carbon-2:#241714;
-    --carbon-3:#2E1D19;
-    --mostaza:#E3A008;
-    --verde:#5C7A3B;
-    --verde-brillo:#7FA855;
-    --texto-claro:#F7ECD6;
-    --texto-secundario:#B9A88C;
-    --borde:rgba(247,236,214,.10);
+    /* Paleta NEUTRA: es lo unico que se ve si el restaurante no define la suya. La marca de cada
+       restaurante la pone panel-restaurante.js sobre estas variables (colores y tipografias). */
+    --rojo:#3B5B8C;
+    --rojo-oscuro:#2A4266;
+    --rojo-brillo:#5B84C4;
+    --crema:#F2F2F2;
+    --crema-suave:#FAFAFA;
+    --carbon:#16181D;
+    --carbon-2:#1F2229;
+    --carbon-3:#292D36;
+    --mostaza:#D4A72C;
+    --verde:#4F8A5B;
+    --verde-brillo:#6FB07A;
+    --texto-claro:#F2F2F2;
+    --texto-secundario:#A0A4AE;
+    --rojo-rgb:59,91,140;
+    --rojo-brillo-rgb:91,132,196;
+    --crema-rgb:242,242,242;
+    --carbon-rgb:22,24,29;
+    --carbon-2-rgb:31,34,41;
+    --mostaza-rgb:212,167,44;
+    --verde-rgb:79,138,91;
+    --verde-brillo-rgb:111,176,122;
+    --borde:rgba(var(--crema-rgb),.10);
+    --fuente-titulos:'Anton', sans-serif;
+    --fuente-cuerpo:'Libre Franklin', sans-serif;
   }
+
+  /* ---------- CARGA DEL RESTAURANTE / SIN RESTAURANTE (neutra) ---------- */
+  #rp-estado{position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+    background:var(--carbon); color:var(--texto-claro); padding:1.5rem; text-align:center;}
+  #rp-estado .rp-spin{width:38px; height:38px; border-radius:50%; border:4px solid rgba(var(--crema-rgb),.2);
+    border-top-color:var(--rojo); animation:rp-giro .9s linear infinite;}
+  @keyframes rp-giro{to{transform:rotate(360deg);}}
+  #rp-estado .rp-caja{max-width:420px;}
+  #rp-estado .rp-ic{font-size:3rem; margin-bottom:1rem;}
+  #rp-estado h1{font-size:1.5rem; margin-bottom:.7rem; color:var(--crema-suave);}
+  #rp-estado p{color:var(--texto-secundario); line-height:1.6; margin-bottom:1.2rem;}
+  #rp-estado button{background:var(--rojo); color:var(--crema-suave); padding:.8rem 1.6rem; border-radius:999px; font-weight:700; font-size:1rem;}
 
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
-    font-family:'Libre Franklin', sans-serif;
+    font-family:var(--fuente-cuerpo);
     background:var(--carbon);
     color:var(--texto-claro);
     min-height:100vh;
@@ -40,14 +66,14 @@
     padding-bottom:3rem;
   }
   button{font-family:inherit; cursor:pointer; border:none; -webkit-tap-highlight-color:transparent;}
-  h1,h2{font-family:'Anton', sans-serif; text-transform:uppercase; letter-spacing:.02em; line-height:1;}
+  h1,h2{font-family:var(--fuente-titulos); text-transform:uppercase; letter-spacing:.02em; line-height:1;}
 
   /* ---------- LOGIN ---------- */
   .login-screen{
     position:fixed; inset:0; z-index:900;
     display:flex; align-items:center; justify-content:center; padding:1.5rem;
     background:
-      radial-gradient(circle at 25% 20%, rgba(193,39,45,.30), transparent 55%),
+      radial-gradient(circle at 25% 20%, rgba(var(--rojo-rgb),.30), transparent 55%),
       linear-gradient(160deg, var(--carbon) 0%, var(--carbon-2) 60%, #150d0b 100%);
   }
   .login-screen.hidden{display:none;}
@@ -83,12 +109,12 @@
     position:sticky; top:0; z-index:100;
     display:flex; align-items:center; gap:.7rem;
     padding:.85rem 1rem;
-    background:rgba(28,18,16,.97); backdrop-filter:blur(10px);
+    background:rgba(var(--carbon-rgb),.97); backdrop-filter:blur(10px);
     border-bottom:1px solid var(--borde);
   }
   header img{height:38px; width:38px; object-fit:contain; border-radius:10px; background:var(--crema); padding:4px; flex:none;}
   header .txt{flex:1; min-width:0; line-height:1.2;}
-  header .txt strong{font-family:'Anton', sans-serif; font-size:1rem; display:block;}
+  header .txt strong{font-family:var(--fuente-titulos); font-size:1rem; display:block;}
   header .txt small{color:var(--texto-secundario); font-size:.7rem;}
   .btn-volver{
     background:var(--carbon-2); color:var(--texto-claro);
@@ -101,7 +127,7 @@
   /* ---------- AVISO DEL CACHE ---------- */
   .aviso-cache{
     margin:1rem; padding:.85rem 1rem; border-radius:12px;
-    background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4);
+    background:rgba(var(--mostaza-rgb),.13); border:1px solid rgba(var(--mostaza-rgb),.4);
     color:var(--mostaza); font-size:.82rem; line-height:1.55;
   }
   .aviso-cache strong{display:block; margin-bottom:.2rem;}
@@ -138,7 +164,7 @@
 
   /* ---------- PRODUCTO ---------- */
   .producto{
-    padding:.9rem 1rem; border-bottom:1px solid rgba(247,236,214,.05);
+    padding:.9rem 1rem; border-bottom:1px solid rgba(var(--crema-rgb),.05);
   }
   .producto:last-child{border-bottom:none;}
   .producto.agotado{background:rgba(0,0,0,.22);}
@@ -157,11 +183,11 @@
   }
 
   .btn-editar{
-    flex:none; background:rgba(247,236,214,.07); color:var(--texto-claro);
+    flex:none; background:rgba(var(--crema-rgb),.07); color:var(--texto-claro);
     border:1px solid var(--borde); border-radius:10px;
     width:44px; height:44px; font-size:1.1rem;
   }
-  .btn-editar:hover{background:rgba(247,236,214,.15);}
+  .btn-editar:hover{background:rgba(var(--crema-rgb),.15);}
 
   /* ---------- FORMULARIO DE EDICION RAPIDA ---------- */
   .editor{display:none; margin-top:.9rem; padding-top:.9rem; border-top:1px dashed var(--borde);}
@@ -184,7 +210,7 @@
   .btn-guardar{background:var(--verde); color:var(--crema-suave);}
   .btn-guardar:hover:not(:disabled){background:var(--verde-brillo);}
   .btn-guardar:disabled{opacity:.5;}
-  .btn-cancelar{background:rgba(247,236,214,.08); color:var(--texto-claro);}
+  .btn-cancelar{background:rgba(var(--crema-rgb),.08); color:var(--texto-claro);}
 
   /* ---------- AVISO FLOTANTE ---------- */
   .toast{
@@ -239,11 +265,11 @@
   .cat-vacia{padding:1rem; color:var(--texto-secundario); font-size:.85rem;}
 
   .btn-cat-editar{
-    flex:none; background:rgba(247,236,214,.07); color:var(--texto-claro);
+    flex:none; background:rgba(var(--crema-rgb),.07); color:var(--texto-claro);
     border:1px solid var(--borde); border-radius:10px;
     width:44px; height:44px; font-size:1rem;
   }
-  .btn-cat-editar:hover{background:rgba(247,236,214,.15);}
+  .btn-cat-editar:hover{background:rgba(var(--crema-rgb),.15);}
 
   .prod-info[data-abrir]{cursor:pointer; min-height:44px; display:flex; flex-direction:column; justify-content:center;}
   .prod-info[data-abrir]:focus-visible{outline:2px solid var(--rojo); outline-offset:2px; border-radius:8px;}
@@ -252,7 +278,7 @@
   .btn-mas{
     width:100%; min-height:44px; margin-top:.2rem; border-radius:10px;
     background:transparent; color:var(--mostaza); font-weight:800; font-size:.85rem;
-    border:1px dashed rgba(227,160,8,.45);
+    border:1px dashed rgba(var(--mostaza-rgb),.45);
   }
 
   /* ---------- HOJA (formularios) ---------- */
@@ -277,7 +303,7 @@
   .hoja-cab h2{flex:1; font-size:1.05rem; min-width:0;}
   .hoja-cab .cerrar{
     flex:none; width:44px; height:44px; border-radius:50%;
-    background:rgba(247,236,214,.07); color:var(--texto-claro); font-size:1.4rem; line-height:1;
+    background:rgba(var(--crema-rgb),.07); color:var(--texto-claro); font-size:1.4rem; line-height:1;
   }
   .hoja-cuerpo{
     flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain;
@@ -325,8 +351,8 @@
   .caja-aviso, .caja-error{
     border-radius:10px; padding:.75rem .9rem; font-size:.85rem; line-height:1.5; margin-bottom:.8rem;
   }
-  .caja-aviso{background:rgba(227,160,8,.13); border:1px solid rgba(227,160,8,.4); color:var(--mostaza);}
-  .caja-error{background:rgba(193,39,45,.18); border:1px solid rgba(225,74,66,.55); color:#ffb3ab;}
+  .caja-aviso{background:rgba(var(--mostaza-rgb),.13); border:1px solid rgba(var(--mostaza-rgb),.4); color:var(--mostaza);}
+  .caja-error{background:rgba(var(--rojo-rgb),.18); border:1px solid rgba(var(--rojo-brillo-rgb),.55); color:#ffb3ab;}
   .caja-aviso[hidden], .caja-error[hidden]{display:none;}
 
   .foto-bloque{display:flex; gap:.9rem; align-items:center; margin-bottom:.4rem;}
@@ -339,7 +365,7 @@
   .foto-acciones{flex:1; min-width:0; display:flex; flex-direction:column; gap:.5rem;}
   .btn-sec{
     min-height:44px; padding:0 1rem; border-radius:10px; font-weight:800; font-size:.88rem;
-    background:rgba(247,236,214,.1); color:var(--texto-claro); border:1px solid var(--borde);
+    background:rgba(var(--crema-rgb),.1); color:var(--texto-claro); border:1px solid var(--borde);
   }
   .btn-sec:disabled{opacity:.45;}
   .btn-sec.peligro{color:#ff8f85;}
@@ -360,9 +386,9 @@
   .zona-peligro{margin:.4rem 0 1rem; padding-top:.9rem; border-top:1px dashed var(--borde);}
   .btn-eliminar{
     width:100%; min-height:48px; border-radius:12px; font-weight:800; font-size:.9rem;
-    background:transparent; color:#ff8f85; border:1px solid rgba(225,74,66,.55);
+    background:transparent; color:#ff8f85; border:1px solid rgba(var(--rojo-brillo-rgb),.55);
   }
-  .conf-eliminar{background:rgba(193,39,45,.14); border:1px solid rgba(225,74,66,.55); border-radius:12px; padding:.9rem;}
+  .conf-eliminar{background:rgba(var(--rojo-rgb),.14); border:1px solid rgba(var(--rojo-brillo-rgb),.55); border-radius:12px; padding:.9rem;}
   .conf-eliminar[hidden]{display:none;}
   .conf-eliminar p{font-size:.88rem; line-height:1.5; margin-bottom:.8rem; overflow-wrap:anywhere;}
   .conf-eliminar .botones{display:flex; gap:.6rem;}
@@ -372,10 +398,13 @@
 </head>
 <body>
 
+<!-- Telon mientras se sabe de que restaurante es esta pagina (panel-restaurante.js lo quita) -->
+<div id="rp-estado" role="status"><div class="rp-spin" aria-label="Cargando"></div></div>
+
 <!-- ================= LOGIN ================= -->
 <div class="login-screen" id="loginScreen">
   <form class="login-card" id="loginForm" data-estado="verificando">
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <img data-marca-logo alt="">
     <h1>Administrar menú</h1>
     <p class="sub">Acceso solo para el restaurante</p>
 
@@ -395,7 +424,7 @@
 <!-- ================= APP ================= -->
 <div id="app" hidden>
   <header>
-    <img src="Recursos/logo/logo.png" alt="Los Taqueiros">
+    <img data-marca-logo alt="">
     <div class="txt">
       <strong>ADMINISTRAR MENÚ</strong>
       <small>Productos, fotos, precios y agotados</small>
@@ -446,7 +475,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
         integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok"
         crossorigin="anonymous"></script>
-<script src="supabase-publico.js?v=1"></script>
+<script src="supabase-publico.js?v=2"></script>
+<script src="restaurante-publico.js?v=2"></script>
+<script src="panel-restaurante.js?v=1"></script>
 <script>
 /* =========================================================
    ADMINISTRACION DEL MENU
@@ -470,8 +501,8 @@
    Supabase devolvio la fila escrita. Nada se pinta antes. Si falla,
    el formulario queda tal cual y se dice por que, en espanol.
 ========================================================= */
-const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
-const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
+const SUPABASE_URL = window.SUPABASE_PUBLICO.url;
+const SUPABASE_PUBLISHABLE_KEY = window.SUPABASE_PUBLICO.publishableKey;
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   auth: {
@@ -481,6 +512,13 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, 
     storage: window.localStorage
   }
 });
+
+/* El restaurante de ESTE dominio (lo decide el servidor por el Host; ver panel-restaurante.js).
+   Va EXPLICITO en cada lectura, alta, cambio y borrado, y es la carpeta de las fotos nuevas: RLS le
+   deja ver a un usuario todos los restaurantes de los que es miembro, asi que sin este filtro un
+   usuario de dos restaurantes editaria (por id) el producto de uno estando en el dominio del otro.
+   Se fija una sola vez, en alListo(), antes de pedir ningun dato. */
+let RID = null;
 
 /* -------------------------------------------------------------
    PROTECCION CONTRA EL DEDO GORDO EN LOS PRECIOS
@@ -577,10 +615,19 @@ const loginScreen = $("loginScreen");
 const loginForm = $("loginForm");
 const loginError = $("loginError");
 
-function mostrarLogin(){
+/* Muestra el formulario, opcionalmente con un aviso (por ejemplo, "sin acceso a este restaurante"). */
+function mostrarLogin(aviso){
   loginForm.dataset.estado = "listo";
+  loginError.textContent = aviso || "";
   loginScreen.classList.remove("hidden");
   $("app").hidden = true;
+}
+
+/* Cambia el texto de la pantalla de "verificando" (el formulario queda oculto). */
+function textoVerificando(texto){
+  $("loginVerificando").textContent = texto;
+  loginForm.dataset.estado = "verificando";
+  loginScreen.classList.remove("hidden");
 }
 
 loginForm.addEventListener("submit", async (e) => {
@@ -600,12 +647,28 @@ loginForm.addEventListener("submit", async (e) => {
 });
 
 async function entrar(){
+  /* ANTES de pedir un solo dato: este usuario tiene que ser miembro activo de ESTE restaurante.
+     Si no lo es: mensaje claro, se cierra la sesion de este navegador y no se muestra nada.
+     Si no se pudo saber (sin red), se reintenta solo en vez de rendirse. */
+  const acceso = await PR.verificarAccesoPersistente(db, () => textoVerificando(PR.MENSAJE_ERROR));
+  if(!acceso.ok){
+    if(acceso.motivo === "sin_acceso"){
+      await PR.cerrarSesionLocal(db);
+      mostrarLogin(PR.MENSAJE_SIN_ACCESO);
+    }else{
+      mostrarLogin();
+    }
+    return;
+  }
+  PR.mostrarRol(acceso.rol);
+
   loginScreen.classList.add("hidden");
   $("app").hidden = false;
   await cargar();
 }
 
-(async function comprobarSesion(){
+/* Arranca cuando ya se sabe de que restaurante es la pagina (ver alListo al final). */
+async function comprobarSesion(){
   try{
     const { data } = await db.auth.getSession();
     if(data && data.session){ await entrar(); return; }
@@ -614,7 +677,7 @@ async function entrar(){
     console.error(err);
     mostrarLogin();
   }
-})();
+}
 
 db.auth.onAuthStateChange((evento, sesion) => {
   if(evento === "SIGNED_OUT" && !sesion){
@@ -628,8 +691,8 @@ db.auth.onAuthStateChange((evento, sesion) => {
 ========================================================= */
 async function cargar(){
   const [rc, rp] = await Promise.all([
-    db.from("categorias").select("*").order("orden"),
-    db.from("productos").select("*").order("orden")
+    db.from("categorias").select("*").eq("restaurante_id", RID).order("orden"),
+    db.from("productos").select("*").eq("restaurante_id", RID).order("orden")
   ]);
 
   if(rc.error || rp.error){
@@ -767,7 +830,7 @@ $("contenido").addEventListener("click", async (e) => {
     const nuevo = !p.disponible;
     toggle.classList.toggle("si", nuevo);   // respuesta inmediata al dedo
 
-    const { error } = await db.from("productos").update({ disponible: nuevo }).eq("id", id);
+    const { error } = await db.from("productos").update({ disponible: nuevo }).eq("id", id).eq("restaurante_id", RID);
     if(error){
       toggle.classList.toggle("si", p.disponible);   // se revierte
       avisar("No se pudo guardar. Revisa la conexión.", true);
@@ -792,7 +855,7 @@ $("contenido").addEventListener("click", async (e) => {
     const nuevo = c.activa === false;
     if(!nuevo && !confirm("¿Ocultar toda la categoría \"" + c.nombre + "\"?\n\nSus productos dejarán de verse en la página del cliente.")) return;
 
-    const { error } = await db.from("categorias").update({ activa: nuevo }).eq("id", id);
+    const { error } = await db.from("categorias").update({ activa: nuevo }).eq("id", id).eq("restaurante_id", RID);
     if(error){ avisar("No se pudo guardar", true); console.error(error); return; }
 
     c.activa = nuevo;
@@ -865,7 +928,7 @@ $("contenido").addEventListener("click", async (e) => {
 
     const { error } = await db.from("productos")
       .update({ nombre, descripcion: descripcion || null, precio })
-      .eq("id", id);
+      .eq("id", id).eq("restaurante_id", RID);
 
     guardar.disabled = false;
     guardar.textContent = "Guardar";
@@ -1045,7 +1108,9 @@ async function subirFoto(foto, alAvanzar){
   const token = data && data.session && data.session.access_token;
   if(!token) throw Object.assign(new Error("Auth session missing"), {});
 
-  const nombre = nombreDeArchivoSeguro(foto.ext);
+  /* Las fotos NUEVAS van a la carpeta del restaurante: {restaurante_id}/p-xxxx.webp. Las que ya
+     existian siguen leyendose de donde estan (la raiz del bucket); solo se escribe en la carpeta. */
+  const nombre = RID + "/" + nombreDeArchivoSeguro(foto.ext);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", SUPABASE_URL + "/storage/v1/object/" + BUCKET + "/" + nombre);
@@ -1088,6 +1153,10 @@ function rutaEnBucket(url){
 async function borrarFotoDelBucket(url){
   const ruta = rutaEnBucket(url);
   if(!ruta) return;
+  /* Solo se borra lo que es de este restaurante: su carpeta, o una foto antigua de la raiz del
+     bucket (donde estan las fotos que ya existian). Una ruta con OTRA carpeta no se toca. */
+  const carpeta = ruta.indexOf("/") < 0 ? "" : ruta.split("/")[0];
+  if(carpeta && carpeta !== RID) return;
   try{
     const { error } = await db.storage.from(BUCKET).remove([ruta]);
     if(error) console.warn("[Fotos] No se pudo borrar", ruta, error);
@@ -1430,7 +1499,7 @@ async function guardarProducto(){
       const orden = categorias.reduce((m, c) => Math.max(m, c.orden || 0), -1) + 1;
 
       const { data, error } = await db.from("categorias")
-        .insert({ id: idCat, nombre: catNombre, emoji: "🍽️", orden, activa: true })
+        .insert({ restaurante_id: RID, id: idCat, nombre: catNombre, emoji: "🍽️", orden, activa: true })
         .select().single();
       if(error) throw error;
       if(!data) throw new Error("La categoría no se confirmó");
@@ -1464,14 +1533,14 @@ async function guardarProducto(){
       const orden = productos.filter(x => x.categoria === categoriaId).reduce((m, x) => Math.max(m, x.orden || 0), -1) + 1;
 
       const { data, error } = await db.from("productos")
-        .insert({ id: idProd, nombre, descripcion: descripcion || null, precio, categoria: categoriaId, orden, disponible: true, imagen: imagen || null })
+        .insert({ restaurante_id: RID, id: idProd, nombre, descripcion: descripcion || null, precio, categoria: categoriaId, orden, disponible: true, imagen: imagen || null })
         .select().single();
       if(error) throw error;
       fila = data;
     }else{
       const cambios = { nombre, descripcion: descripcion || null, precio, categoria: categoriaId };
       if(cambiaFoto) cambios.imagen = imagen;
-      const { data, error } = await db.from("productos").update(cambios).eq("id", f.id).select();
+      const { data, error } = await db.from("productos").update(cambios).eq("id", f.id).eq("restaurante_id", RID).select();
       if(error) throw error;
       // RLS puede dejar pasar la peticion sin tocar ninguna fila: eso NO es guardado
       if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
@@ -1509,7 +1578,7 @@ async function guardarProducto(){
     // Deshacer lo que alcanzo a hacerse, para no dejar basura
     if(fotoSubida) await borrarFotoDelBucket(fotoSubida.url);
     if(categoriaCreada){
-      try{ await db.from("categorias").delete().eq("id", categoriaCreada.id); }catch(e){ console.warn(e); }
+      try{ await db.from("categorias").delete().eq("id", categoriaCreada.id).eq("restaurante_id", RID); }catch(e){ console.warn(e); }
     }
 
     bloquearFormulario(false);
@@ -1545,7 +1614,7 @@ async function eliminarProducto(){
   bloquearFormulario(true);
   mostrarError("");
   try{
-    const { data, error } = await db.from("productos").delete().eq("id", p.id).select("id");
+    const { data, error } = await db.from("productos").delete().eq("id", p.id).eq("restaurante_id", RID).select("id");
     if(error) throw error;
     if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
 
@@ -1617,7 +1686,7 @@ function abrirFormCategoria(id, origen){
     $("cCampos").disabled = true; $("cGuardar").disabled = true; $("cCancelar").disabled = true; $("hojaCerrar").disabled = true;
     $("cGuardar").textContent = "Guardando…";
     try{
-      const { data, error } = await db.from("categorias").update({ nombre }).eq("id", c.id).select();
+      const { data, error } = await db.from("categorias").update({ nombre }).eq("id", c.id).eq("restaurante_id", RID).select();
       if(error) throw error;
       if(!data || data.length !== 1) throw Object.assign(new Error("permission denied"), { code: "42501" });
 
@@ -1636,6 +1705,23 @@ function abrirFormCategoria(id, origen){
     }
   });
 }
+
+/* =========================================================
+   ARRANQUE POR RESTAURANTE
+
+   Lo primero es saber de que restaurante es esta pagina (lo decide
+   el servidor por el dominio): hasta entonces el telon cubre todo y
+   no se pide ningun dato. Con el restaurante conocido ya se pintan su
+   marca y sus colores, y recien ahi se comprueba la sesion y la
+   membresia (comprobarSesion -> entrar).
+========================================================= */
+PR.arrancar({
+  tituloBase: "Administrar Menú",
+  alListo: (R) => {
+    RID = R.id;
+    comprobarSesion();
+  }
+});
 </script>
 </body>
 </html>

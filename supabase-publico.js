@@ -12,8 +12,8 @@
 
    COMO SE USA
    Todas las paginas cargan este archivo antes de su propio script:
-     <script src="supabase-publico.js?v=1"></script>
-   y leen window.TAQUEIROS_SUPABASE.
+     <script src="supabase-publico.js?v=2"></script>
+   y leen window.SUPABASE_PUBLICO.
 
    COMO SE ENVIA LA LLAVE
    Las llaves nuevas NO son JWT. Con 'fetch' directo se manda SOLO en
@@ -28,7 +28,7 @@
    paginas que lo cargan para que ninguna copia vieja sobreviva en
    la cache HTTP del navegador.
 ============================================================= */
-window.TAQUEIROS_SUPABASE = Object.freeze({
+window.SUPABASE_PUBLICO = Object.freeze({
   url: "https://pzryobpriyewlxltditw.supabase.co",
   publishableKey: "sb_publishable_z16BcFrV9JvRKlKOy118PA_71-sWQqa"
 });

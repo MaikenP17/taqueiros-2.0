@@ -213,7 +213,7 @@
 
 <div class="wrap" id="contenido"></div>
 
-<script src="supabase-publico.js?v=1"></script>
+<script src="supabase-publico.js?v=2"></script>
 <script src="restaurante-publico.js?v=1"></script>
 <script>
 /* =========================================================
@@ -224,8 +224,8 @@
    únicamente el pedido de la referencia consultada y sin datos
    sensibles (nunca teléfono ni correo).
 ========================================================= */
-const SUPABASE_URL = window.TAQUEIROS_SUPABASE.url;
-const SUPABASE_PUBLISHABLE_KEY = window.TAQUEIROS_SUPABASE.publishableKey;
+const SUPABASE_URL = window.SUPABASE_PUBLICO.url;
+const SUPABASE_PUBLISHABLE_KEY = window.SUPABASE_PUBLICO.publishableKey;
 
 /* Datos del restaurante de este dominio (RP.cargar). Es null hasta que llegan. */
 let R = null;
