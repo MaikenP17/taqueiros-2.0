@@ -35,6 +35,11 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
     // SQL 15 (horario y mensaje de cerrado validados; guardar_datos_restaurante). SQL15_NO=1 lo omite (para probar el codigo antes de correrlo).
     const f15 = process.env.SQL15_ARCHIVO || path.join(REPO, 'supabase', '15-datos-restaurante.sql');
     if (!process.env.SQL15_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f15)) await db.exec(fs.readFileSync(f15, 'utf8'));
+    // SQL 16 (superadmin, vigencia y auditoria) y SQL 16b (horario con 24:00 y medianoche). SQL16_NO=1 / SQL16B_NO=1 los omiten (para probar el codigo antes de correrlos).
+    const f16 = path.join(REPO, 'supabase', '16-superadmin.sql');
+    if (!process.env.SQL16_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f16)) await db.exec(fs.readFileSync(f16, 'utf8'));
+    const f16b = path.join(REPO, 'supabase', '16b-horario.sql');
+    if (!process.env.SQL16B_NO && !process.env.SQL15_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f16b)) await db.exec(fs.readFileSync(f16b, 'utf8'));
     if (validarConfig === false && !process.env.VALIDAR_CONFIG && !process.env.SQL13_NO && !process.env.SQL12_NO) {
       await db.exec('alter table public.restaurantes disable trigger restaurantes_validar_config');
     }

@@ -1,5 +1,5 @@
 const { leerMenu, menuDeRespaldo } = require("../_menu.js");
-const { exigirRestaurante } = require("../_restaurante.js");
+const { exigirRestaurante, restauranteActivo } = require("../_restaurante.js");
 
 /* =============================================================
    EL MENU PARA LA PAGINA DEL CLIENTE
@@ -26,9 +26,19 @@ const { exigirRestaurante } = require("../_restaurante.js");
    MULTI-RESTAURANTE: el menu es el del restaurante del host (ver
    _restaurante.js). La cache del borde va por dominio y se marca
    "Vary: Host"; la copia de respaldo en memoria es por restaurante.
-   Un restaurante suspendido sigue mostrando su menu: lo que se
-   bloquea es pedir (crear-pedido).
+   Un restaurante suspendido o vencido sigue mostrando su menu: lo que se
+   bloquea es pedir (crear-pedido). Para que la pagina lo sepa sin tener que
+   preguntar otra vez, en ese caso (y SOLO en ese caso) la respuesta lleva
+   servicio: { sirve: false, motivo: "servicio_suspendido" }: el mismo texto
+   neutro de siempre, sin decir si es por falta de pago o por una suspension.
+   Con el servicio al dia la respuesta es exactamente la de siempre.
 ============================================================= */
+/* {} con el servicio al dia; { servicio: { sirve: false, motivo } } si esta vencido o suspendido */
+function avisoDeServicio(restaurante) {
+  const servicio = restauranteActivo(restaurante);
+  return servicio.sirve ? {} : { servicio: { sirve: false, motivo: "servicio_suspendido" } };
+}
+
 module.exports = async (req, res) => {
   const restaurante = await exigirRestaurante(req, res);
   if (!restaurante) return;
@@ -42,7 +52,7 @@ module.exports = async (req, res) => {
 
     res.setHeader("Cache-Control", "public, s-maxage=60");
     res.setHeader("Vary", "Host");
-    res.status(200).json({ ok: true, ...menu });
+    res.status(200).json({ ok: true, ...menu, ...avisoDeServicio(restaurante) });
   } catch (err) {
     console.error("[Menu] No se pudo leer de Supabase:", err.message);
 
@@ -54,7 +64,7 @@ module.exports = async (req, res) => {
       // Cache corto: se quiere reintentar Supabase pronto
       res.setHeader("Cache-Control", "public, s-maxage=30");
       res.setHeader("Vary", "Host");
-      res.status(200).json({ ok: true, deRespaldo: true, ...respaldo });
+      res.status(200).json({ ok: true, deRespaldo: true, ...respaldo, ...avisoDeServicio(restaurante) });
       return;
     }
 

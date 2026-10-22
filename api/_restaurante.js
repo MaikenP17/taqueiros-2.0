@@ -267,39 +267,54 @@ function diaAMs(yyyyMmDd) {
   return m ? Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 }
 
-/* Estado del servicio de un restaurante:
-     { estado: "activo" | "gracia" | "suspendido", sirve: boolean, motivo, ... }
-   - estado 'suspendido'              -> suspendido (motivo "suspendido")
-   - vigente_hasta nulo               -> activo (sin vencimiento)
-   - hoy <= vigente_hasta             -> activo   ('prueba' y 'activo' sirven)
-   - hasta vigente_hasta + dias_gracia-> gracia (sigue sirviendo, con aviso)
-   - despues                          -> suspendido (motivo "vencido")
+/* VIGENCIA / ESTADO DEL SERVICIO de un restaurante (la mensualidad). Es la misma cuenta de
+   public.calcular_vigencia (SQL 16), que usa el panel del dueno; una prueba compara las dos con miles
+   de combinaciones. Devuelve:
+     {
+       vigencia:  "prueba" | "activo" | "gracia" | "vencido" | "suspendido"   <- el ciclo completo
+       sirve:     true si recibe pedidos nuevos (prueba, activo y gracia SI; vencido y suspendido NO)
+       estado:    "activo" | "gracia" | "suspendido"   <- el de siempre (prueba y activo = "activo",
+                  vencido = "suspendido"); lo siguen leyendo /api/estado, /api/restaurante y las alertas
+       motivo, vigenteHasta, diasRestantes, diasParaSuspension, diasDeGracia
+     }
+   - estado 'suspendido'              -> suspendido (lo puso Carlos a mano)
+   - vigente_hasta nulo               -> sin vencimiento: 'prueba' o 'activo' segun la columna estado
+                                         (Taqueiros esta asi y no cambia)
+   - hoy <= vigente_hasta             -> 'prueba' o 'activo'
+   - hasta vigente_hasta + dias_gracia-> gracia (todo funciona; el panel del dueno avisa)
+   - despues                          -> vencido (estado "suspendido", motivo "vencido")
    "Hoy" es la fecha en la zona horaria del restaurante. vigente_hasta cuenta
    completo: el dia que dice, todavia se sirve. */
 function restauranteActivo(restaurante, ahora) {
   const momento = ahora instanceof Date ? ahora : new Date(ahora || Date.now());
   const r = restaurante || {};
+  const base = r.estado === "prueba" ? "prueba" : "activo";
+  const gracia = Math.max(0, Number.isFinite(Number(r.dias_gracia)) ? Math.floor(Number(r.dias_gracia)) : 0);
 
   if (r.estado === "suspendido") {
-    return { estado: "suspendido", sirve: false, motivo: "suspendido", vigenteHasta: r.vigente_hasta || null, diasDeGracia: 0 };
+    return { vigencia: "suspendido", estado: "suspendido", sirve: false, motivo: "suspendido", vigenteHasta: r.vigente_hasta || null,
+      diasRestantes: null, diasParaSuspension: null, diasDeGracia: 0 };
   }
 
   const hasta = diaAMs(r.vigente_hasta);
   if (r.vigente_hasta == null || hasta === null) {
-    return { estado: "activo", sirve: true, motivo: null, vigenteHasta: null, diasDeGracia: 0 };
+    return { vigencia: base, estado: "activo", sirve: true, motivo: null, vigenteHasta: null,
+      diasRestantes: null, diasParaSuspension: null, diasDeGracia: 0 };
   }
 
   const hoy = diaAMs(fechaLocal(momento, r.zona_horaria));
-  const gracia = Math.max(0, Number.isFinite(Number(r.dias_gracia)) ? Math.floor(Number(r.dias_gracia)) : 0);
   const vencidoHace = Math.round((hoy - hasta) / DIA_MS);
 
   if (vencidoHace <= 0) {
-    return { estado: "activo", sirve: true, motivo: null, vigenteHasta: r.vigente_hasta, diasDeGracia: 0 };
+    return { vigencia: base, estado: "activo", sirve: true, motivo: null, vigenteHasta: r.vigente_hasta,
+      diasRestantes: -vencidoHace, diasParaSuspension: null, diasDeGracia: 0 };
   }
   if (vencidoHace <= gracia) {
-    return { estado: "gracia", sirve: true, motivo: "en_gracia", vigenteHasta: r.vigente_hasta, diasDeGracia: gracia - vencidoHace };
+    return { vigencia: "gracia", estado: "gracia", sirve: true, motivo: "en_gracia", vigenteHasta: r.vigente_hasta,
+      diasRestantes: 0, diasParaSuspension: gracia - vencidoHace + 1, diasDeGracia: gracia - vencidoHace };
   }
-  return { estado: "suspendido", sirve: false, motivo: "vencido", vigenteHasta: r.vigente_hasta, diasDeGracia: 0 };
+  return { vigencia: "vencido", estado: "suspendido", sirve: false, motivo: "vencido", vigenteHasta: r.vigente_hasta,
+    diasRestantes: 0, diasParaSuspension: null, diasDeGracia: 0 };
 }
 
 /* Para los endpoints publicos que RECIBEN pedidos: si el servicio no sirve,

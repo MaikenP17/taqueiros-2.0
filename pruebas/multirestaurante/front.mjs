@@ -641,10 +641,10 @@ async function escenario(nombre, fn) {
     comprobar(ts.includes('Producto de suspendido'), 'suspendido: el menu se sigue viendo');
     comprobar(await s.eval(`getComputedStyle(document.getElementById('payOnlineBtn')).display`) === 'none' && await s.eval(`getComputedStyle(document.getElementById('whatsappBtn')).display`) === 'none',
       'suspendido: no se puede pedir (ni pagar ni WhatsApp)');
-    comprobar((await s.eval(`document.getElementById('avisoCerrado').textContent`)) === 'Este restaurante no está recibiendo pedidos en este momento.'
-      && (await s.eval(`document.getElementById('statusBanner').textContent`)).includes('no está recibiendo pedidos')
+    comprobar((await s.eval(`document.getElementById('avisoCerrado').textContent`)) === 'Servicio no disponible por el momento.'
+      && (await s.eval(`document.getElementById('statusBanner').textContent`)).includes('Servicio no disponible por el momento')
       && !/mensualidad|vence|gracia|suspend/i.test(await s.eval(`document.getElementById('statusBanner').textContent + ' ' + document.getElementById('avisoCerrado').textContent`)),
-      'suspendido: mensaje neutro "no esta recibiendo pedidos" (sin hablar de mensualidad)');
+      'suspendido: mensaje neutro "Servicio no disponible por el momento" (sin hablar de mensualidad)');
     const m = await abrir('modulos', URL_N('modulos.localhost') + '/');
     comprobar(await m.eval(`getComputedStyle(document.getElementById('payOnlineBtn')).display`) === 'none', 'pasarela apagada: no se ofrece "Pagar en linea"');
     comprobar(await m.eval(`getComputedStyle(document.getElementById('whatsappBtn')).display`) === 'none' && (await m.eval(`document.getElementById('avisoCerrado').textContent`)).includes('no recibe pedidos'),

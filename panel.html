@@ -553,6 +553,15 @@
     color:var(--mostaza); font-size:.82rem; font-weight:700; line-height:1.45;
   }
   .aviso-impresion[hidden]{display:none;}
+
+  /* ---------- AVISO: LA SUSCRIPCION (solo el dueno) ---------- */
+  .aviso-vigencia{
+    padding:.6rem 1.2rem; text-align:center;
+    background:rgba(var(--mostaza-rgb),.16); border-bottom:1px solid rgba(var(--mostaza-rgb),.5);
+    color:var(--mostaza); font-size:.82rem; font-weight:700; line-height:1.45;
+  }
+  .aviso-vigencia[hidden]{display:none;}
+  .aviso-vigencia.grave{background:rgba(var(--rojo-brillo-rgb),.16); border-bottom-color:rgba(var(--rojo-brillo-rgb),.55); color:#ffb4ab;}
   .aviso-impresion .fila-aviso{display:flex; align-items:center; gap:.7rem; flex-wrap:wrap;}
   .aviso-impresion .fila-aviso.error{color:#ffb4ab;}
   .aviso-impresion button{
@@ -822,6 +831,9 @@
 
   <!-- Avisos de impresion: oculto mientras no haya nada que decir -->
   <div class="aviso-impresion" id="avisoImpresion" role="status" hidden></div>
+
+  <!-- Aviso de la suscripcion (gracia, vencida o suspendida): solo lo ve el dueno; oculto mientras todo este al dia -->
+  <div class="aviso-vigencia" id="avisoVigencia" role="status" hidden></div>
 
   <main class="board" id="board"></main>
 </div>
@@ -1336,6 +1348,7 @@ async function entrarAlPanel(){
   dibujarTablero();
   await cargarConfiguracion();
   await cargarSaludNotificaciones();
+  await cargarVigencia();
   await comprobarColumnasImpresion();
   await cargarPedidos();
   suscribirse();
@@ -2046,6 +2059,63 @@ document.getElementById("guardarHorarios").addEventListener("click", async (e) =
    avisar de los pedidos y no le avisan. Este aviso deja claro que
    en ese momento solo se puede confiar en esta pantalla.
 ========================================================= */
+/* =========================================================
+   AVISO DE LA SUSCRIPCION  (solo el dueno)
+
+   Le pregunta a la base por la vigencia del restaurante (public.vigencia_restaurante, SQL 16: la misma
+   cuenta que hace el servidor) y, si esta en gracia, vencida o suspendida, muestra una barra de texto.
+   Todo funciona igual en gracia; vencida o suspendida, los clientes no pueden hacer pedidos pero el dueno
+   sigue entrando al panel y al historial. Si el SQL 16 aun no esta, o falla la consulta, no hay aviso:
+   nunca se rompe el panel por esto.
+========================================================= */
+function fechaCorta(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if(!m) return "";
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12).toLocaleDateString("es-CO", { day:"numeric", month:"long" });
+}
+
+/* Texto del aviso, o "" si no hay nada que avisar */
+function textoVigencia(v){
+  if(!v || typeof v !== "object") return { texto:"", grave:false };
+  const hasta = fechaCorta(v.vigente_hasta);
+  if(v.estado === "gracia"){
+    const n = Math.max(1, Number(v.dias_para_suspension) || 1);
+    return { grave:false, texto: "Tu suscripción venció el " + hasta + ". " +
+      (n === 1 ? "Hoy es el último día para renovarla: mañana se suspenderá el servicio a tus clientes."
+               : "Tienes " + n + " días para renovarla antes de que se suspenda el servicio a tus clientes.") };
+  }
+  if(v.estado === "vencido"){
+    return { grave:true, texto: "Tu suscripción venció el " + hasta + " y el servicio está suspendido: tus clientes no pueden hacer pedidos. Contáctanos para renovarla." };
+  }
+  if(v.estado === "suspendido"){
+    return { grave:true, texto: "El servicio de tu restaurante está suspendido: tus clientes no pueden hacer pedidos. Contáctanos para reactivarlo." };
+  }
+  return { texto:"", grave:false };
+}
+
+async function cargarVigencia(){
+  const barra = document.getElementById("avisoVigencia");
+  barra.hidden = true;
+  barra.textContent = "";
+  if(PR.rol !== "dueno") return;
+  let datos = null;
+  try{
+    const r = await db.rpc("vigencia_restaurante", { p_restaurante: RID });
+    if(r.error){ console.warn("No se pudo consultar la vigencia:", r.error.message); return; }
+    datos = r.data;
+  }catch(e){
+    console.warn("No se pudo consultar la vigencia:", e && e.message);
+    return;
+  }
+  const aviso = textoVigencia(datos);
+  if(!aviso.texto) return;
+  barra.textContent = aviso.texto;
+  barra.classList.toggle("grave", aviso.grave);
+  barra.hidden = false;
+}
+/* Se vuelve a mirar cada 30 minutos (por si renuevan la suscripcion con el panel abierto) */
+setInterval(() => { if(panelIniciado) cargarVigencia(); }, 30 * 60 * 1000);
+
 async function cargarSaludNotificaciones(){
   const { data, error } = await db
     .from("salud_notificaciones").select("*").eq("restaurante_id", RID).maybeSingle();

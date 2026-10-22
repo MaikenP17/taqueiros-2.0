@@ -341,7 +341,7 @@ export async function pruebaEquivalencia(opts = {}) {
         process.env.SUPABASE_URL = L2.url;
         const ahora = await correrAhora(L2, esc, emu, variante);
         // exigirAhora: cambios hechos a proposito despues del commit de referencia (se exige lo nuevo en vez de la igualdad)
-        const d = esc.exigirAhora ? esc.exigirAhora(ahora) : comparar(respAntes, ahora);
+        const d = esc.exigirAhora ? esc.exigirAhora(ahora) : comparar(esc.ajustarAntes ? esc.ajustarAntes(respAntes) : respAntes, ahora);
         (porGrupo[esc.grupo] = porGrupo[esc.grupo] || { total: 0, mal: 0 }).total++;
         if (d) { porGrupo[esc.grupo].mal++; diferencias.push(`[${esc.grupo}] ${esc.nombre} (${variante}): ${d}`); }
         if (esc.despues) { await esc.despues(L1, respAntes, 'antes'); await esc.despues(L2, ahora, 'ahora'); }
@@ -455,10 +455,12 @@ const cliente = (extra = {}) => ({ nombre: 'Cliente Equivalencia', telefono: '30
 function guionDeEscenarios() {
   const G = [];
   const e = (grupo, nombre, spec, extra = {}) => G.push({ grupo, nombre, spec: typeof spec === 'function' ? spec : async () => spec, ...extra });
-  const get = (grupo, nombre, host, ruta, headers) => e(grupo, nombre, { host, ruta, headers });
+  const get = (grupo, nombre, host, ruta, headers, extra) => e(grupo, nombre, { host, ruta, headers }, extra);
+  // Cambio a proposito (paso 3A): el menu de un restaurante vencido o suspendido agrega servicio: { sirve: false, motivo } al final
+  const conAvisoDeServicio = { ajustarAntes: (r) => ({ ...r, cuerpo: r.status === 200 && r.cuerpo && typeof r.cuerpo === 'object' ? { ...r.cuerpo, servicio: { sirve: false, motivo: 'servicio_suspendido' } } : r.cuerpo }) };
 
   // ---- menu ----
-  for (const k of ['A', 'B', 'TAQ', 'C']) get('menu', `menu de ${k}`, HOSTS[k], '/api/menu');
+  for (const k of ['A', 'B', 'TAQ', 'C']) get('menu', `menu de ${k}`, HOSTS[k], '/api/menu', undefined, k === 'C' ? conAvisoDeServicio : undefined);
   get('menu', 'menu en host desconocido (404 neutro)', HOSTS.DESCONOCIDO, '/api/menu');
   get('menu', 'menu sin Host', undefined, '/api/menu');
   get('menu', 'menu con ?r= (apagado en produccion)', HOSTS.DESCONOCIDO, '/api/menu?r=eq-a');
@@ -562,7 +564,7 @@ function guionDeEscenarios() {
   const suspender = (estado) => async (L) => { await L.rest('PATCH', `restaurantes?id=eq.${IDS.A}`, { estado }); };
   e('suspension', 'A suspendido: crear-pedido (403)', pedido(HOSTS.A, [{ id: 'taco', cantidad: 1, precio: 10000 }]), { mutante: true, preparar: suspender('suspendido') });
   e('suspension', 'A suspendido: generar-firma (403)', { metodo: 'POST', host: HOSTS.A, ruta: '/api/generar-firma', cuerpo: { referencia: 'TAQ-0-000000', montoEnCentavos: 100, modo: 'test' } }, { mutante: true });
-  e('suspension', 'A suspendido: el menu sigue', { host: HOSTS.A, ruta: '/api/menu' });
+  e('suspension', 'A suspendido: el menu sigue (y avisa que el servicio no esta al dia)', { host: HOSTS.A, ruta: '/api/menu' }, conAvisoDeServicio);
   e('suspension', 'A suspendido: datos publicos (servicio suspendido)', { host: HOSTS.A, ruta: '/api/restaurante' });
   e('suspension', 'A suspendido: alertas no lo avisa', { host: 'cron.equivalencia.test', ruta: '/api/alertas', headers: { authorization: 'Bearer ' + SECRETO_CRON } }, { mutante: true });
   e('suspension', 'A reactivado: crear-pedido', pedido(HOSTS.A, [{ id: 'taco', cantidad: 1, precio: 10000 }]), { mutante: true, preparar: suspender('activo') });

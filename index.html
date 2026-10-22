@@ -2305,7 +2305,7 @@ async function iniciarPagoWompi(){
         aplicarEstadoRestaurante();
         renderStatusBanner();
         closePaymentForm();
-        alert(detalle.error || MENSAJE_SERVICIO_SUSPENDIDO);
+        alert(MENSAJE_SERVICIO_SUSPENDIDO);
         return;
       }
 
@@ -2841,8 +2841,8 @@ let restauranteAbierto = true;   // hasta que el servidor diga lo contrario
 let estadoServidor = null;
 let servicioActivo = true;       // false si el restaurante tiene el servicio suspendido (R.servicio y /api/estado)
 
-/* Lo mismo que responde el servidor al intentar pedir con el servicio suspendido (api/_restaurante.js). */
-const MENSAJE_SERVICIO_SUSPENDIDO = "Este restaurante no está recibiendo pedidos en este momento.";
+/* El mensaje NEUTRO que ve el cliente cuando el servicio esta suspendido o vencido: no dice el motivo (ni menciona pagos). */
+const MENSAJE_SERVICIO_SUSPENDIDO = "Servicio no disponible por el momento.";
 
 async function consultarEstadoRestaurante(){
   try{

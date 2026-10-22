@@ -1064,8 +1064,14 @@ export async function correrEscenarios(opts) {
         && (await en('2026-10-20T20:00:00Z')) === false,        // 15:00 local
         'cruce de medianoche');
     });
-    await T('la hora de corte de la jornada limita el tramo de madrugada (cierra 02:00, corte 01:00 -> cierra a la 01:00)', async () => {
-      await ponerHorario(C, horariosDe('18:00', '02:00'), { hora_corte_jornada: '01:00' });
+    await T('la hora de corte de la jornada limita el tramo de madrugada (cierra 02:00, corte 01:00 -> cierra a la 01:00); con el SQL 16b la base ya no deja guardar esa combinacion', async () => {
+      // Desde el SQL 16b (regla del horario, docs 19.7) un cierre de madrugada posterior a la hora de corte se rechaza en la base (23514).
+      // Si el 16b no esta aplicado, se prueba lo de siempre: el servidor lo corta en la hora de corte (con datos guardados de antes
+      // pasa lo mismo; ver pruebas/horario-regla.test.js).
+      let codigoBase = null;
+      try { await ponerHorario(C, horariosDe('18:00', '02:00'), { hora_corte_jornada: '01:00' }); }
+      catch (e) { codigoBase = /"code":"(\w+)"/.test(e.message) ? RegExp.$1 : 'otro'; }
+      if (codigoBase) return es(codigoBase === '23514', 'la base respondio ' + codigoBase);
       const c = await filaC({});
       const a = await horario.estadoRestaurante(c, new Date('2026-10-21T05:30:00Z'));   // 00:30 local
       const b = await horario.estadoRestaurante(c, new Date('2026-10-21T06:30:00Z'));   // 01:30 local
@@ -1736,6 +1742,152 @@ export async function correrEscenarios(opts) {
       await parchear('restaurantes', `id=eq.${B.id}`, { estado: 'activo' }); R.invalidarCache();
       return es(r.status === 403 && r.cuerpo.motivo === 'servicio_suspendido', r.status);
     });
+
+    /* =====================================================================
+       9b. VIGENCIA: prueba, activo, gracia, vencido, suspendido y sin vencimiento (paso 3A)
+       Que pasa en menu, estado, datos publicos, crear-pedido, generar-firma, webhook y reembolso.
+       Regla: en prueba, activo y gracia todo funciona; en vencido y suspendido el cliente no puede pedir ni
+       firmar (403 "servicio_suspendido", mensaje neutro), pero un pago que ya iba en camino (webhook) y los
+       reembolsos del dueno NUNCA se bloquean, y el menu sigue viendose.
+    ===================================================================== */
+    grupo('vigencia');
+    {
+      const E = await nuevoRestaurante('e');
+      const hE = hostDe('e');
+      await dominio(hE, E);
+      await ponerSecretos(E, 'e');
+      await menuDe(E, [['taco', 'Taco de E', 20000]]);
+      await ponerHorario(E, horariosTodoElDia());
+      const duenoE = await usuario('dueno-e');
+      await insertar('miembros', [{ user_id: duenoE.id, restaurante_id: E.id, rol: 'dueno', activo: true }]);
+      // 'hoy' es la fecha de Bogota (la del servidor), no la de UTC: de noche difieren y los casos del borde (ultimo dia, ultimo dia de gracia) fallarian
+      const hoyBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(dateNowReal()));
+      const dia = (n) => new Date(Date.parse(hoyBogota + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+      const PRODUCTOS = [{ id: 'taco', cantidad: 1, precio: 20000 }];
+      const ESTADOS = [
+        // nombre, columnas de la fila, vigencia esperada, sirve
+        ['prueba', { estado: 'prueba', vigente_hasta: dia(10), dias_gracia: 5 }, 'prueba', true],
+        ['prueba sin vencimiento', { estado: 'prueba', vigente_hasta: null, dias_gracia: 5 }, 'prueba', true],
+        ['activo', { estado: 'activo', vigente_hasta: dia(10), dias_gracia: 5 }, 'activo', true],
+        ['activo el ultimo dia', { estado: 'activo', vigente_hasta: dia(0), dias_gracia: 5 }, 'activo', true],
+        ['gracia', { estado: 'activo', vigente_hasta: dia(-2), dias_gracia: 5 }, 'gracia', true],
+        ['gracia el ultimo dia', { estado: 'activo', vigente_hasta: dia(-5), dias_gracia: 5 }, 'gracia', true],
+        ['vencido', { estado: 'activo', vigente_hasta: dia(-6), dias_gracia: 5 }, 'vencido', false],
+        ['prueba vencida', { estado: 'prueba', vigente_hasta: dia(-40), dias_gracia: 5 }, 'vencido', false],
+        ['suspendido a mano', { estado: 'suspendido', vigente_hasta: dia(10), dias_gracia: 5 }, 'suspendido', false],
+        ['suspendido sin fecha', { estado: 'suspendido', vigente_hasta: null, dias_gracia: 5 }, 'suspendido', false],
+        ['sin vencimiento', { estado: 'activo', vigente_hasta: null, dias_gracia: 5 }, 'activo', true]
+      ];
+      const alDia = { estado: 'activo', vigente_hasta: null, dias_gracia: 5 };
+      const poner = async (cols) => { await parchear('restaurantes', `id=eq.${E.id}`, cols); R.invalidarCache(); };
+      let n = 0;
+
+      for (const [nombre, cols, vigenciaEsperada, sirve] of ESTADOS) {
+        n++;
+        await T(`${nombre.toUpperCase()}: vigencia "${vigenciaEsperada}", ${sirve ? 'recibe pedidos y firmas' : 'no recibe pedidos ni firmas (403 neutro)'}; menu, estado y datos publicos coherentes; el webhook y el reembolso SIEMPRE funcionan`, async () => {
+          const info = [];
+          const v = R.restauranteActivo({ id: E.id, ...cols, zona_horaria: 'America/Bogota' });
+          if (v.vigencia !== vigenciaEsperada || v.sirve !== sirve) info.push(`vigencia ${v.vigencia}/${v.sirve}`);
+
+          // 1) con el servicio al dia se prepara lo que ya "iba en camino": un pedido pendiente (para firma y webhook) y un cobrado y cancelado (reembolso)
+          await poner(alDia);
+          const pendiente = await crearPedidoEn(hE, E, PRODUCTOS);
+          if (pendiente.status !== 200) return es(false, 'no se pudo preparar el pedido: ' + JSON.stringify(pendiente.cuerpo));
+          const refR = `TAQ-VG-${sfx}-${n}`;
+          await pedidoCancelado(E, refR);
+
+          // 2) ahora el restaurante pasa al estado a probar
+          await poner(cols);
+          const antes = await contarPedidos(E);
+
+          const menu = await pedirMenu(hE);
+          const estado = await invocar(M.estado, { host: hE });
+          const publico = await invocar(M.restaurante, { host: hE, ruta: '/api/restaurante' });
+          const crear = await crearPedidoEn(hE, E, PRODUCTOS);
+          const firma = await invocar(M.firma, { metodo: 'POST', host: hE, cuerpo: { referencia: pendiente.cuerpo.referencia, montoEnCentavos: pendiente.cuerpo.total * 100, modo: 'test' } });
+          const despues = await contarPedidos(E);
+
+          // menu: siempre se ve; solo avisa cuando NO sirve
+          if (menu.status !== 200 || !menu.cuerpo.productos || !menu.cuerpo.productos.length) info.push('el menu no se ve: ' + menu.status);
+          if (sirve && 'servicio' in menu.cuerpo) info.push('el menu trae servicio con el servicio al dia');
+          if (!sirve && !(menu.cuerpo.servicio && menu.cuerpo.servicio.sirve === false && menu.cuerpo.servicio.motivo === 'servicio_suspendido')) info.push('el menu no avisa: ' + JSON.stringify(menu.cuerpo.servicio));
+          // estado y datos publicos: sirve coherente; el motivo es neutro (nunca "vencido" ni "gracia")
+          if (estado.status !== 200 || estado.cuerpo.servicio.sirve !== sirve) info.push('estado ' + JSON.stringify(estado.cuerpo.servicio));
+          if (publico.status !== 200 || publico.cuerpo.servicio.sirve !== sirve || publico.cuerpo.servicio.estado !== (sirve ? 'activo' : 'suspendido')) info.push('publico ' + JSON.stringify(publico.cuerpo.servicio));
+          const texto = JSON.stringify([menu.cuerpo.servicio || null, estado.cuerpo.servicio, publico.cuerpo.servicio]);
+          if (/vencid|gracia|pago|mensualidad|prueba|dias/i.test(texto)) info.push('el aviso publico revela el motivo: ' + texto);
+          // crear-pedido y generar-firma
+          if (sirve) {
+            if (crear.status !== 200 || despues !== antes + 1) info.push(`crear-pedido ${crear.status} (${antes}->${despues})`);
+            if (firma.status !== 200) info.push('generar-firma ' + firma.status);
+          } else {
+            if (crear.status !== 403 || crear.cuerpo.motivo !== 'servicio_suspendido' || despues !== antes) info.push(`crear-pedido ${crear.status} ${JSON.stringify(crear.cuerpo)} (${antes}->${despues})`);
+            if (firma.status !== 403 || firma.cuerpo.motivo !== 'servicio_suspendido') info.push('generar-firma ' + firma.status);
+            if (/vencid|gracia|pago|mensualidad|prueba/i.test(JSON.stringify([crear.cuerpo, firma.cuerpo]))) info.push('el rechazo revela el motivo');
+          }
+
+          // webhook: el pago que ya iba en camino se aprueba SIEMPRE (y avisa al contacto)
+          callmebot.length = 0;
+          const wh = await webhook(evento({ referencia: pendiente.cuerpo.referencia, montoCentavos: pendiente.cuerpo.total * 100, secreto: secretoDe('e', 'eventos-test') }));
+          const p = await pedidoDe(E, pendiente.cuerpo.referencia);
+          if (wh.status !== 200 || p.estado_pago !== 'aprobado' || p.estado !== 'nuevo') info.push(`webhook ${wh.status} ${p && p.estado_pago}`);
+          if (callmebot.length !== 1) info.push('el webhook no avisó: ' + callmebot.length);
+
+          // reembolso: el dueno puede registrarlo siempre
+          const rr = await pedirReembolso(hE, duenoE.token, refR);
+          if (rr.status !== 200 || !rr.cuerpo.reembolsado_en) info.push(`reembolso ${rr.status} ${JSON.stringify(rr.cuerpo)}`);
+
+          await poner(alDia);
+          return es(info.length === 0, info.join(' | '));
+        });
+      }
+
+      // los estados cambian al instante: el siguiente pedido ya ve el cambio (sin esperar la cache de 30 s)
+      await T('TAQUEIROS no cambia (solo lectura): sin vencimiento sigue activo y sirve, y su menu, su estado y sus datos publicos son los de siempre (sin avisos de servicio)', async () => {
+        const t = await S.buscarRestaurantePorId(TAQUEIROS_ID);
+        const v = R.restauranteActivo(t);
+        const menu = await pedirMenu(HOST_TAQUEIROS);
+        const estado = await invocar(M.estado, { host: HOST_TAQUEIROS });
+        const publico = await invocar(M.restaurante, { host: HOST_TAQUEIROS, ruta: '/api/restaurante' });
+        return es(t.vigente_hasta === null && v.sirve === true && v.vigencia === t.estado && v.estado === 'activo'
+          && !('servicio' in menu.cuerpo) && estado.cuerpo.servicio.sirve === true && publico.cuerpo.servicio.sirve === true && publico.cuerpo.servicio.estado === 'activo',
+          JSON.stringify([t.estado, t.vigente_hasta, v.vigencia, menu.cuerpo.servicio, estado.cuerpo.servicio]));
+      });
+      await T('un cambio de vigencia rige en el acto para pedir: pasar de vencido a pagado vuelve a recibir pedidos', async () => {
+        await poner({ estado: 'activo', vigente_hasta: dia(-30), dias_gracia: 5 });
+        const a = await crearPedidoEn(hE, E, PRODUCTOS);
+        await poner({ estado: 'activo', vigente_hasta: dia(30), dias_gracia: 5 });
+        const b = await crearPedidoEn(hE, E, PRODUCTOS);
+        await poner(alDia);
+        return es(a.status === 403 && b.status === 200, `${a.status} ${b.status}`);
+      });
+      await T('la gracia no se ve desde afuera: /api/restaurante dice "activo" y /api/estado "sirve", sin fechas ni la palabra gracia', async () => {
+        await poner({ estado: 'activo', vigente_hasta: dia(-2), dias_gracia: 5 });
+        const p = await invocar(M.restaurante, { host: hE, ruta: '/api/restaurante' });
+        const s = await invocar(M.estado, { host: hE });
+        const m = await pedirMenu(hE);
+        const t = JSON.stringify([p.cuerpo, s.cuerpo, m.cuerpo]);
+        await poner(alDia);
+        return es(p.cuerpo.servicio.estado === 'activo' && s.cuerpo.servicio.sirve === true && !/gracia|vigente|dias_gracia/i.test(t) && !t.includes(dia(-2)), t.slice(0, 120));
+      });
+      await T('restauranteActivo: el ciclo completo (prueba, activo, gracia, vencido, suspendido) con dias restantes y dias para la suspension', async () => {
+        const hoy = '2026-10-20T20:00:00Z';
+        const f = (cols, iso = hoy) => R.restauranteActivo({ id: 'x', zona_horaria: 'America/Bogota', dias_gracia: 5, ...cols }, new Date(iso));
+        const a = f({ estado: 'prueba', vigente_hasta: '2026-10-25' });
+        const b = f({ estado: 'activo', vigente_hasta: '2026-10-20' });
+        const c = f({ estado: 'activo', vigente_hasta: '2026-10-18' });
+        const d = f({ estado: 'activo', vigente_hasta: '2026-10-14' });
+        const s = f({ estado: 'suspendido', vigente_hasta: '2026-12-01' });
+        const q = f({ estado: 'prueba', vigente_hasta: null });
+        return es(a.vigencia === 'prueba' && a.diasRestantes === 5 && a.estado === 'activo'
+          && b.vigencia === 'activo' && b.diasRestantes === 0
+          && c.vigencia === 'gracia' && c.estado === 'gracia' && c.diasParaSuspension === 4 && c.sirve
+          && d.vigencia === 'vencido' && d.estado === 'suspendido' && d.motivo === 'vencido' && !d.sirve
+          && s.vigencia === 'suspendido' && !s.sirve
+          && q.vigencia === 'prueba' && q.sirve && q.diasRestantes === null,
+          JSON.stringify([a, b, c, d, s, q].map((x) => x.vigencia + '/' + x.diasRestantes + '/' + x.diasParaSuspension)));
+      });
+    }
 
     /* =====================================================================
        10. DEFENSAS DEL CLIENTE DE SUPABASE
