@@ -24,6 +24,8 @@
 --   * politicas_public / politicas_storage -> cualquier politica rara
 --                                   que alguien creo desde el dashboard.
 --   * sql_pendientes             -> si el SQL 01 y el 02 ya corrieron.
+--   * sql_15_16_aplicados        -> si los SQL 15, 16 y 16b ya corrieron y cuantos
+--                                   superadmins hay dados de alta.
 --   * funciones_security_definer / firmas_repetidas / triggers_en_auth_users
 --                                -> lo que el SQL 10 se niega a dejar
 --                                   pasar sin revision (ver docs, seccion 10).
@@ -294,4 +296,14 @@ select 'fotos_en_la_raiz_del_bucket',
          'archivos_en_la_raiz', (select count(*) from storage.objects o where o.bucket_id = 'productos' and o.name !~ '/'),
          'productos_que_apuntan_a_la_raiz', case when to_regclass('public.productos') is null then null else
            (select count(*) from public.productos p
-            where p.imagen ~ '/storage/v1/object/public/productos/[^/?#]+([?#].*)?$') end);
+            where p.imagen ~ '/storage/v1/object/public/productos/[^/?#]+([?#].*)?$') end)
+union all
+-- SQL 15 y 16: cuales estan aplicados (true/false) y cuantos superadmins hay dados de alta
+select 'sql_15_16_aplicados',
+       jsonb_build_object(
+         'sql_15_guardar_datos_restaurante', to_regprocedure('public.guardar_datos_restaurante(uuid,jsonb)') is not null,
+         'sql_16_vigencia', to_regprocedure('public.calcular_vigencia(text,date,integer,text,timestamptz)') is not null,
+         'sql_16_auditoria_superadmin', to_regclass('public.auditoria_superadmin') is not null,
+         'sql_16_funciones_sa', (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'sa\_%' escape '\'),
+         'sql_16b_horario_con_hora_de_corte', to_regprocedure('public.configuracion_errores(jsonb,text,boolean,boolean,text)') is not null,
+         'superadmins_dados_de_alta', case when to_regclass('public.superadmins') is null then null else (select count(*) from public.superadmins) end);

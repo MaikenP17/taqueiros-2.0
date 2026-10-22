@@ -40,6 +40,17 @@ if (antes) {
 await db.exec(sql('13-endurecer.sql'));
 const despues = await inspeccionar(db);
 prueba('despues del SQL 13: ninguna tabla conserva el valor por defecto', JSON.stringify(despues.restaurante_id_con_valor_por_defecto) === '[]', JSON.stringify(despues.restaurante_id_con_valor_por_defecto));
+prueba('antes de los SQL 15 y 16: la inspeccion dice que no estan aplicados y que no hay superadmins',
+  despues.sql_15_16_aplicados && despues.sql_15_16_aplicados.sql_15_guardar_datos_restaurante === false && despues.sql_15_16_aplicados.sql_16_vigencia === false
+  && despues.sql_15_16_aplicados.sql_16_auditoria_superadmin === false && Number(despues.sql_15_16_aplicados.sql_16_funciones_sa) === 0
+  && despues.sql_15_16_aplicados.sql_16b_horario_con_hora_de_corte === false && Number(despues.sql_15_16_aplicados.superadmins_dados_de_alta) === 0, JSON.stringify(despues.sql_15_16_aplicados));
+await db.exec(sql('15-datos-restaurante.sql'));
+await db.exec(sql('16-superadmin.sql'));
+await db.exec(sql('16b-horario.sql'));
+const con16 = await inspeccionar(db);
+prueba('despues de los SQL 15, 16 y 16b: dice que estan aplicados (15 funciones sa_*)',
+  con16.sql_15_16_aplicados.sql_15_guardar_datos_restaurante === true && con16.sql_15_16_aplicados.sql_16_vigencia === true && con16.sql_15_16_aplicados.sql_16_auditoria_superadmin === true
+  && Number(con16.sql_15_16_aplicados.sql_16_funciones_sa) >= 15 && con16.sql_15_16_aplicados.sql_16b_horario_con_hora_de_corte === true, JSON.stringify(con16.sql_15_16_aplicados));
 prueba('la inspeccion sigue sin modificar nada (solo un SELECT)', (await db.query(`select count(*)::int n from public.productos where imagen like '%p-a.webp'`)).rows[0].n === 1, '');
 
 let fallas = 0;
