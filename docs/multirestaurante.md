@@ -14,7 +14,7 @@ restaurantes**, con aislamiento estricto de datos. Este documento describe la ba
 > dominio, con la membresía verificada y con la marca del restaurante (sin SQL nuevo). La **sección 16** es el paso después: **endurecer la base**
 > (`supabase/13-endurecer.sql`: sin valores por defecto de `restaurante_id`, `config` validada en la base, mínimo privilegio) y **mover las fotos de la raíz del bucket**
 > (`migrar-fotos-raiz.mjs` + `14-retirar-regla-bucket.sql`). La **sección 17** es el paso después: **agrupar endpoints** (11 → 6 funciones de Vercel, sin cambiar ninguna URL), la **vista previa de enlaces por restaurante** y el formulario
-> **"Datos de mi restaurante"** del dueño (`supabase/15-datos-restaurante.sql`, que además valida el horario). Sigue pendiente la interfaz del superadmin (17.9).
+> **"Datos de mi restaurante"** del dueño (`supabase/15-datos-restaurante.sql`, que además valida el horario). Sigue pendiente la interfaz del superadmin (17.9). La **sección 19** es el paso 3A de esa administración: la **base y el servidor del panel de superadmin** (`supabase/16-superadmin.sql`, `api/superadmin.js`), el ciclo de **vigencia** de cada restaurante, el horario con `24:00` y medianoche (`16b`) y el retiro de `?clave=` del cron; la pantalla es el 3B.
 
 Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos · 4. Decisiones ·
 5. Qué se conserva para no romper nada · 6. Orden de pasos en Windows · 7. Lo que queda para el siguiente paso ·
@@ -22,7 +22,8 @@ Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos �
 12. Servidor multi-restaurante (SQL 11 + api/) · 13. Revisión adversaria del servidor ·
 14. Frontend público multi-restaurante (SQL 12) · 15. Paneles del personal por restaurante ·
 16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz ·
-**17. Agrupar endpoints, vista previa de enlaces y "Datos de mi restaurante" (SQL 15)**
+17. Agrupar endpoints, vista previa de enlaces y "Datos de mi restaurante" (SQL 15) · 18. Revisión adversaria de 2B-3, 2B-4 y 2B-5 ·
+**19. Panel de superadmin: la base y el servidor (SQL 16, SQL 16b y `api/superadmin.js`)**
 
 ---
 
@@ -827,6 +828,8 @@ los bordes). La respuesta incluye `jornada` y `horaCorteJornada`.
 
 ### 12.8 Dar de alta un restaurante nuevo (receta, con la llave secreta o el SQL Editor)
 
+> *(Desde la sección 19 hay un procedimiento con la API de superadmin, que además deja auditoría: 19.6.)*
+
 1. `insert into public.restaurantes (slug, nombre, estado) values ('lostaqueiros', 'Los Taqueiros ...', 'prueba');`
    (el trigger crea su fila de secretos, contador, configuración y salud).
 2. Dominio: `insert into public.restaurante_dominios (host, restaurante_id) values ('pedidos.lostaqueiros.com', '<id>');`
@@ -964,7 +967,7 @@ WhatsApp real.
    (`...vercel.app` distinto) no está registrado y solo sirve con `?r=`, que además exige `RESTAURANTE_POR_PARAMETRO=1`
    en las variables de **Preview** (sección 13, H4).
 7. **`modo` de cobro de Taqueiros** sigue lo que mande su página hasta que se fije `otros.wompi_modo`.
-8. **`?clave=` del cron** y el defecto transitorio no se retiraron (se pidió dejarlos).
+8. **`?clave=` del cron** y el defecto transitorio no se retiraron (se pidió dejarlos). *(`?clave=` se retiró en la sección 19.8.)*
 9. **Anomalía de `restaurante_dominios` si se borra a mano:** el servidor usa la última resolución conocida hasta 6 h si
    Supabase falla; borrar un dominio no lo "desconecta" al instante en instancias con la caché (30 s) o en caída de la base.
 
@@ -1105,7 +1108,7 @@ Corrida final de `mutaciones-servidor.mjs`: **149 detectadas, 9 equivalentes, 0 
 | P10 | Bajo | El log de Vercel guarda datos personales (errores de PostgREST con "Failing row contains (...)", nombres y referencias). | Tratar el acceso al log de Vercel como acceso a datos de clientes. |
 | P11 | Bajo | Si dos restaurantes cargan el mismo secreto de eventos (misma cuenta de Wompi), cada dueño puede aprobar pedidos del otro. | No compartir cuentas de Wompi entre restaurantes; (futuro) que `cargar-secretos.mjs` avise de secretos repetidos. |
 | P12 | Bajo | Con `DOMINIO_BASE` (comodín), subdominios inventados: cada uno es una consulta (caché negativa de 10 s) y desplaza entradas buenas de la caché de 500; y 200/404 revela qué slugs existen (inherente: son sitios públicos). | Aceptado. |
-| P13 | Bajo | Ventana de milisegundos entre la relectura del restaurante y el insert: un pedido puede entrar justo al suspender. `seguimiento(ref)` sigue siendo global por referencia (impredecible); `?clave=` del cron sigue aceptándose. | Aceptado / tarea del front (ya listados en 12.11). |
+| P13 | Bajo | Ventana de milisegundos entre la relectura del restaurante y el insert: un pedido puede entrar justo al suspender. `seguimiento(ref)` sigue siendo global por referencia (impredecible); `?clave=` del cron sigue aceptándose. *(Retirado en la sección 19.8.)* | Aceptado / tarea del front (ya listados en 12.11). |
 
 ### 13.5 Qué correr (Windows) y qué cambia en Vercel
 
@@ -2088,7 +2091,7 @@ Vercel cuenta **una función por cada archivo de `api/` que no empiece por guion
 | `api/alertas.js`, `keep-alive.js` | módulos en `api/_modulos/` → función **`api/cron.js`** |
 | `api/crear-pedido.js`, `generar-firma.js`, `reembolso.js`, `webhook-wompi.js` | **sin tocar** (sus propias funciones) |
 
-**Resultado: 6 funciones de 12** (`crear-pedido`, `cron`, `generar-firma`, `publico`, `reembolso`, `webhook-wompi`). Quedan 6 libres para el superadmin. Una prueba falla si
+**Resultado: 6 funciones de 12** (`crear-pedido`, `cron`, `generar-firma`, `publico`, `reembolso`, `webhook-wompi`). Quedan 6 libres para el superadmin. *(Desde la sección 19, `api/superadmin.js` es la 7.ª: 7 de 12.)* Una prueba falla si
 alguna vez pasan de 7 (`agrupacion.mjs`, A1) y otra exige que sean exactamente estas 6 (A2), para que sumar una sea una decisión y no un descuido.
 
 **Por qué esas cuatro no se agruparon.** Son las de dinero y autorización (revisadas por Opus). Moverlas no liberaba más espacio del necesario y cada cambio ahí es riesgo: la URL de
@@ -2104,7 +2107,7 @@ Wompi (`/api/webhook-wompi`) queda **literalmente el mismo archivo**. Candidatos
 | `/api/restaurante` | páginas públicas y privadas | `/api/publico?_ruta=restaurante` | `publico` → `restaurante` |
 | `/manifest.json` | `panel.html` (PWA) | `/api/publico?_ruta=manifest` | `publico` → `manifest` |
 | `/api/manifest` | (compatibilidad) | `/api/publico?_ruta=manifest` | `publico` → `manifest` |
-| `/api/alertas` | cron-job.org (`Authorization: Bearer` o `?clave=`) | `/api/cron?_ruta=alertas` | `cron` → `alertas` |
+| `/api/alertas` | cron-job.org (`Authorization: Bearer`; `?clave=` se retiró en 19.8) | `/api/cron?_ruta=alertas` | `cron` → `alertas` |
 | `/api/keep-alive` | cron-job.org **y el cron de Vercel** (`vercel.json` → `crons`) | `/api/cron?_ruta=keep-alive` | `cron` → `keep-alive` |
 | `/api/webhook-wompi`, `/api/crear-pedido`, `/api/generar-firma`, `/api/reembolso` | Wompi, páginas, panel | — (archivos propios) | las mismas funciones de siempre |
 
@@ -2341,7 +2344,7 @@ $s = Read-Host "CRON_SECRET (UNA sola vez)" -AsSecureString
 $e = [System.Net.NetworkCredential]::new('', $s).Password
 curl.exe -s -H "Authorization: Bearer $e" "$h/api/keep-alive"          # {"ok":true,"momento":"...","huerfanosBorrados":...}
 curl.exe -s -o NUL -w "alertas con Bearer:  %{http_code}`n" -H "Authorization: Bearer $e" "$h/api/alertas"   # 200
-curl.exe -s -o NUL -w "alertas con ?clave=: %{http_code}`n" "$h/api/alertas?clave=$e"                        # 200 (la compatibilidad sigue)
+curl.exe -s -o NUL -w "alertas con ?clave=: %{http_code}`n" "$h/api/alertas?clave=$e"                        # (desde la sección 19.8 esto da 401: ?clave= se retiró)
 Remove-Variable e, s
 ```
 
@@ -2400,7 +2403,7 @@ registrado (17.9), repite con su dominio: cada uno debe mostrar su nombre y su l
 5. **Horario:** el trigger nuevo también rechaza al servidor y al superadmin un horario de otra forma (exactamente 7 días con `dia/abre/cierra/activo`). `aprovisionar_restaurante()` crea uno válido. Un restaurante cuyo horario *actual* no cumpla solo se
    informa al aplicar el SQL (se valida cuando cambie su horario). El panel actual (`horariosBtn`) escribe exactamente esa forma.
 6. **Caché de 30 s** (`_restaurante.js`): lo que edita el dueño tarda hasta 30 s en verse en el sitio, el manifest y la vista previa (por instancia). Si molesta, el formulario podría llamar a un endpoint que invalide la caché (agregaría un endpoint con sesión).
-7. **Panel de superadmin:** hay 6 funciones libres. `api/_sesion.js` ya existe; el panel actual **no deja entrar a un superadmin que no sea miembro** (15.3), así que la interfaz deberá traer su camino de "entrar como". `guardar_datos_restaurante`
+7. **Panel de superadmin** *(base y servidor hechos en la sección 19; la pantalla es el 3B)*: había 6 funciones libres. `api/_sesion.js` ya existe; el panel actual **no deja entrar a un superadmin que no sea miembro** (15.3), así que la interfaz deberá traer su camino de "entrar como". `guardar_datos_restaurante`
    y `config_restaurante_errores` ya le sirven al superadmin; **la marca, la ubicación, el domicilio y las llaves** siguen sin formulario (solo SQL o `UPDATE` con la llave de servidor): un formulario de superadmin deberá escribirlos por una función
    propia (con auditoría) y validar con `config_restaurante_errores`.
 8. **Para agrupar más** (si hiciera falta espacio): `crear-pedido` + `generar-firma` + `reembolso` → una función `pedidos`; el despachador ya lo permite. No se hizo para no tocar la lógica de dinero.
@@ -2488,7 +2491,250 @@ Cada prueba nueva se corrió también contra el código anterior y **falla** (R1
 ### 18.6 Riesgos que se aceptan de forma explícita y lo que sigue pendiente
 
 * R5, R6, R7: esperan tu decisión (18.1). R8 y la propuesta D: listas para un paso siguiente. R9 y R10: verificar con la base real (18.4).
-* `?clave=` del cron queda en el log de Vercel y en cron-job.org (se mantiene a propósito; recomendación en 18.2-1).
+* `?clave=` del cron queda en el log de Vercel y en cron-job.org (se mantiene a propósito; recomendación en 18.2-1). *(Retirado en la sección 19.8.)*
 * El límite de peticiones (P4) sigue sin implementar (propuesta C).
 * Una alerta que falla ahora se reintenta cada pasada del cron mientras el pedido siga sin atender dentro de la ventana de 2 h (máximo 10 por restaurante por pasada): con una apikey inválida, CallMeBot recibe esos intentos (antes recibía uno). Es lo que pedía el diseño ("un fallo de envío permite reintentar").
 * `Vary: Host` del borde (P5), Preview de Vercel (P2), Realtime y `DELETE`, P6–P13: sin cambios.
+
+---
+
+## 19. Panel de superadmin: la base y el servidor (SQL 16, SQL 16b y `api/superadmin.js`) — paso 3A de 3B
+
+Taqueiros se vende por mensualidad: un cliente lo pide, se le habilita el sistema creándole usuario y contraseña, y el restaurante entra y crea sus productos. Hasta la
+sección 18 todo lo del restaurante estaba hecho (base, servidor, páginas públicas, panel del dueño) pero **dar de alta a un cliente, cobrarle la mensualidad y
+suspenderlo** se hacía a mano con SQL. Esta sección es la **base de datos y el servidor** de esa administración (3A). **La pantalla (`superadmin.html`) es el paso 3B y
+no existe todavía**; hasta entonces el superadmin opera con la API (19.6). **Ningún SQL de esta sección se aplicó a la base real**: viven en archivos numerados con su
+reversa y los aplicas tú (19.10).
+
+### 19.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `supabase/16-superadmin.sql` y `16-revertir.sql` (nuevos) | Vigencia (`calcular_vigencia`, `vigencia_restaurante`), tabla de auditoría de solo agregar (`auditoria_superadmin`) y 15 funciones de superadmin (`sa_*`) que solo el servidor puede llamar. Atómico, idempotente, marcadores `-- >>> PASO n`, bloques `DO` con `MR paso n: …`, barridos por OID, **25 comprobaciones OK/FALLA**, apto para "Run without RLS". Reversa: 6 comprobaciones. |
+| `supabase/16b-horario.sql` y `16b-revertir.sql` (nuevos) | La regla del horario con `24:00` y medianoche aplicada en la base (19.7). **Independiente del 16** (cualquier orden); necesita el 15. 15 comprobaciones; reversa: 7. |
+| `api/superadmin.js` (nuevo; **la 7.ª de las 12 funciones de Vercel**) | El servidor del panel de superadmin (19.5). `api/_auth-admin.js` (nuevo, `_` = no cuenta) crea usuarios en Auth y genera la clave temporal. `api/_supabase.js` gana `llamarFuncionSuperadmin` (solo acepta nombres `sa_*`). |
+| `api/_restaurante.js`, `api/_modulos/menu.js` | `restauranteActivo` devuelve además `vigencia` (prueba / activo / gracia / vencido / suspendido) con los días restantes; el menú avisa `servicio.sirve = false` **solo** cuando el servicio no está al día (19.3). |
+| `api/_sesion.js` | Una llave de proyecto (`sb_secret_…`, `sb_publishable_…`) como Bearer es "sin sesión" sin llegar a la red (R9 de la sección 18). |
+| `api/_cron.js` | `?clave=` retirado: solo `Authorization: Bearer` (19.8). |
+| `horario-regla.js` (nuevo), `panel.html`, `index.html`, `api/_horario.js` | La regla del horario (19.7). `panel.html` además gana la barra de aviso de la suscripción (19.3). `sw.js` v11. |
+| `supabase/crear-superadmin.mjs`, `supabase/probar-superadmin.mjs` (nuevos) | Dar de alta a un superadmin; las pruebas del panel de superadmin contra la base real. |
+| `pruebas/` | `superadmin.mjs`, `escenarios-superadmin.mjs`, `sql16.mjs`, `crear-superadmin-test.mjs`, `horario-regla.test.js`; grupo `vigencia` en `escenarios-servidor.mjs`; escenario 14 en `panel.mjs`; el Supabase falso carga el 16 y el 16b y ya rechaza un correo repetido como Auth real (422). |
+
+### 19.2 Modelo de superadmin
+
+* **Quién es superadmin:** un usuario de Supabase Auth cuyo id está en `public.superadmins` (hoy vacía). **Nadie más.** Se agrega con `node supabase/crear-superadmin.mjs <correo>` (19.10);
+  el SQL 10 no agregó a nadie y el 16 tampoco.
+* **Cómo opera:** **solo** a través de `POST /api/superadmin`. El navegador no habla con la base para nada de esto: las funciones `sa_*` no tienen `EXECUTE` para `anon`, `authenticated` ni `PUBLIC`
+  (solo `service_role`), de modo que ni siquiera el superadmin puede llamarlas desde su propia sesión (probado). Un dueño, un cajero, una cocina, alguien sin membresía y `anon` jamás pueden llamar nada de superadmin.
+* **Dos comprobaciones, en cada petición:** (1) `api/superadmin.js` valida el JWT con `api/_sesion.js` (el helper de siempre) y mira la tabla `superadmins` **en cada petición** (no se guarda en memoria: quitarlo de la tabla lo saca al
+  instante aunque su token siga vivo); sin sesión o con un token falso, vencido o manipulado → **401** (nunca 500); con sesión pero sin ser superadmin → **403**. (2) Cada función SQL recibe como primer argumento al
+  superadmin que actúa (`p_actor`) y **lo primero que hace** es `exigir_superadmin(p_actor)` (`42501 No autorizado` si no está en la tabla); recién después hace algo y deja la constancia.
+* **Límite de intentos fallidos** (sin infraestructura nueva): 10 intentos fallidos (401 o 403) desde la misma IP en 10 minutos → **429** con `Retry-After`. Es **en la memoria de cada instancia** de Vercel: frena a quien prueba tokens o cuentas
+  a mano, no a un ataque distribuido. **El inicio de sesión (correo y contraseña) no pasa por aquí sino por Supabase Auth**, que tiene sus propios límites (Dashboard → Authentication → Rate Limits): no se puede limitar desde este código sin
+  poner un intermediario. Lo que sí se protege es este endpoint. Reportado como pendiente en 19.12.
+* **MFA (P9 de 13.4):** esta función no mira el nivel `aal2`. Activa la verificación en dos pasos en las cuentas de superadmin (un superadmin ve y administra **todos** los restaurantes); exigirla en el servidor queda para el 3B.
+
+### 19.3 El ciclo de vigencia
+
+Se calcula **al consultar** (sin cron) con `restaurantes.estado`, `vigente_hasta` y `dias_gracia`, en la **zona horaria del restaurante** (el día de `vigente_hasta` todavía se sirve completo). `vigente_hasta` nulo = sin vencimiento (**Taqueiros queda así y no cambia**).
+El estado `vencido` y el `gracia` **no se guardan**: salen de la cuenta. La columna `estado` solo vale `prueba`, `activo` o `suspendido` (este último lo pone Carlos a mano).
+
+| Vigencia | Cuándo | Recibe pedidos y firmas | Menú (`/api/menu`) | `/api/estado` y `/api/restaurante` | Webhook de Wompi y reembolso | Panel del dueño |
+|---|---|---|---|---|---|---|
+| **prueba** | `estado = prueba` y (`vigente_hasta` nulo o hoy ≤ `vigente_hasta`) | sí | igual que siempre | `servicio.sirve = true` | funcionan | sin aviso |
+| **activo** | `estado = activo` y (nulo o hoy ≤ `vigente_hasta`) | sí | igual que siempre | `sirve = true` | funcionan | sin aviso |
+| **gracia** | `vigente_hasta` ya pasó pero hoy ≤ `vigente_hasta + dias_gracia` | **sí** (todo funciona) | igual que siempre | **dice "activo"**: que un restaurante esté atrasado no es público (H10 de la sección 13) | funcionan | **barra de aviso** al dueño: "Tu suscripción venció el … Tienes N días para renovarla…" (el último día: "Hoy es el último día…") |
+| **vencido** | pasó la gracia | **no**: `crear-pedido` y `generar-firma` responden **403** `{motivo: "servicio_suspendido"}`, sin crear ni cambiar nada | se sigue viendo, con `servicio: { sirve: false, motivo: "servicio_suspendido" }` | `sirve = false`, `motivo = servicio_suspendido` (neutro) | **funcionan siempre** (un pago que ya iba en camino nunca se pierde; el dueño registra sus reembolsos) | el dueño **entra igual** al panel y al historial; barra roja: "…el servicio está suspendido: tus clientes no pueden hacer pedidos" |
+| **suspendido** | `estado = suspendido` (a mano) | **no** (igual que vencido) | igual que vencido | igual que vencido | funcionan siempre | igual; barra roja "El servicio de tu restaurante está suspendido…" |
+| **sin vencimiento** | `vigente_hasta` nulo | sí | igual que siempre | `sirve = true` | funcionan | sin aviso |
+
+* **La página pública** (`index.html`) muestra el mensaje **neutro** "Servicio no disponible por el momento." en el banner y en el aviso; no dice el motivo (ni menciona pagos) y esconde los botones de pedir. El 403 del servidor lleva el mismo `motivo` para vencido y suspendido.
+  Nunca aparecen las palabras vencido, gracia, pago ni mensualidad en lo público (se prueba para cada estado).
+* **Una sola consulta por petición:** `crear-pedido` y `generar-firma` releen el restaurante **sin caché** y calculan la vigencia **una vez** (`exigirServicio`); `menu`, `estado` y `restaurante` la calculan sobre el restaurante resuelto
+  (caché de 30 s por instancia; la API de superadmin invalida la caché de la instancia que atendió el cambio, las demás se enteran en ≤ 30 s, y pedir **siempre** rige en el acto).
+* **Dos implementaciones, una sola cuenta:** `public.calcular_vigencia` (SQL, la usa el panel del dueño con `vigencia_restaurante`) y `restauranteActivo` (servidor). Una prueba las compara en **5184 combinaciones** (estado, fecha, gracia, zona horaria incluidas
+  Tokio y Auckland, y 6 instantes alrededor de la medianoche): idénticas.
+* **`vigencia_restaurante(p_restaurante)`** es `SECURITY INVOKER`: manda RLS. Un miembro ve la vigencia de **su** restaurante; cualquier otro recibe `null`; `anon` no puede ejecutarla. El panel la llama al entrar (y cada 30 minutos) y solo pinta la barra si el rol es **dueño**.
+  Si el SQL 16 no está, la llamada falla en silencio y no hay barra (probado: el panel abre igual).
+
+### 19.4 Las funciones SQL y la auditoría
+
+Todas las `sa_*` son `SECURITY DEFINER` con `search_path` fijo, `EXECUTE` solo para `service_role`, y **primer argumento `p_actor`** (el superadmin). Validan todo (los mensajes de error no repiten el valor recibido) y **dejan una fila en la auditoría**.
+
+| Función | Qué hace |
+|---|---|
+| `sa_listar_restaurantes(actor)` | Todos los restaurantes con su vigencia calculada, dominios y cuántos miembros activos tienen. |
+| `sa_detalle_restaurante(actor, restaurante)` | Uno: config, dominios, miembros (con correo), tarifas, vigencia y **si cada secreto está puesto (sí/no)**. |
+| `sa_crear_restaurante(actor, slug, nombre, dominio?, zona?, plan?, modalidad?, vigente_hasta?, dias_gracia?, modulos?, config?)` | Alta. Slug validado **tal cual** (2 a 40, minúsculas/números/guiones; reservados: `api`, `www`, `admin`, `superadmin`…), dominio único, zona real, plan y modalidad de la lista, `dias_gracia` 0–60, módulos, `config` validada con las reglas del SQL 13. **Estado inicial `prueba`**; vigencia por defecto **hoy + 14 días**. El alta automática (SQL 10) crea contador de pedidos, secretos (vacíos), configuración (11:00–22:00) y salud del WhatsApp; **tarifas vacías**. |
+| `sa_actualizar_restaurante(actor, restaurante, cambios)` | `nombre`, `estado` (`prueba`/`activo`/`suspendido`), `plan`, `modalidad_pago`, `vigente_hasta` (`null` = sin vencimiento), `dias_gracia`, `modulos` (se mezclan), `zona_horaria`. Cualquier otro campo → 22023. Audita antes/después. |
+| `sa_registrar_pago(actor, restaurante, meses, monto?, referencia?, nota?)` | Extiende `vigente_hasta` N meses (1–36): **desde hoy si ya venció, desde la vigencia actual si sigue vigente**. Una `prueba` pasa a `activo`. Uno `suspendido` a mano **sigue suspendido** (avisa). Sin vencimiento → 22023 (no se le pone un reloj por accidente). 31 ene + 1 mes = 28 feb. |
+| `sa_editar_config(actor, restaurante, cambios)` | `marca`, `wompi` (llaves **públicas**), `pwa`, `contacto`, `textos` (dentro de `config.publico`), `ubicacion`, `domicilio`. Cada sección **reemplaza** la anterior (`null` la borra); el resto de la config queda; se valida con `config_restaurante_errores` (SQL 13). |
+| `sa_guardar_tarifas(actor, restaurante, tarifas)` | Reemplaza **todas** las tarifas de domicilio (`[]` = sin domicilio). Máx. 20 tramos, `hasta` > 0 y ≤ 1000 km con un decimal, `precio` 0–500 000 o `null` (fuera de cobertura). |
+| `sa_agregar_dominio` / `sa_quitar_dominio` | `restaurante_dominios`. |
+| `sa_asignar_miembro` / `sa_quitar_miembro` | `miembros` (rol `dueno`, `cajero` o `cocina`; el usuario tiene que existir en Auth). |
+| `sa_registrar_usuario(actor, usuario, correo, restaurante?)` | Solo deja la constancia de que se creó un usuario (el usuario se crea en Auth, fuera de Postgres). **Nunca** la contraseña. |
+| `sa_guardar_secretos(actor, restaurante, valores, sobrescribir?, permitir_repetidos?)` | **Solo escritura** (19.5). |
+| `sa_estado_secretos(actor, restaurante)` | Sí/no por secreto y el modo de cobro (`test`/`produccion`, que no es un secreto). |
+| `sa_listar_auditoria(actor, restaurante?, limite?, antes_de?)` | La auditoría, la más reciente primero. |
+
+**Ayudas internas** (nadie las puede ejecutar, ni siquiera `service_role`; solo las llaman las `sa_*` desde dentro): `exigir_superadmin`, `auditar_superadmin`, `sa_texto_raro`, `sa_zona_valida`, `sa_estado_secretos_interno`.
+
+**La tabla `auditoria_superadmin` es de solo agregar**, en tres capas: (1) RLS activo y **ninguna política**; (2) **ningún privilegio** para `anon`, `authenticated` **ni `service_role`** (Supabase le da todos por defecto: se le revocan); (3) triggers que rechazan
+`UPDATE`, `DELETE` y `TRUNCATE` **incluso al dueño de la tabla** (el rol del SQL Editor). Solo se escribe con `auditar_superadmin`, que además rechaza un resumen con pinta de secreto o de más de 4000 caracteres.
+Cada fila: quién (`actor` + correo), cuándo, restaurante (`id` + `slug`, sin llave foránea: **sobrevive aunque se borre el restaurante o el usuario**), acción y un resumen (`antes`/`después`, nombres de campo, montos y referencias de pagos…) **sin secretos**.
+Residuo aceptado: un dueño de la base con permisos de DDL puede deshabilitar los triggers o borrar la tabla; la protección es contra el cliente, la API y los errores.
+
+### 19.5 `POST /api/superadmin`
+
+Cuerpo `{ "accion": "…", …datos }`, cabecera `Authorization: Bearer <JWT del superadmin>`; respuesta `{ ok: true, … }` o `{ error, codigo? }`. Siempre `Cache-Control: no-store`. Solo `POST` (otro método → 405).
+Acciones (17): `yo`, `listar_restaurantes`, `detalle_restaurante`, `crear_restaurante`, `actualizar_restaurante`, `registrar_pago`, `editar_config`, `guardar_tarifas`, `agregar_dominio`, `quitar_dominio`, `buscar_usuario`, `crear_usuario`, `asignar_miembro`, `quitar_miembro`,
+`guardar_secretos`, `estado_secretos`, `listar_auditoria`. Cada una rechaza campos de más (400). El servidor **solo habla con la base por cuatro caminos**: validar la sesión (`/auth/v1/user`), mirar `superadmins`, las funciones `sa_*` y la API de administración de Auth; una prueba lo exige.
+Códigos: 400 (dato no válido; el mensaje dice qué, sin repetir el valor), 401, 403, 404 (restaurante o usuario inexistente), 409 (slug/dominio/correo repetido o secreto repetido), 429, 500 (mensaje genérico; al log solo el nombre de la acción, el HTTP y el código: nunca el cuerpo de la petición ni un detalle de la base).
+
+* **`crear_usuario { email, restaurante_id?, rol? }`** crea el usuario con la API de administración de Auth (correo confirmado, sin enviar nada) y una **contraseña temporal fuerte** (20 caracteres: mayúsculas, minúsculas, dígitos y símbolos, sin caracteres ambiguos, `crypto.randomInt`)
+  que **se muestra una sola vez** en la respuesta y no se guarda, ni se imprime, ni va a la auditoría. Con `restaurante_id` y `rol` lo asigna; si la asignación falla, **borra el usuario recién creado** (todo o nada). Un correo que ya existe → 409 (se usa `buscar_usuario` + `asignar_miembro`).
+  Entrega la contraseña por un canal privado y pídele a la persona que la cambie al entrar.
+* **`guardar_secretos { restaurante_id, valores: { campo: valor }, sobrescribir?, permitir_repetidos? }`** — Wompi (`wompi_llave_publica_test|prod`, `wompi_integridad_test|prod`, `wompi_eventos_test|prod`, `wompi_llave_privada_test|prod`), CallMeBot (`callmebot_telefono`, `callmebot_apikey`) y el modo de cobro (`wompi_modo`),
+  los mismos campos y reglas de `supabase/cargar-secretos.mjs` (sin espacios, teléfono solo dígitos, modo `test`/`produccion`, **detección del secreto pegado dos veces**). **Solo escritura**: no existe ninguna acción que lea un secreto, y la respuesta dice únicamente,
+  por campo, `guardado` / `ya_coincide` / `ya_existe_otro_valor` (hay uno distinto y no se pidió sobrescribir) / `repetido_en_otro_restaurante`, más el sí/no de cada secreto. Un valor vacío nunca borra uno existente.
+  **Regla R4 (no repetir entre restaurantes):** si un valor ya lo tiene **otro** restaurante en ese campo, **no se guarda nada de la llamada** (409, los demás campos quedan `no_guardado`); CallMeBot repetido solo con `permitir_repetidos` (un dueño con dos restaurantes y un teléfono); un secreto de Wompi repetido, **nunca**.
+  Los valores no salen en ninguna respuesta, ni en el log, ni en la auditoría (se prueba buscándolos en todo, incluidos los errores).
+* **Cache:** después de cambiar un restaurante o sus dominios, la instancia que atendió la acción invalida su caché de restaurantes.
+
+### 19.6 Dar de alta un restaurante nuevo, paso a paso
+
+Hasta que exista `superadmin.html` (3B) se hace con la API. **Una vez:** tu usuario superadmin (19.10 pasos 3–4). En PowerShell, en la carpeta del proyecto (la contraseña se pide con `Read-Host`; nada queda en el historial):
+
+```powershell
+$url = "https://<tu-proyecto>.supabase.co"                  # SUPABASE_URL
+$pub = "<llave publishable: la de supabase-publico.js>"      # no es secreta
+$base = "https://taqueiros-2-0.vercel.app"                   # cualquier dominio de este despliegue
+$s = Read-Host "Contrasena de superadmin" -AsSecureString
+$login = Invoke-RestMethod -Method Post -Uri "$url/auth/v1/token?grant_type=password" -Headers @{ apikey = $pub } -ContentType "application/json" `
+  -Body (@{ email = "tu-correo@dominio.com"; password = [System.Net.NetworkCredential]::new('', $s).Password } | ConvertTo-Json)
+$token = $login.access_token                                  # dura ~1 hora: si da 401, repite estas lineas
+function sa($c) { Invoke-RestMethod -Method Post -Uri "$base/api/superadmin" -Headers @{ Authorization = "Bearer $token" } -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes(($c | ConvertTo-Json -Depth 8))) }
+function Secreto($t) { [System.Net.NetworkCredential]::new('', (Read-Host $t -AsSecureString)).Password }
+(sa @{ accion = "yo" })                                       # debe decir es_superadmin = True
+```
+
+1. **Crear el restaurante** (estado `prueba`, 14 días):
+   `$r = sa @{ accion="crear_restaurante"; slug="lostaqueiros"; nombre="Los Taqueiros del Norte"; dominio="pedidos.lostaqueiros.com"; plan="completo"; modalidad_pago="mensual"; dias_gracia=5 }; $id = $r.restaurante.id`
+   (sin `dominio`, el restaurante solo se alcanza por `<slug>.<DOMINIO_BASE>`). El alta deja contador de pedidos, secretos vacíos, configuración y salud; tarifas vacías.
+2. **Dominio en Vercel:** Project → Settings → Domains → agrega `pedidos.lostaqueiros.com` y apunta el DNS donde Vercel diga. Más dominios: `sa @{ accion="agregar_dominio"; restaurante_id=$id; host="www.lostaqueiros.com" }`.
+3. **Usuario del dueño** (con contraseña temporal): `$u = sa @{ accion="crear_usuario"; email="dueno@lostaqueiros.com"; restaurante_id=$id; rol="dueno" }; $u.password_temporal` → entrégala por un canal privado (se muestra **una sola vez**).
+   Cajero o cocina: lo mismo con `rol="cajero"` o `"cocina"`. Para alguien que ya existe: `buscar_usuario` y `asignar_miembro`.
+4. **Marca, ubicación y contacto:** `sa @{ accion="editar_config"; restaurante_id=$id; cambios=@{ marca=@{ colores=@{ primario="#C1272D" }; logo="Recursos/lostaqueiros/logo.png"; emoji="🌮" }; ubicacion=@{ lat=7.89; lng=-72.50 }; domicilio=@{ factor_recorrido=1.3 }; contacto=@{ whatsapp="573001112233" } } }`
+   (reglas de `docs` 16.4; lo no válido se rechaza con el motivo y no cambia nada).
+5. **Tarifas de domicilio** (sin ellas el restaurante no ofrece domicilio): `sa @{ accion="guardar_tarifas"; restaurante_id=$id; tarifas=@(@{hasta=2;precio=5000}, @{hasta=4;precio=7000}, @{hasta=999;precio=$null}) }`.
+6. **Secretos** (Wompi del restaurante y CallMeBot; cada uno se pide sin eco y no se guarda en ningún archivo):
+   `sa @{ accion="guardar_secretos"; restaurante_id=$id; valores=@{ wompi_llave_publica_test=(Secreto "Llave publica test"); wompi_integridad_test=(Secreto "Integridad test"); wompi_eventos_test=(Secreto "Eventos test"); callmebot_telefono=(Secreto "Telefono CallMeBot"); callmebot_apikey=(Secreto "Apikey CallMeBot"); wompi_modo="test" } }`
+   Cuando cobre de verdad: lo mismo con los `_prod` y `wompi_modo="produccion"`. Para que la página ofrezca el pago también hay que poner las llaves **públicas** en la config: `editar_config` con `wompi=@{ llave_publica_test="pub_test_…"; llave_publica_prod="pub_prod_…" }`.
+   Comprueba con `sa @{ accion="estado_secretos"; restaurante_id=$id }` (solo sí/no).
+7. **Wompi:** en el panel de Wompi de **ese** restaurante, el webhook de eventos apunta a `https://<cualquier dominio del despliegue>/api/webhook-wompi` (el mismo para todos).
+8. **El dueño entra** a `https://pedidos.lostaqueiros.com/panel.html` con su correo y la contraseña temporal; crea sus categorías y productos en `menu-admin.html`, ajusta su horario y "Datos de mi restaurante" en el panel.
+9. **Comprobar:** abre el dominio (menú del restaurante, no el de Taqueiros), haz un pedido de prueba con Wompi en modo `test` (aparece en su panel con su número 1 y avisa a **su** WhatsApp).
+10. **Activar y cobrar:** cuando pague, `sa @{ accion="registrar_pago"; restaurante_id=$id; meses=1; monto=150000; referencia="REC-001" }` (pasa de `prueba` a `activo` y extiende la vigencia). Suspender: `actualizar_restaurante` con `cambios=@{ estado="suspendido" }`; reactivar: `estado="activo"`.
+
+### 19.7 Horario con `24:00` y medianoche (pendiente R7 de la sección 18)
+
+**Regla única** (`horario-regla.js`, `supabase/16b-horario.sql`, `api/_horario.js`, `index.html`, `panel.html`; una prueba compara la base y la regla en **864 combinaciones** y otra el servidor minuto a minuto):
+
+1. `abre` es `HH:MM` de 00:00 a 23:59. 2. `cierra` es `HH:MM` de 00:00 a 23:59, **o `24:00`**.
+3. **`24:00` = cierra a la medianoche** de ese día (las 12:00 a. m. del siguiente). `00:00` a `24:00` = abierto todo el día.
+4. **Si `cierra` < `abre`** (ej. 18:00 a 02:00) el horario **cruza la medianoche**: la madrugada cuenta para la jornada del día anterior y llega hasta la hora de cierre, **pero nunca más allá de la hora de corte de la jornada** (`configuracion.hora_corte_jornada`, 05:00 por defecto).
+   El servidor siempre cortó ahí; ahora **la base y el panel lo exigen** para que nadie crea que cierra a las 06:00 y cierre a las 05:00. Bajar la hora de corte por debajo de un cierre de madrugada existente también se rechaza.
+5. **`cierra` = `abre` en un día activo no vale** (¿cerrado o 24 horas?). Para 24 horas: 00:00 a 24:00. 6. Un día desmarcado está cerrado y sus horas no se revisan.
+
+Qué cambió: **panel** — la casilla "24:00" junto a la hora de cierre (un `<input type="time">` no puede mostrar `24:00`: antes quedaba vacío y **se guardaba 22:00 sin avisar**), el cierre de madrugada ya se deja guardar, y los rechazos dicen el motivo en español;
+**página pública** — `24:00` se muestra "12:00 a.m. (medianoche)" (antes "12:00 p.m.", el mediodía); **servidor** — igual al mostrar la hora en sus mensajes (la lógica de abierto/cerrado no cambió: ya aceptaba ambos casos);
+**base (16b)** — `configuracion_errores` gana la hora de corte (la de 4 parámetros sigue existiendo y usa 05:00) y `validar_configuracion` se la pasa; el 16b se detiene, sin cambiar nada, si el horario **actual** de Taqueiros no cumple (y dice qué día corregir; los demás restaurantes solo se informan).
+No se tocó la regla de `U+2028/2029` (R8): sigue pendiente (19.12).
+
+### 19.8 Los crons solo con `Authorization: Bearer`
+
+cron-job.org ya usa la cabecera. `api/alertas` y `api/keep-alive` aceptan **solo** `Authorization: Bearer <CRON_SECRET>`; **`?clave=` responde 401 aunque la clave sea la correcta** (el cron propio de Vercel ya manda la cabecera). Pruebas actualizadas (`cron.test.js`, el grupo `alertas` de `escenarios-servidor.mjs`
+y la equivalencia contra `d689d4d` de `agrupacion.mjs`, que ahora **exige** el 401 donde ese commit daba 200). Si en cron-job.org alguna tarea vieja aún usara `?clave=`, dejará de funcionar: revisa que las dos tengan la cabecera.
+La clave puede seguir en el historial de cron-job.org y en el log de Vercel de antes del cambio: **rótala** (`CRON_SECRET` en Vercel y la cabecera en cron-job.org) si te preocupa.
+
+### 19.9 Cómo revertir
+
+| Paso | Reversa | Qué deja |
+|---|---|---|
+| SQL 16 | `supabase/16-revertir.sql` ("Run without RLS") | Borra las funciones `sa_*`, las ayudas internas y las de vigencia. **La tabla de auditoría se borra solo si está vacía**; con filas se **conserva** (con sus triggers) y el resultado lo dice (borrarla a propósito: `drop table public.auditoria_superadmin; drop function public.auditoria_solo_agregar();`). No toca datos de negocio, restaurantes creados ni superadmins. `api/superadmin.js` deja de funcionar y el panel del dueño deja de mostrar la barra. |
+| SQL 16b | `supabase/16b-revertir.sql` | Devuelve `configuracion_errores` (4 parámetros) y `validar_configuracion` **exactamente** como el SQL 15. |
+| Código | `git revert` de los commits del paso (lista en 19.12) | `?clave=` vuelve a aceptarse, etc. |
+
+### 19.10 Pasos en Windows (orden exacto)
+
+Abre PowerShell en `D:\PAGINAS WEB!!!!!!\TAQUEIROS 2.0`. Las llaves se piden con `Read-Host` y se pegan **UNA sola vez** (clic derecho **o** Ctrl+V, nunca ambos). No pegues ninguna llave en el chat.
+
+1. **El despliegue ya ocurrió** (`git push` a `main`). Antes de tocar la base: Taqueiros se ve y se comporta igual; solo la página pública de un restaurante vencido o suspendido mostraría "Servicio no disponible por el momento.". Con el SQL 16 sin correr, todo lo anterior funciona y `api/superadmin.js` responde 500 en las acciones que necesitan la base.
+2. **Respaldo** (solo lee): `node supabase/exportar-respaldo.mjs` (con la llave en la sesión, como en 17.6). Si dice "NO coincide", no sigas.
+3. **SQL 16.** VS Code → abre `supabase/16-superadmin.sql` → Ctrl+A, Ctrl+C → Supabase → SQL Editor → New query → pega → **"Run without RLS"**. Esperado: **25 filas, todas `OK`**. Si algo falla verás `MR paso n: …` o `LA MIGRACION 16 SE REVIRTIO` y no se cambió nada. Se puede repetir.
+4. **SQL 16b** (el horario; necesita el 15): igual con `supabase/16b-horario.sql`. Esperado: **15 filas `OK`**. Si dice que el horario **actual de Taqueiros** no cumple la regla, corrige el día que nombra (panel → Horarios, o Table editor → `configuracion`) y repite.
+5. **Tu usuario superadmin:** Supabase → Authentication → Users → **Add user** (tu correo, una contraseña larga y única, "Auto Confirm User"). Activa la verificación en dos pasos en esa cuenta. Después:
+   ```powershell
+   $k = Read-Host "Llave SECRETA (UNA sola vez)" -AsSecureString
+   $env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+   node supabase/crear-superadmin.mjs tu-correo@dominio.com        # esperado: "Agregado a superadmins y verificado."
+   node supabase/crear-superadmin.mjs tu-correo@dominio.com --solo-verificar   # "Es superadmin."
+   ```
+6. **Pruebas contra la base real** (crean y borran sus propios restaurantes `mr16-prueba*` y usuarios `*@prueba-superadmin.example.com`; Taqueiros solo se lee):
+   ```powershell
+   node supabase/probar-superadmin.mjs                            # esperado: 50 PASA, "Limpieza: todo lo creado se borro"
+   node supabase/probar-compatibilidad.mjs                        # esperado: 26 PASAN
+   node supabase/probar-servidor-multirestaurante.mjs            # esperado: todo PASA (191; incluye los 15 escenarios nuevos de vigencia)
+   $env:VIA = "despachador"; node supabase/probar-servidor-multirestaurante.mjs; Remove-Item Env:VIA
+   node supabase/probar-aislamiento.mjs                           # esperado: todas PASA (con Realtime real)
+   Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+   ```
+   La auditoría conserva una fila por cada acción de la prueba (superadmins y restaurantes `mr16-*`): es de solo agregar a propósito; ignórala.
+7. **Variables de entorno en Vercel:** **ninguna nueva es obligatoria.** `api/superadmin.js` usa `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_PUBLISHABLE_KEY` (esta última ya recomendada en 12.12; si falta, valida la sesión con la secreta solo en `apikey`). `CRON_SECRET` sigue igual. Comprueba que `SUPABASE_SERVICE_ROLE_KEY` y `CRON_SECRET` sigan **solo en Production** (P2).
+8. **En producción** (lo que ninguna prueba local reemplaza): `curl.exe -s -o NUL -w "%{http_code}" -X POST https://taqueiros-2-0.vercel.app/api/superadmin` → **401**; con `?clave=` en `/api/alertas` → **401** y con la cabecera → 200; que el panel de Taqueiros no muestre ninguna barra; y que Vercel liste **7 funciones** (Deployments → Functions).
+
+### 19.11 Qué se probó y qué no
+
+**Probado (local, sin tocar la base real; Postgres 16 real en PGlite con los SQL 10 a 13, 15, 16 y 16b, roles reales y RLS):**
+
+* **`superadmin.mjs` (nuevo, 50)** — el manejador **real** de `api/superadmin.js` y los públicos contra el Supabase falso: un anon, un dueño, un cajero, una cocina, alguien sin membresía, el dueño de otro restaurante y 20 tokens falsos o manipulados
+  no pueden ejecutar **ninguna** de las 17 acciones (401 o 403, nunca 500) y **no cambia nada**; la llave de servicio y la publishable no son una sesión; el límite de intentos (429, otra IP no afectada); las funciones `sa_*` y la auditoría cerradas por la API real a todos
+  (incluido el propio superadmin desde su navegador y la llave de servicio para escribir en la auditoría); **alta de `mr16-prueba`** con dominio, usuario dueño (clave temporal que inicia sesión) y secretos; su menú **no se mezcla** con el de Taqueiros; estados, pagos, config,
+  tarifas, dominios y miembros; la regla R4; **ningún secreto, clave temporal ni token** en respuestas, log ni auditoría; Taqueiros con la **misma huella** (fila, configuración, secretos, tarifas, dominios, miembros y pedidos) al terminar.
+* **`sql16.mjs` (nuevo, 48)** — el SQL 16 y el 16b dos veces, sin cambiar datos, sus reversas (la auditoría se conserva si tiene filas), el orden, las precondiciones; **`calcular_vigencia` = `restauranteActivo` en 5184 combinaciones**; permisos con **roles reales**: ninguna de las 17 funciones
+  la ejecuta anon, un dueño, un cajero, una cocina, alguien sin membresía ni el superadmin como usuario (`permission denied`); el servidor con un actor que no es superadmin recibe 42501; la auditoría no se puede leer, escribir, actualizar, borrar ni vaciar ni siquiera con el rol dueño de la tabla;
+  `vigencia_restaurante` por rol; la regla del horario de la base = `horario-regla.js` en 864 combinaciones.
+* **Vigencia por estado** (grupo `vigencia` de `servidor.mjs`, 15): prueba, prueba sin vencimiento, activo, último día, gracia, último día de gracia, vencido, prueba vencida, suspendido (con y sin fecha) y sin vencimiento — en cada uno: `menu`, `estado`, datos públicos, `crear-pedido`, `generar-firma`,
+  `webhook-wompi` (siempre aprueba el pago que ya iba en camino) y `reembolso` (siempre funciona); el aviso público nunca revela el motivo; un cambio rige en el acto; la gracia no se ve desde fuera; **Taqueiros no cambia**. `panel.mjs` escenario 14 (14 comprobaciones, Chrome): la barra de la suscripción para el dueño en
+  gracia, vencida y suspendida; ni el cajero, ni la cocina, ni otro restaurante, ni Taqueiros la ven; el dueño suspendido sigue entrando; sin el SQL 16 no se rompe nada.
+* **Otras nuevas o ampliadas:** `crear-superadmin-test.mjs` 13, `horario-regla.test.js` 12 (la regla, el formato, la página pública y el servidor minuto a minuto), `cron.test.js` 13 (`?clave=` correcta → 401), R7 en el navegador (7 comprobaciones en `panel.mjs`), la inspección con la sección `sql_15_16_aplicados` (6).
+* **Baterías anteriores, todas verdes** (con el SQL 16 y 16b cargados en el falso; el servidor también con ellos omitidos): unitarias `node --test pruebas/*.test.js` **99**, `agrupacion.mjs` **32** (ahora 7 funciones), `vista-previa.mjs` **57**, `servidor.mjs` **204** (también con `--via=despachador`, `--via=reescrita` y con `SQL16_NO`/`SQL16B_NO`),
+  `datos-restaurante.mjs` **76**, `rls.mjs` **237**, `hallazgos.mjs` **32**, `planes.mjs` **11**, `sim.mjs` **34 OK** (con y sin `conPendientes`), `dominios.mjs` **35**, `config-publica.mjs` **49**, `cargar-secretos-test.mjs` **25**, `endurecer.mjs` **426**, `migrar-fotos.mjs` **126**,
+  `front.mjs` **104**, `panel.mjs` **356**, `e2e.js` **180**, `comparar-tickets.mjs` **7 de 7 idénticos**; contra el falso: `probar-compatibilidad` **26**, `probar-servidor-multirestaurante` **191** (también con `VIA=despachador`), `probar-superadmin` **50**, `probar-aislamiento` **252 de 259**
+  (las 7 que fallan son las de Realtime, que el falso no emula, igual que antes), `probar-menu-rls` y `probar-impresion-rls` "TODO BLOQUEADO", `probar-categoria-apagada` "Todo en orden". **Cambió lo esperado solo en:** `agrupacion.mjs` (la equivalencia contra `d689d4d` exige el 401 de `?clave=` y el `servicio` del menú suspendido; son 7 funciones),
+  `vista-previa.mjs` (2d: `index.html` es el de antes más los 4 cambios a propósito), `front.mjs` (el mensaje neutro y `24:00` como medianoche) y `panel.mjs` (la casilla `24:00` y el `value` de la hora de cierre); el escenario "alertas del horario con corte 01:00" ahora comprueba que la base lo rechaza (23514).
+* **Revisión por mutación del paso** (`mutaciones-16.mjs`): **77 mutaciones: 70 detectadas, 7 equivalentes declaradas con su razón, 0 sin detectar** (más un control: la copia limpia pasa todas las suites). Rompe a propósito, una por una, la comprobación de superadmin en cada función (y con actor nulo), los permisos de las funciones (a authenticated, a anon, las internas al servidor), cada defensa de la auditoría (privilegios de service_role, los tres triggers, RLS, el filtro de secretos), la cuenta de la vigencia (gracia, último día, prueba, zona horaria), la regla R4 y las demás reglas de los secretos, el límite de intentos, la comprobación de la tabla superadmins, el método, los campos de más, la clave temporal, la invalidación de la caché, la sesión con una llave sb_, el 401 de `?clave=`, la regla del horario (cierre igual, corte, 24:00, el formato en tres sitios) y la vigencia del servidor y del menú. **La primera pasada dejó pasar 4** y obligó a reforzar dos pruebas (la clave temporal ahora se mide estadísticamente en 300 claves; la caché se calienta con un menú y el cambio de la API tiene que verse enseguida, porque `crear-pedido` la invalida por su cuenta y lo tapaba) y a declarar dos equivalentes: el slug (la tabla tiene el mismo CHECK) y comprobar el restaurante antes de crear el usuario (el borrado del usuario si falla la asignación cubre lo mismo; quitadas las dos juntas sí se detecta). Equivalentes declaradas: esas dos, `asignar_miembro` con cualquier rol (el CHECK de la tabla), los detalles en un error de la base (no traen datos) y un 500 con el mensaje (ninguna prueba lo provoca con un secreto dentro), el borrado del usuario recién creado (solo falla en una carrera de milisegundos) y `llamarFuncionSuperadmin` con cualquier nombre (ninguna entrada del cliente llega ahí). Se repite con `node pruebas/multirestaurante/mutaciones-16.mjs` (~7 minutos).
+
+**Solo se puede probar contra la base real o en producción (pendiente de Carlos):** los SQL 16 y 16b sobre el esquema verdadero (en especial que el horario real de Taqueiros cumpla la regla nueva; si no, el 16b lo dice y no cambia nada); `supabase/probar-superadmin.mjs` con PostgREST y Auth reales (códigos HTTP reales, la API de administración de Auth y las reglas de contraseña del proyecto, que `crear_usuario` cumple con su clave de 20 caracteres);
+que `anon` y `authenticated` reciban de verdad `permission denied` en las funciones `sa_*` y en la auditoría (el simulador reproduce los privilegios por defecto de Supabase, pero no los event triggers de `supabase_admin`); R9/R10 (18.4) y la caché del borde (P5); Vercel real (7 funciones) y la barra del panel con una cuenta real.
+
+### 19.12 Decisiones, riesgos aceptados y pendientes
+
+**Decisiones donde el pedido no definía algo** (todas reversibles):
+1. **Auditoría en una tabla propia** (`auditoria_superadmin`) y no un jsonb en `restaurantes`: se puede dar el permiso de leerla a otros sin dar el de escribirla, y sobrevive al restaurante. `sa_registrar_pago` **no** crea una tabla de pagos: la constancia del pago (meses, monto, referencia, vigencia anterior y nueva) está en la auditoría; si luego quieres reportes de ingresos conviene una tabla `pagos`.
+2. **Las funciones reciben `p_actor`** (el servidor la llama con la llave de servicio, que no tiene `auth.uid()`): son tan seguras como la llave de servicio, que ya lo puede todo; lo que añaden es la comprobación en la base, la auditoría y que ningún cliente pueda llamarlas. `exigir_superadmin` y `auditar_superadmin` no las ejecuta nadie.
+3. **El menú sigue viéndose** en un restaurante vencido o suspendido (como ya decía 12.5) y avisa con `servicio.sirve = false`; no se oculta el menú ni se devuelve un error.
+4. **Slug estricto** (una mayúscula se rechaza, no se corrige en silencio); dominio sí se pasa a minúsculas. Vigencia por defecto del alta: **14 días**. `registrar_pago` sin vencimiento se rechaza; `suspendido` a mano no se reactiva con un pago.
+5. **Cada sección de `editar_config` reemplaza la anterior** (no se mezclan campos sueltos): la pantalla del 3B enviará la sección completa. `wompi` (llaves públicas) se edita aquí porque es `config.publico.wompi`; las llaves **secretas** solo por `guardar_secretos`.
+6. **Los separadores `U+2028/2029` (R8)** se rechazan en los textos nuevos de `sa_*` (`sa_texto_raro`), pero la regla de `config_restaurante_errores` (SQL 13) no se tocó.
+7. **Mensaje neutro único** "Servicio no disponible por el momento." en la página pública; el texto del 403 del servidor (`"Este restaurante no está recibiendo pedidos en este momento."`) no cambió para no mover el contrato de `crear-pedido`.
+
+**Riesgos aceptados / pendientes:**
+* **Límite de intentos en memoria** (19.2): no cubre el inicio de sesión (lo limita Supabase Auth) ni un ataque distribuido. Mitigación: MFA en las cuentas de superadmin y revisar Authentication → Rate Limits. **MFA/`aal2` no se exige** en el servidor (3B).
+* **Un superadmin que es miembro de ningún restaurante no entra al panel del dueño** (15.3): el "entrar como" es del 3B.
+* La **auditoría** protege contra el cliente y la API, no contra quien tenga DDL en la base (puede quitar los triggers). Las acciones del script `crear-superadmin.mjs` (operador, con la llave de servicio) **no** quedan en ella.
+* **Caché de restaurantes de 30 s por instancia**: un cambio de vigencia/estado hecho por la API se ve en el menú y en los datos públicos de otras instancias en ≤ 30 s; pedir y firmar rigen en el acto.
+* **R5, R6, R8, D (18.1, 18.3), P1, P2, P4–P13 y R9/R10** siguen como estaban (R9 queda cubierto en el código; falta confirmarlo con la base real). El límite de peticiones (propuesta C) sigue sin implementar.
+* `crear_usuario` entrega la contraseña temporal en la respuesta HTTP (una vez, `no-store`): quien tenga el token del superadmin la ve. No hay forzado de cambio de contraseña (Supabase no lo ofrece sin una pantalla propia).
+* `registrar_pago` no es idempotente a propósito (cada llamada extiende): si repites la llamada por error, queda registrado dos veces y se corrige con `actualizar_restaurante`.
