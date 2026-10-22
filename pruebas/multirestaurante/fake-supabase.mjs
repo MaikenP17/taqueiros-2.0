@@ -170,6 +170,8 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
         // ---------------- AUTH ----------------
         if (url.pathname === '/auth/v1/admin/users' && req.method === 'POST') {
           if (ctx.rol !== 'service_role') return enviar(res, 403, { message: 'not admin' });
+          // como Auth real: un correo repetido es 422 email_exists (antes el falso creaba duplicados)
+          if ((await db.query(`select 1 from auth.users where lower(email) = lower($1)`, [cuerpo.email])).rows.length) return enviar(res, 422, { code: 422, error_code: 'email_exists', msg: 'A user with this email address has already been registered' });
           const r = await db.query(`insert into auth.users (email) values ($1) returning id, email`, [cuerpo.email]);
           passwords.set(cuerpo.email, cuerpo.password);
           return enviar(res, 200, r.rows[0]);

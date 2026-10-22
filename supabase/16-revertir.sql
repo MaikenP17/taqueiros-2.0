@@ -139,9 +139,10 @@ from (values
   ('la tabla de auditoria o ya no existe (estaba vacia) o sigue con sus triggers de solo-agregar y sin privilegios para clientes',
     (to_regclass('public.auditoria_superadmin') is null and to_regprocedure('public.auditoria_solo_agregar()') is null)
       or (to_regclass('public.auditoria_superadmin') is not null
-          and (select count(*) = 3 from pg_trigger t where t.tgrelid = 'public.auditoria_superadmin'::regclass and not t.tgisinternal and t.tgenabled <> 'D')
-          and not has_table_privilege('service_role', 'public.auditoria_superadmin', 'select,insert,update,delete,truncate')
-          and not has_table_privilege('authenticated', 'public.auditoria_superadmin', 'select,insert,update,delete,truncate')),
+          -- (con OID y to_regclass: si la tabla ya no existe esto es null y no lanza error, aunque Postgres evalue las dos ramas del OR)
+          and (select count(*) = 3 from pg_trigger t where t.tgrelid = to_regclass('public.auditoria_superadmin') and not t.tgisinternal and t.tgenabled <> 'D')
+          and not has_table_privilege('service_role', to_regclass('public.auditoria_superadmin'), 'select,insert,update,delete,truncate')
+          and not has_table_privilege('authenticated', to_regclass('public.auditoria_superadmin'), 'select,insert,update,delete,truncate')),
     (select v from _mr16r_auditoria where k = 'estado')),
 
   ('el SQL 13 sigue en pie: config_restaurante_errores y el trigger restaurantes_validar_config',

@@ -57,6 +57,9 @@ function llaveDeProyecto() {
 async function usuarioDeToken(token) {
   const t = String(token || "").trim();
   if (!t || t.length > LARGO_MAXIMO_TOKEN || /\s/.test(t) || /[^\x21-\x7E]/.test(t)) return null;
+  // Una llave de proyecto (sb_secret_..., sb_publishable_...) nunca es la sesion de un usuario (esa es un JWT, "eyJ..."): se
+  // descarta antes de la red, asi no depende de lo que el gateway conteste a una llave puesta como Bearer (R9, docs 18.1).
+  if (/^sb_/i.test(t)) return null;
 
   const url = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!url) throw new Error("Falta SUPABASE_URL en las variables de entorno");

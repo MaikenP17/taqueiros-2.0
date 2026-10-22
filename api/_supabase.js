@@ -24,11 +24,13 @@
        restaurante_secretos, miembros) recibe el restaurante_id como
        PRIMER argumento y lo pone en el filtro (o en el cuerpo del
        insert). Sin un id valido, lanza un error: nunca consulta "a todo".
-     * Hay tres excepciones deliberadas y comentadas: buscarPedidoPorReferenciaGlobal
+     * Hay cuatro excepciones deliberadas y comentadas: buscarPedidoPorReferenciaGlobal
        (el webhook aun no sabe de que restaurante es la referencia),
-       limpiarHuerfanos (barrido global de pedidos sin pagar) y las
+       limpiarHuerfanos (barrido global de pedidos sin pagar), las
        tablas que NO son de un restaurante (restaurantes, restaurante_dominios,
-       superadmins).
+       superadmins) y llamarFuncionSuperadmin (las funciones sa_* del panel de
+       superadmin, que reciben el restaurante como parametro y comprueban quien
+       las llama).
 
    El restaurante_id se valida como UUID antes de entrar en la URL: un
    valor raro no puede colar otros filtros de PostgREST.
@@ -297,6 +299,16 @@ async function esSuperadmin(userId) {
 
 /* (La validacion de la sesion de un usuario vive en _sesion.js, un solo lugar.) */
 
+/* Llama a una funcion de SUPERADMIN de la base (public.sa_*, SQL 16) con la llave de servicio. Solo api/superadmin.js la usa,
+   despues de comprobar la sesion y que el usuario sea superadmin; la funcion lo vuelve a comprobar (p_actor) y deja la
+   constancia en la auditoria. Solo acepta nombres sa_*: no sirve para llamar a ninguna otra funcion de la base. */
+async function llamarFuncionSuperadmin(nombre, args) {
+  if (!/^sa_[a-z_]+$/.test(String(nombre))) {
+    throw new Error("Nombre de funcion de superadmin invalido");
+  }
+  return pedir(nombre, `rpc/${nombre}`, { metodo: "POST", cuerpo: args || {} });
+}
+
 /* La consulta mas liviana que existe: sirve para que Supabase cuente el
    proyecto como activo. Toca una tabla que no es de negocio. */
 async function pingBase() {
@@ -322,6 +334,7 @@ module.exports = {
   buscarRestaurantePorHost,
   listarRestaurantes,
   esSuperadmin,
+  llamarFuncionSuperadmin,
   marcarReembolsado,
   pingBase,
   COLUMNAS_RESTAURANTE

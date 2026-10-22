@@ -283,7 +283,8 @@ begin
   if char_length(v_texto) > 4000 then
     raise exception 'El resumen de la auditoria es demasiado largo' using errcode = '22023';
   end if;
-  if v_texto ~* '(prv_|(test|prod)_(integrity|events)_|sb_secret_|sb_publishable_|apikey|api_key|service_role|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|-----BEGIN)' then
+  -- (solo el aspecto de los VALORES; los nombres de campo como callmebot_apikey si pueden aparecer: nunca llevan el valor)
+  if v_texto ~* '(prv_|(test|prod)_(integrity|events)_|sb_secret_|sb_publishable_|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|-----BEGIN)' then
     raise exception 'El resumen de la auditoria parece traer un secreto: no se guarda' using errcode = '22023';
   end if;
 
@@ -435,7 +436,7 @@ security definer
 set search_path = ''
 as $fn$
 declare
-  v_slug text := lower(btrim(coalesce(p_slug, '')));
+  v_slug text := btrim(coalesce(p_slug, ''));   -- el slug se valida TAL CUAL (con una mayuscula se rechaza: no se corrige en silencio)
   v_nombre text := btrim(coalesce(p_nombre, ''));
   v_dominio text := lower(btrim(coalesce(p_dominio, '')));
   v_zona text := btrim(coalesce(p_zona_horaria, ''));
@@ -1147,10 +1148,28 @@ begin
 end;
 $fn$;
 
--- >>> PASO 4.12 permisos: SOLO el servidor (service_role). Ni anon, ni authenticated, ni PUBLIC.
+-- >>> PASO 4.12 dejar constancia de que se creo un usuario (el usuario se crea en Authentication, fuera de Postgres, con la API
+-- de administracion; esta funcion solo escribe la auditoria: correo y id, JAMAS la contrasena temporal)
+create or replace function public.sa_registrar_usuario(p_actor uuid, p_usuario uuid, p_email text, p_restaurante uuid default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $fn$
+begin
+  perform public.exigir_superadmin(p_actor);
+  if p_usuario is null or p_email is null or char_length(p_email) > 254 or public.sa_texto_raro(p_email) then
+    raise exception 'El usuario o el correo no son validos' using errcode = '22023';
+  end if;
+  perform public.auditar_superadmin(p_actor, 'crear_usuario', p_restaurante, jsonb_build_object('usuario', p_usuario, 'email', p_email));
+  return jsonb_build_object('registrado', true);
+end;
+$fn$;
+
+-- >>> PASO 4.13 permisos: SOLO el servidor (service_role). Ni anon, ni authenticated, ni PUBLIC.
 do $do$
 declare
-  v_paso constant text := '4.12 permisos de las funciones de superadmin';
+  v_paso constant text := '4.13 permisos de las funciones de superadmin';
   v_item text := '';
   p record;
 begin
@@ -1204,6 +1223,7 @@ begin
     begin perform public.sa_guardar_secretos(gen_random_uuid(), public.restaurante_taqueiros_id(), '{"wompi_modo":"test"}'); v_cod := v_cod || '[secretos]'; exception when others then if sqlstate <> '42501' then v_cod := v_cod || sqlstate; end if; end;
     begin perform public.sa_estado_secretos(gen_random_uuid(), public.restaurante_taqueiros_id()); v_cod := v_cod || '[estado secretos]'; exception when others then if sqlstate <> '42501' then v_cod := v_cod || sqlstate; end if; end;
     begin perform public.sa_listar_auditoria(gen_random_uuid()); v_cod := v_cod || '[auditoria]'; exception when others then if sqlstate <> '42501' then v_cod := v_cod || sqlstate; end if; end;
+    begin perform public.sa_registrar_usuario(gen_random_uuid(), gen_random_uuid(), 'a@b.co'); v_cod := v_cod || '[registrar usuario]'; exception when others then if sqlstate <> '42501' then v_cod := v_cod || sqlstate; end if; end;
     begin perform public.sa_listar_restaurantes(null); v_cod := v_cod || '[actor nulo]'; exception when others then if sqlstate <> '42501' then v_cod := v_cod || sqlstate; end if; end;
     v_res := v_res || jsonb_build_object('no_superadmin', jsonb_build_object('ok', v_cod = '', 'detalle', v_cod));
 
@@ -1317,8 +1337,8 @@ from (values
     null),
 
   -- ---- 3. funciones de superadmin ----
-  ('hay 14 funciones sa_* de superadmin',
-    (select count(*) = 14 from pg_proc p
+  ('hay 15 funciones sa_* de superadmin',
+    (select count(*) = 15 from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.proname like 'sa\_%' escape '\'
        and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno')),
     (select string_agg(p.proname, ', ' order by p.proname) from pg_proc p
