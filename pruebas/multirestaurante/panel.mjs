@@ -893,7 +893,8 @@ async function escenario(nombre, fn) {
     await a.clic('#cancelarHorarios'); await sleep(200);
 
     // ---- R7: 24:00 y medianoche en el horario (regla de horario-regla.js, SQL 16b) ----
-    const abrirHorario = async () => { await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300); };
+    // (el panel guarda en memoria la configuracion que cargo: si la prueba la cambia por detras, se vuelve a cargar antes de abrir el horario)
+    const abrirHorario = async () => { await a.eval('cargarConfiguracion().then(function(){ return true; })'); await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300); };
     const fila0 = (js) => a.eval(`(function(){ var f = document.querySelector('#filasHorario .fila-dia'); ${js} })()`);
     const guardarHorario = async () => { await a.clic('#guardarHorarios'); await sleep(500); };
     await parchear('configuracion', `restaurante_id=eq.${A.id}`, { horarios: horarios.map((h, i) => (i === 1 ? { ...h, abre: '11:00', cierra: '24:00' } : { ...h, abre: '11:00', cierra: '22:00' })), mensaje_cerrado: null });
@@ -1298,7 +1299,9 @@ async function escenario(nombre, fn) {
     // Cambios a proposito (documentados): los dos ejemplos de busqueda del historial dejan de ser el telefono y el prefijo de Taqueiros
     const norm = (f) => f.replace(/placeholder=(3125249438|Ej: 3001234567)/, 'placeholder=<tel>').replace(/placeholder=(TAQ-...|Código de referencia)/, 'placeholder=<ref>');
     // (y el nombre de la tipografia lleva ahora su respaldo generico, sans-serif, tambien en el unico sitio donde no lo llevaba)
-    const norm2 = (f) => norm(f).split(' ~ "Libre Franklin" ~ ').join(' ~ "Libre Franklin", sans-serif ~ ');
+    // Cambio a proposito (paso 3A, R7): la hora de cierre 24:00 ya no se pone en el <input type="time"> (no la puede mostrar: quedaba vacia) sino en la
+    // casilla "24:00"; el campo queda en 00:00 y apagado. Solo cambia ese valor.
+    const norm2 = (f) => norm(f).split(' ~ "Libre Franklin" ~ ').join(' ~ "Libre Franklin", sans-serif ~ ').split('class=cierra type=time value=24:00').join('class=cierra type=time value=00:00');
     const a = antiguo.filas.map(norm2), n = nuevo.filas.map(norm2);
     const diffs = [];
     if (a.length !== n.length) diffs.push(`elementos: ${a.length} antes, ${n.length} ahora`);

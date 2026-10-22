@@ -754,7 +754,10 @@ async function escenario(nombre, fn) {
   })()`;
 
   function comparar(etiqueta, antiguo, nuevo) {
-    const a = antiguo.filas, n = nuevo.filas;
+    // Cambio a proposito (paso 3A, R7): el horario de la prueba es 00:00 a 24:00 y la pagina de antes mostraba el cierre 24:00 como
+    // "12:00 p.m." (el mediodia, un error); ahora dice "12:00 a.m. (medianoche)". Solo cambia ese texto.
+    const aMedianoche = (fila) => fila.split(' hasta las 12:00 p.m.').join(' hasta las 12:00 a.m. (medianoche)').split('– 12:00 p.m.').join('– 12:00 a.m. (medianoche)');
+    const a = antiguo.filas.map(aMedianoche), n = nuevo.filas;
     const diffs = [];
     if (a.length !== n.length) diffs.push(`elementos: ${a.length} antes, ${n.length} ahora`);
     for (let i = 0; i < Math.max(a.length, n.length); i++) {

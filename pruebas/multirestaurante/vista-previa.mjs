@@ -215,8 +215,17 @@ async function main() {
     const antes = path.join(tmp, 'antes'); fs.mkdirSync(antes);
     const { execFileSync } = await import('node:child_process');
     const deGit = (archivo) => execFileSync('git', ['-C', REPO, 'show', `d689d4d:${archivo}`], { maxBuffer: 20 * 1024 * 1024 }).toString('utf8').replace(/\r\n/g, '\n');
-    comprobar(indexEstatico.replace(/\r\n/g, '\n') === deGit('index.html') && pedidoEstatico.replace(/\r\n/g, '\n') === deGit('pedido.html'),
-      '2d index.html y pedido.html son EXACTAMENTE los de antes (las personas reciben el mismo HTML de siempre)', '');
+    // Cambios de index.html hechos a proposito DESPUES de la vista previa (paso 3A, docs 19): el mensaje neutro del servicio suspendido
+    // y 24:00 mostrado como medianoche. Se aplican al archivo de antes y entonces la igualdad es exacta: cualquier otra diferencia falla.
+    const cambiar = (t, viejo, nuevo) => { const p = t.split(viejo); if (p.length !== 2) throw new Error('el archivo de antes no trae (o repite) ' + viejo.slice(0, 50)); return p.join(nuevo); };
+    let indexDeAntes = deGit('index.html');
+    indexDeAntes = cambiar(indexDeAntes, 'const MENSAJE_SERVICIO_SUSPENDIDO = "Este restaurante no está recibiendo pedidos en este momento.";', 'const MENSAJE_SERVICIO_SUSPENDIDO = "Servicio no disponible por el momento.";');
+    indexDeAntes = cambiar(indexDeAntes, '/* Lo mismo que responde el servidor al intentar pedir con el servicio suspendido (api/_restaurante.js). */', '/* El mensaje NEUTRO que ve el cliente cuando el servicio esta suspendido o vencido: no dice el motivo (ni menciona pagos). */');
+    indexDeAntes = cambiar(indexDeAntes, 'alert(detalle.error || MENSAJE_SERVICIO_SUSPENDIDO);', 'alert(MENSAJE_SERVICIO_SUSPENDIDO);');
+    indexDeAntes = cambiar(indexDeAntes, '  const [h,m] = hhmm.split(":").map(Number);\n  const period = h >= 12 ? "p.m." : "a.m.";',
+      '  const [h,m] = hhmm.split(":").map(Number);\n  // 24:00 = cierra a la medianoche (regla del horario, horario-regla.js): no es el mediodia\n  if(h === 24 && m === 0) return "12:00 a.m. (medianoche)";\n  const period = h >= 12 ? "p.m." : "a.m.";');
+    comprobar(indexEstatico.replace(/\r\n/g, '\n') === indexDeAntes && pedidoEstatico.replace(/\r\n/g, '\n') === deGit('pedido.html'),
+      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html hechos a proposito en el paso 3A (las personas reciben el mismo HTML de siempre)', '');
     void antes; void extraerAntes;
 
     // una persona que llegue a la funcion directamente es devuelta a la pagina de siempre, sin datos

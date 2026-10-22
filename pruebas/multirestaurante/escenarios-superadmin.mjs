@@ -463,6 +463,15 @@ export async function correrSuperadmin(opts) {
       const aud = JSON.stringify((await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_limite: 200 })).cuerpo);
       return es(a.cuerpo.password_temporal !== claveNueva && !aud.includes(a.cuerpo.password_temporal) && !aud.includes(claveNueva) && !logs.join('\n').includes(claveNueva) && !logs.join('\n').includes(a.cuerpo.password_temporal), '');
     });
+    await T('la contrasena temporal es aleatoria de verdad: 300 seguidas, todas distintas, de 20 caracteres, con las 4 clases, y ningun caracter aparece fijo en ellas', async () => {
+      const { generarClaveTemporal } = require(path.join(apiDir, '_auth-admin.js'));
+      const claves = Array.from({ length: 300 }, () => generarClaveTemporal());
+      const todasBien = claves.every((c) => c.length === 20 && /[A-HJ-NP-Z]/.test(c) && /[a-km-z]/.test(c) && /[2-9]/.test(c) && /[#$%&*+=?@-]/.test(c) && /^[A-HJ-NP-Za-km-z2-9#$%&*+=?@-]+$/.test(c));
+      // si el generador pusiera siempre la misma letra de cada clase (p. ej. 'A' x3), casi todas las claves traerian 3 o mas veces esa letra; al azar es rarisimo
+      const fijas = ['A', 'a', '2', '#'].map((ch) => claves.filter((c) => c.split(ch).length - 1 >= 3).length / claves.length);
+      const posiciones = Array.from({ length: 20 }, (_, i) => new Set(claves.map((c) => c[i])).size);   // en cada posicion tienen que verse muchos caracteres distintos
+      return es(new Set(claves).size === 300 && todasBien && fijas.every((f) => f < 0.1) && posiciones.every((n) => n >= 25), JSON.stringify([new Set(claves).size, todasBien, fijas, Math.min(...posiciones)]));
+    });
     await T('crear_usuario: un correo que ya existe (409), un correo invalido (400), un rol invalido (400) y un restaurante que no existe (404) no crean ni dejan nada suelto', async () => {
       const usuariosAntes = JSON.parse(await (await fetchReal(`${URL_BASE}/auth/v1/admin/users?per_page=1000`, { headers: H() })).text()).users.length;
       const dup = await llamarSA({ accion: 'crear_usuario', email: uNuevo.email });
@@ -593,17 +602,23 @@ export async function correrSuperadmin(opts) {
       const a = await actualizar({ estado: 'activo', plan: 'basico', modalidad_pago: 'unico', dias_gracia: 3, modulos: { pasarela: false }, zona_horaria: 'America/Bogota', vigente_hasta: dia(30), nombre: `PRUEBA-SUPERADMIN ${sfx} (editado)` });
       const pasarelaApagada = await invocar(M.restaurante, { metodo: 'GET', host: hostPrueba, ruta: '/api/restaurante' });
       await actualizar({ modulos: { pasarela: true } });
+      // la cache de restaurantes (30 s) se calienta con un menu; el cambio hecho por la API tiene que verse en el MISMO instante, sin esperar
+      // (crear-pedido invalida la cache por su cuenta: por eso se mira el menu ANTES de pedir)
+      const menuAlDia = await invocar(M.menu, { metodo: 'GET', host: hostPrueba, ruta: '/api/menu' });
       const s = await actualizar({ estado: 'suspendido' });
+      const menuSuspInmediato = await invocar(M.menu, { metodo: 'GET', host: hostPrueba, ruta: '/api/menu' });
       const suspendido = await crearPedidoP();
       const menuSusp = await invocar(M.menu, { metodo: 'GET', host: hostPrueba, ruta: '/api/menu' });
       const r = await actualizar({ estado: 'activo' });
+      const menuReactivadoInmediato = await invocar(M.menu, { metodo: 'GET', host: hostPrueba, ruta: '/api/menu' });
       const reactivado = await crearPedidoP();
       const e = a.cuerpo.restaurante;
       return es(a.status === 200 && e.estado === 'activo' && e.plan === 'basico' && e.modalidad_pago === 'unico' && e.dias_gracia === 3 && e.modulos.pasarela === false && e.vigente_hasta === dia(30) && e.vigencia.estado === 'activo'
         && pasarelaApagada.cuerpo.modulos.pasarela === false
         && s.cuerpo.restaurante.vigencia.estado === 'suspendido' && suspendido.status === 403 && suspendido.cuerpo.motivo === 'servicio_suspendido' && menuSusp.status === 200 && menuSusp.cuerpo.servicio.sirve === false
-        && r.cuerpo.restaurante.vigencia.estado === 'activo' && reactivado.status === 200,
-        JSON.stringify([a.status, suspendido.status, menuSusp.cuerpo.servicio, reactivado.status]));
+        && r.cuerpo.restaurante.vigencia.estado === 'activo' && reactivado.status === 200
+        && !('servicio' in menuAlDia.cuerpo) && menuSuspInmediato.cuerpo.servicio && menuSuspInmediato.cuerpo.servicio.sirve === false && !('servicio' in menuReactivadoInmediato.cuerpo),
+        JSON.stringify([a.status, suspendido.status, menuSusp.cuerpo.servicio, reactivado.status, menuSuspInmediato.cuerpo.servicio, menuReactivadoInmediato.cuerpo.servicio]));
     });
     await T('actualizar_restaurante: vigencia en el pasado = gracia / vencido y quitar el vencimiento (null); cada estado se refleja en vigencia y en lo que ve el cliente', async () => {
       const gracia = await actualizar({ vigente_hasta: dia(-1), dias_gracia: 5 });
