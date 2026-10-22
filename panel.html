@@ -1978,15 +1978,24 @@ document.getElementById("guardarHorarios").addEventListener("click", async (e) =
     return;
   }
 
-  boton.disabled = true;
   const mensaje = document.getElementById("mensajeCerrado").value.trim();
+  // Las mismas reglas de la base (SQL 15): hasta 300 caracteres y sin < ni >. Sin esto la base lo
+  // rechazaba y el dueno solo veia "No se pudo guardar el horario", sin saber por que.
+  if([...mensaje].length > 300 || /[<>]/.test(mensaje)){
+    avisar("El mensaje de cerrado puede tener hasta 300 caracteres y no puede llevar < ni >", true);
+    return;
+  }
 
+  boton.disabled = true;
   const { error } = await db.from("configuracion")
     .update({ horarios, mensaje_cerrado: mensaje || null }).eq("restaurante_id", RID);
   boton.disabled = false;
 
   if(error){
-    avisar("No se pudo guardar el horario", true);
+    // 23514: la base no acepto el horario o el mensaje (p. ej. un caracter de control o invisible pegado)
+    avisar(error.code === "23514"
+      ? "La base no aceptó el horario o el mensaje de cerrado: quita los caracteres especiales del mensaje"
+      : "No se pudo guardar el horario", true);
     console.error(error);
     return;
   }

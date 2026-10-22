@@ -163,6 +163,8 @@ m('datos: Escape no cierra el formulario', DAT, 'if (ev.key === "Escape" && fond
 m('datos: el formulario no carga lo vigente de la base al abrir (usa lo viejo)', DAT, 'estado.original = { nombre: r.data.nombre, config: r.data.config && typeof r.data.config === "object" ? r.data.config : {} };', 'estado.original = estado.original || { nombre: r.data.nombre, config: r.data.config && typeof r.data.config === "object" ? r.data.config : {} };', '^13\\.',
   { equivalente: 'cada apertura crea un estado nuevo (estado = {... original: null}), asi que no queda nada viejo que reutilizar' });
 m('datos: el nombre nuevo no se ve de inmediato en el menu', DAT, '        window.PR.aplicarNombreYLogo(window.PR.R);', '', '^13\\.');
+m('horario: el mensaje de cerrado se manda sin revisar las reglas de la base (300, < >)', PAN, 'if([...mensaje].length > 300 || /[<>]/.test(mensaje)){', 'if(false){', '^5\\.');
+m('horario: el rechazo de la base (23514) se muestra como un error generico', PAN, 'avisar(error.code === "23514"', 'avisar(false', '^5\\.');
 m('datos: el formulario muestra el nombre como HTML al abrir (valor con innerHTML)', DAT, 'entrada.value = DR.leer(estado.original, def.campo);', 'entrada.setAttribute("value", DR.leer(estado.original, def.campo)); entrada.insertAdjacentHTML("afterend", DR.leer(estado.original, def.campo));', '^13\\.');
 
 /* ---- ejecucion ------------------------------------------------------------------------------------------------------------------------ */

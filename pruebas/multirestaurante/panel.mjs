@@ -871,6 +871,26 @@ async function escenario(nombre, fn) {
     const escrituras = log.filter((l) => l.uid === uDos.id && /^PATCH \/rest\/v1\/configuracion/.test(l.metodo + ' ' + l.ruta));
     comprobar(escrituras.length >= 3 && escrituras.every((l) => l.ruta.includes(`restaurante_id=eq.${A.id}`) && !/[?&]id=eq/.test(l.ruta)), 'las escrituras de configuracion llevan restaurante_id=eq.<A> (ya no id=eq.1)', JSON.stringify(escrituras.map((l) => l.ruta)));
     await parchear('configuracion', `restaurante_id=eq.${A.id}`, { horarios, mensaje_cerrado: null });
+
+    // R3: un mensaje que la base (SQL 15) rechaza se explica en espanol y no se manda; uno con un caracter de
+    // control que solo la base detecta muestra el motivo en vez de "No se pudo guardar el horario"
+    const escriturasAntes = log.filter((l) => l.uid === uDos.id && /^PATCH \/rest\/v1\/configuracion/.test(l.metodo + ' ' + l.ruta)).length;
+    for (const [valor, etiqueta] of [['Volvemos <pronto>', 'con < y >'], ['x'.repeat(301), 'de 301 caracteres']]) {
+      await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300);
+      await a.eval(`document.getElementById('mensajeCerrado').value = ${JSON.stringify(valor)}; true`);
+      await a.clic('#guardarHorarios'); await sleep(300);
+      comprobar((await toastTexto(a)).includes('hasta 300 caracteres') && (await cfgDe(A)).mensaje_cerrado === null,
+        `R3. un mensaje de cerrado ${etiqueta} se rechaza en el panel con el motivo y no cambia nada`, await toastTexto(a));
+      await a.clic('#cancelarHorarios'); await sleep(200);
+    }
+    const escriturasDespues = log.filter((l) => l.uid === uDos.id && /^PATCH \/rest\/v1\/configuracion/.test(l.metodo + ' ' + l.ruta)).length;
+    comprobar(escriturasDespues === escriturasAntes, 'R3. y no se mando nada a la base', `${escriturasAntes} -> ${escriturasDespues}`);
+    await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300);
+    await a.eval(`document.getElementById('mensajeCerrado').value = 'Volvemos' + String.fromCharCode(9) + 'pronto'; true`);
+    await a.clic('#guardarHorarios');
+    await a.esperar(`function(){return document.getElementById('toast').textContent.indexOf('caracteres especiales') >= 0;}`, 8000, 'aviso del 23514');
+    comprobar((await cfgDe(A)).mensaje_cerrado === null, 'R3. un mensaje con un tabulador (lo rechaza la base, 23514) muestra el motivo y no cambia nada');
+    await a.clic('#cancelarHorarios'); await sleep(200);
     comprobar(a.errores.length === 0, 'sin errores de JavaScript', a.errores.join(' | '));
   });
 
