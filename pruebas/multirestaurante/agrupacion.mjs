@@ -152,7 +152,7 @@ export async function pruebaRutas(repo = RAIZ) {
         if (!bien) fallas.push(`${metodo} ${ruta} (${entrega}) -> ${salida.status} ${JSON.stringify(salida.cuerpo)}`);
       }
     }
-    comprobar(fallas.length === 0, `B1 las ${casos.length} URL externas (menu, estado, disponibilidad, restaurante, manifest, /manifest.json, alertas y keep-alive con Bearer y con ?clave=) llegan a su modulo, con su metodo, cabeceras y consulta, entregadas de las 4 formas`, fallas.slice(0, 4).join(' | '));
+    comprobar(fallas.length === 0, `B1 las ${casos.length} URL externas (menu, estado, disponibilidad, restaurante, manifest, /manifest.json, alertas y keep-alive con Bearer y con una consulta ?clave= que viaja intacta) llegan a su modulo, con su metodo, cabeceras y consulta, entregadas de las 4 formas`, fallas.slice(0, 4).join(' | '));
 
     // las funciones que NO se agruparon siguen en su URL de siempre
     const propias = [['/api/webhook-wompi', 'POST', 'api/webhook-wompi.js'], ['/api/crear-pedido', 'POST', 'api/crear-pedido.js'],
@@ -340,7 +340,8 @@ export async function pruebaEquivalencia(opts = {}) {
         ladoActual = 'ahora';
         process.env.SUPABASE_URL = L2.url;
         const ahora = await correrAhora(L2, esc, emu, variante);
-        const d = comparar(respAntes, ahora);
+        // exigirAhora: cambios hechos a proposito despues del commit de referencia (se exige lo nuevo en vez de la igualdad)
+        const d = esc.exigirAhora ? esc.exigirAhora(ahora) : comparar(respAntes, ahora);
         (porGrupo[esc.grupo] = porGrupo[esc.grupo] || { total: 0, mal: 0 }).total++;
         if (d) { porGrupo[esc.grupo].mal++; diferencias.push(`[${esc.grupo}] ${esc.nombre} (${variante}): ${d}`); }
         if (esc.despues) { await esc.despues(L1, respAntes, 'antes'); await esc.despues(L2, ahora, 'ahora'); }
@@ -490,7 +491,9 @@ function guionDeEscenarios() {
     get(g, `${ruta} sin credencial (401)`, 'cron.equivalencia.test', ruta);
     get(g, `${ruta} con Bearer`, 'cron.equivalencia.test', ruta, bearer);
     get(g, `${ruta} con bearer en minusculas`, 'cron.equivalencia.test', ruta, { authorization: 'bearer ' + SECRETO_CRON });
-    get(g, `${ruta} con ?clave= correcta`, 'cron.equivalencia.test', `${ruta}?clave=${SECRETO_CRON}`);
+    // Cambio a proposito (paso 3A): ?clave= se retiro. El codigo anterior respondia 200; ahora tiene que responder 401.
+    e(g, `${ruta} con ?clave= correcta (RETIRADA: ahora 401)`, { host: 'cron.equivalencia.test', ruta: `${ruta}?clave=${SECRETO_CRON}` },
+      { exigirAhora: (r) => (r.status === 401 ? null : `respondio ${r.status} y debia ser 401`) });
     get(g, `${ruta} con ?clave= mala (401)`, 'cron.equivalencia.test', `${ruta}?clave=mala`);
     get(g, `${ruta} con Bearer malo (401)`, 'cron.equivalencia.test', ruta, { authorization: 'Bearer mala' });
     get(g, `${ruta} con clave vacia (401)`, 'cron.equivalencia.test', `${ruta}?clave=`);

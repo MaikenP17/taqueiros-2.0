@@ -2,15 +2,16 @@
    AUTORIZACION DE LOS CRONS (/api/alertas y /api/keep-alive)
 
    Las dos rutas son publicas en internet, asi que exigen el secreto
-   CRON_SECRET. Se acepta de dos maneras:
+   CRON_SECRET, y SOLO por cabecera:
 
-     Authorization: Bearer <secreto>   <- la forma preferida
-     ?clave=<secreto>                  <- se mantiene por ahora para no
-                                          romper los crons ya creados
+     Authorization: Bearer <secreto>
 
-   Por que es mejor la cabecera: una URL con la clave dentro queda
-   escrita en los registros de Vercel, en el historial de cron-job.org
-   y en cualquier proxy por el que pase. Una cabecera no.
+   El parametro ?clave=<secreto> YA NO SE ACEPTA (se retiro despues de
+   confirmar que cron-job.org usa la cabecera): una URL con la clave dentro
+   queda escrita en los registros de Vercel, en el historial de cron-job.org
+   y en cualquier proxy por el que pase. Una peticion con ?clave= responde
+   401 aunque la clave sea la correcta. (El cron de Vercel manda solo la
+   cabecera Authorization: Bearer <CRON_SECRET>.)
 
    La comparacion es en tiempo constante (timingSafeEqual sobre el
    hash de cada lado, que asi siempre miden lo mismo). El secreto no
@@ -24,23 +25,15 @@ function iguales(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-/* true solo si el pedido trae el secreto correcto por cabecera o por
-   ?clave=. Sin CRON_SECRET configurado, nadie entra. */
+/* true solo si el pedido trae el secreto correcto en la cabecera
+   Authorization: Bearer. Sin CRON_SECRET configurado, nadie entra. */
 function autorizadoCron(req, env = process.env) {
   const secreto = env.CRON_SECRET;
   if (!secreto) return false;
 
   const cabecera = String((req.headers && req.headers["authorization"]) || "");
   const m = /^Bearer\s+(.*)$/i.exec(cabecera);
-  const porCabecera = m ? iguales(m[1].trim(), secreto) : false;
-
-  let clave = null;
-  try {
-    clave = new URL(req.url, "http://localhost").searchParams.get("clave");
-  } catch (e) { /* URL rara: sin clave */ }
-  const porUrl = clave !== null ? iguales(clave, secreto) : false;
-
-  return porCabecera || porUrl;
+  return m ? iguales(m[1].trim(), secreto) : false;
 }
 
 module.exports = { autorizadoCron };

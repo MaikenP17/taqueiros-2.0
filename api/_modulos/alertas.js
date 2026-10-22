@@ -16,9 +16,9 @@ const { restauranteActivo, leerSecretos, contactoAlertas } = require("../_restau
 
    COMO SE PROTEGE
    La URL es publica, asi que exige un secreto (CRON_SECRET). Sin el
-   responde 401. Se acepta de dos formas (ver _cron.js):
-     - cabecera:  Authorization: Bearer <secreto>   (preferida)
-     - parametro: ?clave=<secreto>                   (se mantiene por ahora)
+   responde 401. Se acepta SOLO por cabecera (ver _cron.js):
+     Authorization: Bearer <secreto>
+   El parametro ?clave=<secreto> se retiro: responde 401 aunque sea el correcto.
 
    MULTI-RESTAURANTE
    El cron no tiene host: recorre los restaurantes que estan sirviendo

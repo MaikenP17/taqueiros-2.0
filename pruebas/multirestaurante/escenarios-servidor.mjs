@@ -1400,10 +1400,10 @@ export async function correrEscenarios(opts) {
       tipo_pedido: 'llevar', items: [{ id: 'taco', nombre: 'Taco', cantidad: 1, precio: 1000 }], subtotal: 1000, costo_domicilio: 0, total: 1000,
       pagado_en: new Date(dateNowReal() - minutos * 60000).toISOString(), alerta_enviada: false
     });
-    await T('401 sin secreto; con Bearer o ?clave= entra', async () => {
+    await T('401 sin secreto; solo entra con Bearer: ?clave= ya no sirve ni siquiera con la clave correcta', async () => {
       const a = await alertaMal(); const b = await alertaMal('incorrecta');
       const c = await conCron(M.alertas); const d = await alertaMal(process.env.CRON_SECRET);
-      return es(a.status === 401 && b.status === 401 && c.status === 200 && d.status === 200, `${a.status} ${b.status} ${c.status} ${d.status}`);
+      return es(a.status === 401 && b.status === 401 && c.status === 200 && d.status === 401, `${a.status} ${b.status} ${c.status} ${d.status}`);
     });
     await T('cada restaurante avisa SOLO a su contacto y solo de sus pedidos (sin cruces)', async () => {
       const refA = `TAQ-AL-${sfx}-A`, refB = `TAQ-AL-${sfx}-B`;
@@ -1474,13 +1474,13 @@ export async function correrEscenarios(opts) {
       await conCron(M.alertas);
     });
     if (!real) {
-      await T('keep-alive: 401 sin secreto; 200 con Bearer y con ?clave=; el ping no toca tablas de negocio', async () => {
+      await T('keep-alive: 401 sin secreto y con ?clave= (aunque sea la correcta); 200 con Bearer; el ping no toca tablas de negocio', async () => {
         const a = await invocar(M.keepAlive, { host: 'cron.example' });
         const desde = registro.length;
         const b = await conCron(M.keepAlive);
         const ping = registro.slice(desde).filter((x) => !x.url.includes('/rpc/'));
         const c = await invocar(M.keepAlive, { host: 'cron.example', ruta: `/api/keep-alive?clave=${process.env.CRON_SECRET}` });
-        return es(a.status === 401 && b.status === 200 && c.status === 200 && ping.length === 1 && /restaurantes\?select=id/.test(ping[0].url), `${a.status} ${b.status} ${c.status} ${ping.map((p) => p.url).join(',')}`);
+        return es(a.status === 401 && b.status === 200 && c.status === 401 && ping.length === 1 && /restaurantes\?select=id/.test(ping[0].url), `${a.status} ${b.status} ${c.status} ${ping.map((p) => p.url).join(',')}`);
       });
     } else {
       await T('keep-alive: 401 sin secreto (el barrido de huerfanos no se corre contra la base real)', async () => es((await invocar(M.keepAlive, { host: 'cron.example' })).status === 401, ''));
