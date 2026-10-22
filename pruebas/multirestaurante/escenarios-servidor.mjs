@@ -67,9 +67,21 @@ export async function correrEscenarios(opts) {
     const metodo = (o && o.method) || 'GET';
     if (url.startsWith('https://api.callmebot.com/')) {
       const q = new URL(url).searchParams;
-      const r = callmebotResponde(q.get('phone'));
-      callmebot.push({ phone: q.get('phone'), apikey: q.get('apikey'), text: q.get('text') || '' });
+      const r = callmebotResponde(q.get('phone'), q.get('text') || '');
+      const envio = { phone: q.get('phone'), apikey: q.get('apikey'), text: q.get('text') || '', completo: !r.esperaMs };
+      callmebot.push(envio);
       if (r.lanzar) throw new Error(r.lanzar);      // simula un error de red cuyo mensaje trae la URL
+      if (r.esperaMs) {
+        // CallMeBot lento DE VERDAD (reloj real): como fetch, se corta cuando el servidor aborta la espera
+        const senal = o && o.signal;
+        await new Promise((listo, fallo) => {
+          const abortar = () => { clearTimeout(t); fallo(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })); };
+          const t = setTimeout(listo, r.esperaMs);
+          if (senal && senal.aborted) abortar();
+          else if (senal) senal.addEventListener('abort', abortar, { once: true });
+        });
+        envio.completo = true;
+      }
       return new Response(r.texto, { status: r.status });
     }
     if (url.includes('nominatim.openstreetmap.org')) {
@@ -1975,25 +1987,53 @@ export async function correrEscenarios(opts) {
       for (const x of refsA) await sembrarSinAtender(A, x);
       await sembrarSinAtender(B, refB);
       const sa = await secretosDe(A);
-      let avance = 0;
-      callmebotResponde = (phone) => { if (phone === sa.callmebot_telefono) { desfase += 4000; avance += 4000; } return callmebotNormal(); };
+      // CallMeBot de A tarda 4 s de VERDAD (reloj real) y respeta el corte que pone el servidor, como fetch. Antes el
+      // reloj se adelantaba 4 s por envio sin importar ese corte: el tiempo simulado ya llegaba al limite y cualquier
+      // latencia real de la red (la base real desde el PC) lo pasaba. Ahora se mide lo que de verdad pasaria en Vercel.
+      callmebotResponde = (phone) => (phone === sa.callmebot_telefono ? { ...callmebotNormal(), esperaMs: 4000 } : callmebotNormal());
       callmebot.length = 0;
       // Sin azar: el cron recorre en orden de creacion (A antes que B), el peor caso para B si fuera en serie
       const azarReal = Math.random;
       Math.random = () => 0;
       try {
-        const t0 = Date.now();
+        const t0 = performance.now();
         const r = await conCron(M.alertas);
-        const dura = Date.now() - t0;
-        const enviadosA = callmebot.filter((c) => refsA.some((x) => c.text.includes(x))).length;
+        const dura = Math.round(performance.now() - t0);
+        const intentosA = callmebot.filter((c) => refsA.some((x) => c.text.includes(x))).length;
+        const completosA = callmebot.filter((c) => c.completo && refsA.some((x) => c.text.includes(x))).length;
         const marcadosA = (await Promise.all(refsA.map((x) => pedidoDe(A, x)))).filter((p) => p.alerta_enviada).length;
         const bEnLaPrimera = callmebot.some((c) => c.text.includes(refB));
         callmebotResponde = callmebotNormal;
         await conCron(M.alertas);
         const marcadosA2 = (await Promise.all(refsA.map((x) => pedidoDe(A, x)))).filter((p) => p.alerta_enviada).length;
-        return es(r.status === 200 && dura < 10000 && bEnLaPrimera && enviadosA < 6 && marcadosA === enviadosA && marcadosA2 === 6,
-          `dura=${dura}ms enviadosA=${enviadosA} marcadosA=${marcadosA} luego=${marcadosA2} B=${bEnLaPrimera}`);
-      } finally { Math.random = azarReal; callmebotResponde = callmebotNormal; desfase -= avance; }
+        // Con 4 s por envio y 8 s de presupuesto caben a lo sumo 2 intentos (el segundo se corta a lo que queda);
+        // un envio cortado no se marca (solo los que terminaron) y sale en la siguiente pasada. Un segundo intento
+        // empieza con 4 s o menos de presupuesto, asi que, si la espera se acorta a lo que queda, NUNCA termina.
+        return es(r.status === 200 && dura < 10000 && bEnLaPrimera && intentosA <= 2 && (intentosA < 2 || completosA === 1)
+            && marcadosA < 6 && marcadosA === completosA && marcadosA2 === 6,
+          `dura=${dura}ms intentosA=${intentosA} completosA=${completosA} marcadosA=${marcadosA} luego=${marcadosA2} B=${bEnLaPrimera}`);
+      } finally { Math.random = azarReal; callmebotResponde = callmebotNormal; }
+    });
+    await T('alertas: una alerta que CallMeBot NO entrego (apikey invalida 203, 500 o red caida) no se marca como enviada y sale en la siguiente pasada', async () => {
+      const refs = ['203', '500', 'RED'].map((x) => `TAQ-AL-${sfx}-NOENTREGA${x}`);
+      for (const x of refs) await sembrarSinAtender(B, x);
+      const sb = await secretosDe(B);
+      const fallos = [{ status: 203, texto: 'APIKey is invalid' }, { status: 500, texto: 'error' }, { lanzar: 'fetch failed (simulado)' }];
+      callmebotResponde = (phone, texto) => {
+        const k = refs.findIndex((x) => texto.includes(x));
+        return phone === sb.callmebot_telefono && k >= 0 ? fallos[k] : callmebotNormal();
+      };
+      callmebot.length = 0;
+      try {
+        await conCron(M.alertas);
+        const intentos = callmebot.filter((c) => refs.some((x) => c.text.includes(x))).length;
+        const marcados1 = (await Promise.all(refs.map((x) => pedidoDe(B, x)))).filter((p) => p.alerta_enviada).length;
+        callmebotResponde = callmebotNormal;
+        await conCron(M.alertas);
+        const marcados2 = (await Promise.all(refs.map((x) => pedidoDe(B, x)))).filter((p) => p.alerta_enviada).length;
+        for (const x of refs) await parchear('pedidos', `referencia=eq.${x}&restaurante_id=eq.${B.id}`, { estado: 'entregado' });
+        return es(intentos === 3 && marcados1 === 0 && marcados2 === 3, `intentos=${intentos} marcados1=${marcados1} marcados2=${marcados2}`);
+      } finally { callmebotResponde = callmebotNormal; }
     });
 
     await T('alertas: un pedido ya avisado no se vuelve a avisar en la siguiente pasada', async () => {

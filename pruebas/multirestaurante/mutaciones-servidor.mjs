@@ -157,6 +157,8 @@ m('H4b la copia vieja de la resolucion no vence nunca', '_restaurante.js', 'if (
 m('H5 alertas: sin ventana de tiempo (aluvion de pedidos viejos)', 'alertas.js', '&pagado_en=gt.${encodeURIComponent(desde)}', '');
 m('H5 alertas: sin tiempo maximo por restaurante', 'alertas.js', 'if (restante < MINIMO_PARA_ENVIAR_MS) break;', '');
 m('H5 alertas: de a un restaurante a la vez (uno lento frena a los demas)', 'alertas.js', 'Math.min(EN_PARALELO, restaurantes.length)', 'Math.min(1, restaurantes.length)');
+m('R1 alertas: se marca como avisado aunque CallMeBot no lo haya entregado', 'alertas.js', 'if (!envio || envio.enviado !== true) continue;', '');
+m('R1 alertas: un envio cortado por tiempo no recorta la espera de CallMeBot', 'alertas.js', 'tiempoMaximoMs: restante - 500', 'tiempoMaximoMs: 8000');
 m('H6 notificar: la apikey queda en el detalle del error', '_notificar.js', 'detalleError = detalleError.split(v).join("***");', '');
 m('H6 notificar: solo se tacha la apikey sin codificar', '_notificar.js', 'for (const v of [String(apikey), encodeURIComponent(apikey)]) {', 'for (const v of [String(apikey)]) {');
 m('H7 crear-pedido: el nombre conserva saltos de linea', 'crear-pedido.js', ': t.replace(/[\\t\\n]+/g, " ");', ': t;');
@@ -192,7 +194,8 @@ m('notificar: la salud se registra en Taqueiros', '_notificar.js', 'registrarSal
 m('alertas: tambien recorre los restaurantes suspendidos', 'alertas.js', '.filter((r) => restauranteActivo(r).sirve)', '');
 m('alertas: el contacto es siempre el mismo (el primero)', 'alertas.js', 'contactoAlertas(restaurante, await leerSecretos(restaurante))',
   'contactoAlertas({ id: restaurante.id }, { callmebot_telefono: "573000000000", callmebot_apikey: "x" })');
-m('alertas: avisa aunque no haya contacto (y marca como avisado)', 'alertas.js', 'if (!contacto.telefono || !contacto.apikey) {', 'if (false) {');
+m('alertas: avisa aunque no haya contacto (y marca como avisado)', 'alertas.js', 'if (!contacto.telefono || !contacto.apikey) {', 'if (false) {',
+  { equivalente: 'desde R1 es defensa en capas: notificarWhatsApp sin contacto no llama a CallMeBot y devuelve enviado:false, y alertas ya no marca lo no enviado (quitar las dos SI se detecta: R1)' });
 m('alertas: consulta los pedidos de Taqueiros', 'alertas.js', 'const rid = restaurante.id;', `const rid = "${TAQ}";`);
 m('alertas: un restaurante que falla detiene a los demas', 'alertas.js', '        } catch (err) {\n          // Un restaurante con problemas no deja sin aviso a los demas\n          console.error("[Alertas] Fallo el restaurante", restaurante.slug, err.message);\n        }', '        } finally {\n        }');
 m('restaurante: devuelve toda la config (incluye lo interno)', '_publico.js', '    moneda: "COP",\n    modulos,', '    moneda: "COP",\n    config: cfg,\n    modulos,');

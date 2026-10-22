@@ -74,14 +74,16 @@ async function alertarRestaurante(restaurante, limite, desde, fin) {
     const espera = Math.floor((Date.now() - new Date(pedido.pagado_en).getTime()) / 60000);
 
     try {
-      await notificarWhatsApp(pedido, {
+      const envio = await notificarWhatsApp(pedido, {
         encabezado: `⚠️ *PEDIDO #${String(pedido.numero != null ? pedido.numero : pedido.id).padStart(3, "0")} SIN ATENDER*`,
         subtitulo: `${espera} minutos esperando`,
         tiempoMaximoMs: restante - 500
       }, contacto);
 
-      // Se marca DESPUES de enviar, para que un fallo de envio
-      // permita reintentar en la siguiente pasada del cron.
+      // notificarWhatsApp no lanza: devuelve { enviado:false } si CallMeBot no lo
+      // encolo (tiempo agotado, apikey invalida, red). Solo se marca lo ENVIADO,
+      // para que un fallo de envio se reintente en la siguiente pasada del cron.
+      if (!envio || envio.enviado !== true) continue;
       await actualizarPedidoPorReferencia(rid, pedido.referencia, { alerta_enviada: true });
       alertados++;
     } catch (err) {
