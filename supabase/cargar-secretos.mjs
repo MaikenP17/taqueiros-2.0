@@ -38,6 +38,8 @@
        script no guarda NADA y te lo dice.
      * Sin --sobrescribir no cambia un valor que ya esta en la base y es distinto.
      * Nunca guarda un valor vacio encima de uno existente.
+     * Si un valor de tu sesion ya lo tiene OTRO restaurante (quedaron puestas las variables de
+       otro), no guarda NADA. CallMeBot compartido a proposito: --permitir-repetidos.
 ============================================================= */
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -56,6 +58,7 @@ const bandera = (n) => process.argv.includes(`--${n}`);
 const slug = (arg("slug") || process.env.RESTAURANTE_SLUG || "").trim().toLowerCase();
 const soloVerificar = bandera("solo-verificar");
 const sobrescribir = bandera("sobrescribir");
+const permitirRepetidos = bandera("permitir-repetidos");
 
 if (!URL_BASE) { console.error("No pude leer SUPABASE_URL (ni de supabase-publico.js)."); process.exit(2); }
 if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) { console.error("Falta --slug=<slug del restaurante> (minusculas, numeros y guiones). Ej: --slug=taqueiros"); process.exit(2); }
@@ -140,6 +143,26 @@ async function principal() {
   console.log(`Restaurante: ${rest.nombre} (${rest.slug}, estado ${rest.estado})`);
   console.log(soloVerificar ? "Modo: SOLO VERIFICAR (no se escribe nada)\n" : "Modo: GUARDAR\n");
 
+  /* ---- 2b. Un valor que ya tiene OTRO restaurante no se guarda ---------------------------------------------------
+     Pasa si quedaron en la sesion las variables de otro restaurante (las de Taqueiros se llaman igual que en Vercel).
+     Con el mismo secreto de eventos dos restaurantes pueden aprobar pedidos el uno del otro (docs 13.4, P11), y con el
+     mismo CallMeBot los avisos (nombre, telefono y direccion de los clientes) de uno llegan al WhatsApp del otro. Se
+     compara aqui, en memoria, y no se imprime nada del valor. CallMeBot repetido se acepta con --permitir-repetidos
+     (el mismo dueno con dos restaurantes y un solo telefono); Wompi repetido, nunca. */
+  const ajenos = await api("GET", `restaurante_secretos?restaurante_id=neq.${rest.id}&select=*`);
+  const repetidos = propuestos.filter((c) => !c.enumerado && ajenos.some((f) => {
+    const v = c.col ? f[c.col] : ((f.otros && typeof f.otros === "object") ? f.otros[c.otros] : undefined);
+    return v !== null && v !== undefined && String(v) === c.valor;
+  }));
+  const bloquean = repetidos.filter((c) => !(permitirRepetidos && c.env.startsWith("CALLMEBOT_")));
+  for (const c of repetidos) {
+    console.log(`  AVISO: ${c.env} tiene el MISMO valor que otro restaurante${bloquean.includes(c) ? "" : " (se acepta: --permitir-repetidos)"}`);
+  }
+  const explicarRepetidos = () => console.error(`\n${soloVerificar ? "" : "No se guardo NADA: "}${bloquean.length} valor(es) de tu sesion ya estan en OTRO restaurante. ` +
+    "Seguramente quedaron puestas las variables de otro restaurante: cierra PowerShell (o Remove-Item Env:WOMPI_*, Env:CALLMEBOT_*) " +
+    "y pide solo las de este." + (bloquean.some((c) => c.env.startsWith("CALLMEBOT_")) ? " Si de verdad comparten el telefono de CallMeBot, usa --permitir-repetidos." : ""));
+  if (bloquean.length && !soloVerificar) { explicarRepetidos(); return 2; }
+
   /* ---- 3. Comparar / guardar ---------------------------------------------------------------------------------------------------- */
   const actual = (c) => (c.col ? fila[c.col] : otros[c.otros]);
   const cambios = {};
@@ -164,6 +187,7 @@ async function principal() {
 
   if (soloVerificar) {
     console.log("\n(Solo se compara: \"ya coincide\" = el valor de tu sesion es igual al de la base; nunca se muestra ninguno.)");
+    if (bloquean.length) { explicarRepetidos(); return 1; }
     return 0;
   }
   if (conflictos) {

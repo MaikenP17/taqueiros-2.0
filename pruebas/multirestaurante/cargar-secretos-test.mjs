@@ -76,6 +76,21 @@ try {
   prueba('--solo-verificar: marca lo DIFERENTE y no escribe nada', /DIFERENTE a la base/.test(r.salida) && a.wompi_eventos_test === V.eventos, r.salida);
   r = await correr(ENV, `--slug=${B.slug}`, '--solo-verificar');
   prueba('--solo-verificar contra otro restaurante: dice que falta en la base', /falta en la base/.test(r.salida) && (await secretos(B)).wompi_integridad_test === null, r.salida);
+  prueba('R4. --solo-verificar: avisa que esos valores ya los tiene OTRO restaurante y sale 1', r.codigo === 1 && /AVISO: WOMPI_EVENTS_SECRET_TEST tiene el MISMO valor que otro restaurante/.test(r.salida) && !Object.values(V).some((v) => r.salida.includes(v)), r.salida);
+
+  // --- R4: las variables de OTRO restaurante quedaron en la sesion ---
+  const antesB = JSON.stringify(await secretos(B));
+  r = await correr(ENV, `--slug=${B.slug}`);
+  prueba('R4. con las variables de A en la sesion, cargar B no guarda NADA, sale 2, lo explica y no imprime valores',
+    r.codigo === 2 && JSON.stringify(await secretos(B)) === antesB && /OTRO restaurante/.test(r.salida) && !Object.values(V).some((v) => r.salida.includes(v)), r.salida);
+  r = await correr({ WOMPI_EVENTS_SECRET_TEST: V.eventos, CALLMEBOT_APIKEY: '987654' }, `--slug=${B.slug}`, '--permitir-repetidos');
+  prueba('R4. el secreto de eventos de Wompi de otro restaurante no se acepta ni con --permitir-repetidos (y no guarda lo demas)', r.codigo === 2 && JSON.stringify(await secretos(B)) === antesB, r.salida);
+  const mismoTelefono = { CALLMEBOT_PHONE: '573001112233', CALLMEBOT_APIKEY: V.apikey };
+  r = await correr(mismoTelefono, `--slug=${B.slug}`);
+  prueba('R4. el CallMeBot de otro restaurante tampoco se guarda sin decirlo a proposito', r.codigo === 2 && JSON.stringify(await secretos(B)) === antesB && /--permitir-repetidos/.test(r.salida), r.salida);
+  r = await correr(mismoTelefono, `--slug=${B.slug}`, '--permitir-repetidos');
+  b = await secretos(B);
+  prueba('R4. ...y con --permitir-repetidos (mismo dueno, mismo telefono) si se guarda', r.codigo === 0 && b.callmebot_apikey === V.apikey && b.callmebot_telefono === '573001112233' && b.wompi_eventos_test === null, r.salida);
 
   // --- no pisar ---
   r = await correr({ WOMPI_EVENTS_SECRET_TEST: 'test_events_NUEVO' }, `--slug=${A.slug}`);
