@@ -45,7 +45,7 @@ const RAIZ = process.env.AGRUPACION_REPO ? path.resolve(process.env.AGRUPACION_R
 const PUERTO_OFFSET = Number(process.env.PUERTO_OFFSET || 0);
 const LLAVE = 'sb_secret_FAKE_0000';
 const PUBLICABLE = 'sb_publishable_FAKE_0000';
-const FUNCIONES_ESPERADAS = ['api/crear-pedido.js', 'api/cron.js', 'api/generar-firma.js', 'api/publico.js', 'api/reembolso.js', 'api/webhook-wompi.js'];
+const FUNCIONES_ESPERADAS = ['api/crear-pedido.js', 'api/cron.js', 'api/generar-firma.js', 'api/publico.js', 'api/reembolso.js', 'api/superadmin.js', 'api/webhook-wompi.js'];
 const MAXIMO_DE_FUNCIONES = 7;
 
 const resultados = [];
@@ -58,7 +58,7 @@ const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 export function pruebaCuenta(repo = RAIZ) {
   const funciones = listarFunciones(repo);
   comprobar(funciones.length <= MAXIMO_DE_FUNCIONES, `A1 las funciones de Vercel no pasan de ${MAXIMO_DE_FUNCIONES} (hay ${funciones.length})`, funciones.join(', '));
-  comprobar(JSON.stringify(funciones) === JSON.stringify(FUNCIONES_ESPERADAS), 'A2 son exactamente las 6 esperadas (si cambia la lista, hay que decidirlo a proposito)', funciones.join(', '));
+  comprobar(JSON.stringify(funciones) === JSON.stringify(FUNCIONES_ESPERADAS), 'A2 son exactamente las 7 esperadas (las 6 de siempre y api/superadmin.js; si cambia la lista, hay que decidirlo a proposito)', funciones.join(', '));
 
   // lo que empieza por guion bajo no cuenta: el contenido de _modulos/ y los helpers
   const todos = [];

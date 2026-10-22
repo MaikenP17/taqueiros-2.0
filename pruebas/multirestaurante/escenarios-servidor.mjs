@@ -2281,6 +2281,16 @@ export async function correrEscenarios(opts) {
       return es(a === null && b === null && c === null && r.status === 401 && llamadasAuth(desde).length === 0, `${a} ${b} ${c} ${r.status} red=${llamadasAuth(desde).length}`);
     });
 
+    // --- R9: una llave de proyecto nunca es una sesion ------------------------------------------------
+    await T('R9 sesion: una llave del proyecto (sb_secret_..., sb_publishable_...) como Bearer es "sin sesion" (401) sin llegar a la red, aunque el gateway conteste "Invalid API key"', async () => {
+      const desde = registro.length;
+      const a = await SES.usuarioDeToken('sb_secret_' + sfx + 'abcdef');
+      const b = await SES.usuarioDeToken('sb_publishable_' + sfx + 'abcdef');
+      const c = await SES.usuarioDeToken('SB_SECRET_mayusculas');
+      const r = await pedirReembolso(hA, 'sb_secret_' + sfx + 'abcdef', refR);
+      return es(a === null && b === null && c === null && r.status === 401 && llamadasAuth(desde).length === 0, `${a} ${b} ${c} ${r.status} red=${llamadasAuth(desde).length}`);
+    });
+
     /* =====================================================================
        12. NADA SECRETO SALE: ni en respuestas ni en el log
     ===================================================================== */

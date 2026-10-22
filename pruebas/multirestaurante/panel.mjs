@@ -1710,6 +1710,60 @@ async function escenario(nombre, fn) {
   });
 
   // ---------------------------------------------------------------------------------------------------------
+  await escenario('14. Aviso de la suscripcion: el dueno ve una barra en gracia, vencida o suspendida; el cajero, la cocina y los demas restaurantes no; sin el SQL 16 no se rompe nada', async () => {
+    const hoyBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const dia = (n) => new Date(Date.parse(hoyBogota + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+    const ponerA = (cols) => parchear('restaurantes', `id=eq.${A.id}`, cols);
+    const barra = (pg) => pg.eval(`(function(){var b=document.getElementById('avisoVigencia');return {oculta:b.hidden, texto:b.textContent, grave:b.classList.contains('grave')};})()`);
+    const abrirPanel = async (nombre, host, u) => panelDe(nombre, host, u);
+    const aviso = async (cols, u = uA, nombre = '14') => { await ponerA(cols); const pg = await abrirPanel(nombre, 'alfa.localhost', u); await sleep(500); const r = await barra(pg); return r; };
+
+    const alDia = await aviso({ estado: 'activo', vigente_hasta: null, dias_gracia: 5 });
+    comprobar(alDia.oculta && alDia.texto === '', '14a. Sin vencimiento: la barra no aparece');
+    const vigente = await aviso({ estado: 'activo', vigente_hasta: dia(10), dias_gracia: 5 });
+    comprobar(vigente.oculta, '14b. Con la suscripcion al dia: la barra no aparece');
+    const prueba = await aviso({ estado: 'prueba', vigente_hasta: dia(3), dias_gracia: 5 });
+    comprobar(prueba.oculta, '14c. En periodo de prueba vigente: la barra no aparece');
+
+    const gracia = await aviso({ estado: 'activo', vigente_hasta: dia(-2), dias_gracia: 5 });
+    comprobar(!gracia.oculta && /venció el/.test(gracia.texto) && /Tienes 4 días para renovarla/.test(gracia.texto) && !gracia.grave, '14d. En gracia (venció hace 2 dias, 5 de gracia): "Tienes 4 dias para renovarla", sin el estilo de alarma', JSON.stringify(gracia));
+    const ultimo = await aviso({ estado: 'activo', vigente_hasta: dia(-5), dias_gracia: 5 });
+    comprobar(!ultimo.oculta && /Hoy es el último día/.test(ultimo.texto), '14e. El ultimo dia de gracia dice que hoy es el ultimo dia', JSON.stringify(ultimo));
+    const vencido = await aviso({ estado: 'activo', vigente_hasta: dia(-9), dias_gracia: 5 });
+    comprobar(!vencido.oculta && vencido.grave && /suspendido/.test(vencido.texto) && /no pueden hacer pedidos/.test(vencido.texto), '14f. Vencida (pasada la gracia): avisa que el servicio esta suspendido, con el estilo de alarma', JSON.stringify(vencido));
+    const susp = await aviso({ estado: 'suspendido', vigente_hasta: dia(10), dias_gracia: 5 });
+    comprobar(!susp.oculta && susp.grave && /está suspendido/.test(susp.texto), '14g. Suspendida a mano: lo dice', JSON.stringify(susp));
+
+    // el dueno sigue entrando al panel y viendo sus pedidos aunque este vencido o suspendido
+    const pg = await abrirPanel('14-dueno-suspendido', 'alfa.localhost', uA);
+    comprobar(await pg.eval(`!document.getElementById('app').hidden`) && (await numerosTablero(pg)).length > 0, '14h. Suspendido, el dueno sigue entrando al panel y viendo sus pedidos', await numerosTablero(pg));
+
+    // solo el dueno
+    const cajero = await aviso({ estado: 'activo', vigente_hasta: dia(-2), dias_gracia: 5 }, uAB, '14-cajero');
+    const cocina = await abrirPanel('14-cocina', 'alfa.localhost', uCocina); await sleep(400);
+    comprobar(cajero.oculta && (await barra(cocina)).oculta, '14i. Un cajero y la cocina del mismo restaurante NO ven la barra (aunque este en gracia)', JSON.stringify([cajero, await barra(cocina)]));
+    // otro restaurante (B, sin vencimiento) y Taqueiros: nada
+    const pb = await abrirPanel('14-dueno-b', 'beta.localhost', uB); await sleep(400);
+    comprobar((await barra(pb)).oculta, '14j. El dueno de B (que no vence) no ve nada: el estado de A no se le filtra', JSON.stringify(await barra(pb)));
+    const pt = await abrirPanel('14-taqueiros', 'taqueiros.localhost', uT); await sleep(400);
+    comprobar((await barra(pt)).oculta, '14k. Taqueiros (sin vencimiento): la barra no aparece');
+
+    // sin el SQL 16 (la funcion no existe): sin barra y sin errores
+    await falso.db.exec('alter function public.vigencia_restaurante(uuid, timestamptz) rename to vigencia_restaurante_apagada');
+    try {
+      const sinSql = await aviso({ estado: 'suspendido', vigente_hasta: dia(-30), dias_gracia: 5 }, uA, '14-sin-sql16');
+      comprobar(sinSql.oculta, '14l. Sin el SQL 16 (la funcion no existe) la barra no aparece y el panel abre igual');
+    } finally {
+      await falso.db.exec('alter function public.vigencia_restaurante_apagada(uuid, timestamptz) rename to vigencia_restaurante');
+    }
+    // sin XSS: el texto nunca se arma con datos de la base (solo con la fecha ya validada)
+    comprobar(!await pg.eval(`document.getElementById('avisoVigencia').innerHTML.indexOf('<') >= 0`), '14m. La barra es solo texto (nada de HTML)');
+    await ponerA({ estado: 'activo', vigente_hasta: null, dias_gracia: 5 });
+    const errs = [pg, pb, pt].map((p) => p.errores.filter((e) => !/Failed to load resource|favicon/.test(e)));
+    comprobar(errs.every((e) => e.length === 0), '14n. Sin errores de JavaScript', JSON.stringify(errs));
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
   const fallas = resultados.filter((r) => !r.ok).length;
   console.log(`\n${resultados.length - fallas} PASAN, ${fallas} FALLAN.`);
   try { chrome.kill(); } catch (e) { /* ya cerro */ }
