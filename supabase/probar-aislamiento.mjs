@@ -779,48 +779,75 @@ async function main() {
     const opciones = { auth: { persistSession: false, autoRefreshToken: false } };
     const clientes = [];
     const recibidos = { A: [], B: [] };
+    const dormir = (ms) => new Promise((res) => setTimeout(res, ms));
+    const esperarHasta = async (cond, ms) => { const fin = Date.now() + ms; while (!cond() && Date.now() < fin) await dormir(200); return cond(); };
+    /* SUBSCRIBED solo dice que el canal se unio; la suscripcion a la base (postgres_changes) queda lista cuando
+       Realtime manda el mensaje de sistema "Subscribed to PostgreSQL". Antes la prueba insertaba apenas llegaba
+       SUBSCRIBED y, si la replicacion aun no escuchaba, el pedido de control se perdia ("sin control positivo").
+       Ademas el token de la sesion se le pasa a Realtime ANTES de unirse (si no, el canal puede unirse como anon). */
     const abrir = async (usuario, clave) => {
       const c = createClient(URL_BASE, PUB, opciones);
-      const { error } = await c.auth.signInWithPassword({ email: usuario.email, password: usuario.password });
+      const { data, error } = await c.auth.signInWithPassword({ email: usuario.email, password: usuario.password });
       if (error) throw new Error("Realtime: no pude iniciar sesion como " + usuario.alias + ": " + error.message);
       clientes.push(c);
+      await c.realtime.setAuth(data.session.access_token);
+      let listoBase = false;
       const estado = await new Promise((res) => {
         const ch = c.channel(`aislamiento-${clave}-${etiqueta}`)
           .on("postgres_changes", { event: "*", schema: "public", table: "pedidos" }, (p) => {
             const f = p.new && p.new.referencia ? p.new : (p.old || {});
             recibidos[clave].push({ tipo: p.eventType, ref: f.referencia, rid: f.restaurante_id, id: f.id });
           })
+          .on("system", {}, (m) => {
+            if (m && m.extension === "postgres_changes" && m.status === "ok") listoBase = true;
+          })
           .subscribe((st) => { if (["SUBSCRIBED", "CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(st)) res(st); });
         setTimeout(() => res("SIN_RESPUESTA"), 12000);
       });
-      return estado;
+      // Confirmacion real de la base (hasta 10 s); si este Realtime no la manda, se da un margen fijo
+      if (estado === "SUBSCRIBED" && !(await esperarHasta(() => listoBase, 10000))) await dormir(3000);
+      return { estado, listoBase };
     };
     try {
-      const eA = await abrir(dA, "A");
-      const eB = await abrir(dB, "B");
-      prueba("el canal de Realtime del dueno A queda SUBSCRIBED", eA === "SUBSCRIBED", eA);
-      prueba("el canal de Realtime del dueno B queda SUBSCRIBED", eB === "SUBSCRIBED", eB);
+      const cA = await abrir(dA, "A");
+      const cB = await abrir(dB, "B");
+      const eA = cA.estado, eB = cB.estado;
+      prueba("el canal de Realtime del dueno A queda SUBSCRIBED", eA === "SUBSCRIBED", eA + (cA.listoBase ? " (base lista)" : " (sin confirmacion de la base)"));
+      prueba("el canal de Realtime del dueno B queda SUBSCRIBED", eB === "SUBSCRIBED", eB + (cB.listoBase ? " (base lista)" : " (sin confirmacion de la base)"));
 
-      const marcaA = `${etiqueta}-rt-a`, marcaB = `${etiqueta}-rt-b`;
+      /* Control positivo con reintentos ACOTADOS: hasta 3 rondas, cada una con pedidos NUEVOS de A y de B, hasta que
+         cada dueno haya visto un INSERT de los suyos. La comprobacion de aislamiento mira TODOS los eventos de TODAS
+         las rondas: un solo evento de B que le llegue a A (o al reves) hace fallar la prueba, se repita o no. */
       const base = (rid, ref) => ({ restaurante_id: rid, referencia: ref, estado: "nuevo", cliente_nombre: "RT", cliente_telefono: "3", tipo_pedido: "llevar", items: [], subtotal: 1000, costo_domicilio: 0, total: 1000, estado_pago: "aprobado", alerta_enviada: true });
-      const pb = filas(await svc("POST", "pedidos", base(B, marcaB)))[0];
-      const pa = filas(await svc("POST", "pedidos", base(A, marcaA)))[0];
-      await new Promise((res) => setTimeout(res, 800));
+      const marcas = { A: [], B: [] };
+      const vio = (clave, tipo) => recibidos[clave].some((e) => marcas[clave].includes(e.ref) && e.tipo === tipo);
+      const rondas = eA === "SUBSCRIBED" && eB === "SUBSCRIBED" ? 3 : 1;
+      let pa = null, pb = null, ronda = 0;
+      while (ronda < rondas && !(vio("A", "INSERT") && vio("B", "INSERT"))) {
+        ronda++;
+        const mA = `${etiqueta}-rt-a${ronda}`, mB = `${etiqueta}-rt-b${ronda}`;
+        marcas.A.push(mA); marcas.B.push(mB);
+        pb = filas(await svc("POST", "pedidos", base(B, mB)))[0];
+        pa = filas(await svc("POST", "pedidos", base(A, mA)))[0];
+        await esperarHasta(() => vio("A", "INSERT") && vio("B", "INSERT"), 8000);
+      }
       await svc("PATCH", `pedidos?id=eq.${pb.id}`, { estado: "listo" });
       await svc("PATCH", `pedidos?id=eq.${pa.id}`, { estado: "listo" });
-      await new Promise((res) => setTimeout(res, 5000));
+      await esperarHasta(() => vio("A", "UPDATE") && vio("B", "UPDATE"), 8000);
+      await dormir(2000);   // margen para que llegue cualquier evento cruzado tardio
 
       const deA = recibidos.A, deB = recibidos.B;
-      const aVeLoSuyo = deA.some((e) => e.ref === marcaA && e.tipo === "INSERT");
-      const bVeLoSuyo = deB.some((e) => e.ref === marcaB && e.tipo === "INSERT");
-      prueba("la sesion del dueno A RECIBE el evento de su propio pedido (INSERT)", aVeLoSuyo, JSON.stringify(deA));
-      prueba("la sesion del dueno A RECIBE la actualizacion de su pedido (UPDATE)", deA.some((e) => e.ref === marcaA && e.tipo === "UPDATE"), JSON.stringify(deA));
+      const aVeLoSuyo = vio("A", "INSERT");
+      const bVeLoSuyo = vio("B", "INSERT");
+      const nota = ` (rondas: ${ronda})`;
+      prueba("la sesion del dueno A RECIBE el evento de su propio pedido (INSERT)", aVeLoSuyo, JSON.stringify(deA) + nota);
+      prueba("la sesion del dueno A RECIBE la actualizacion de su pedido (UPDATE)", vio("A", "UPDATE"), JSON.stringify(deA) + nota);
       // Una ausencia solo vale si el canal funciona: se exige el control positivo
       prueba("la sesion del dueno A NO recibe ningun evento del restaurante B (con canal vivo)",
-        aVeLoSuyo && !deA.some((e) => e.ref === marcaB || e.rid === B), aVeLoSuyo ? JSON.stringify(deA) : "sin control positivo: el canal de A no recibio ni sus propios eventos");
-      prueba("la sesion del dueno B RECIBE el evento de su pedido", bVeLoSuyo, JSON.stringify(deB));
+        aVeLoSuyo && !deA.some((e) => marcas.B.includes(e.ref) || e.rid === B), aVeLoSuyo ? JSON.stringify(deA) + nota : "sin control positivo: el canal de A no recibio ni sus propios eventos" + nota);
+      prueba("la sesion del dueno B RECIBE el evento de su pedido", bVeLoSuyo, JSON.stringify(deB) + nota);
       prueba("la sesion del dueno B NO recibe ningun evento del restaurante A (con canal vivo)",
-        bVeLoSuyo && !deB.some((e) => e.ref === marcaA || e.rid === A), bVeLoSuyo ? JSON.stringify(deB) : "sin control positivo: el canal de B no recibio ni sus propios eventos");
+        bVeLoSuyo && !deB.some((e) => marcas.A.includes(e.ref) || e.rid === A), bVeLoSuyo ? JSON.stringify(deB) + nota : "sin control positivo: el canal de B no recibio ni sus propios eventos" + nota);
     } finally {
       for (const c of clientes) { try { await c.removeAllChannels(); await c.auth.signOut(); c.realtime.disconnect(); } catch { /* sigue */ } }
     }
