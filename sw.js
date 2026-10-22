@@ -81,8 +81,13 @@
    reinstalacion del worker y borra las caches viejas. El nombre de la cache ya no lleva el
    de ningun restaurante, y NUNCA se guarda aqui un dato de un restaurante: este worker solo
    guarda archivos de /Recursos/ y fuentes, y la cache es por origen (cada restaurante tiene
-   el suyo), asi que ni siquiera un archivo estatico puede pasar de un restaurante a otro. */
-const VERSION = "v10";
+   el suyo), asi que ni siquiera un archivo estatico puede pasar de un restaurante a otro.
+
+   v11: paso 3A (superadmin y vigencia). panel.html gana la casilla "24:00" y la regla del horario
+   (horario-regla.js, archivo nuevo) y la barra de aviso de la suscripcion del dueno; index.html muestra 24:00
+   como medianoche. Mismo criterio: nada de eso se cachea aqui (HTML y scripts van a la red); el cambio de
+   version fuerza la reinstalacion del worker para que el panel instalado tome los cambios. */
+const VERSION = "v11";
 const CACHE_ESTATICO = "panel-estatico-" + VERSION;
 /* Prefijos de las caches de versiones anteriores (se borran al activarse la nueva). */
 const PREFIJOS_VIEJOS = ["taqueiros-panel-", "panel-estatico-"];

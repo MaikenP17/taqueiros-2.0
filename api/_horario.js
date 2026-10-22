@@ -87,6 +87,7 @@ function aMinutos(hhmm) {
 /* "11:00" -> "11:00 am" */
 function aFormatoAmPm(hhmm) {
   const [h, m] = String(hhmm).split(":").map(Number);
+  if (h === 24 && m === 0) return "12:00 am (medianoche)";   // 24:00 = cierra a la medianoche, no es el mediodia
   const periodo = h >= 12 ? "pm" : "am";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${String(m).padStart(2, "0")} ${periodo}`;
@@ -105,11 +106,15 @@ function aFormatoAmPm(hhmm) {
    Si la configuracion no se puede leer, devuelve abierto:true para
    no bloquear las ventas por un problema de la base de datos.
 
-   Horarios que cruzan la medianoche (cierra <= abre, ej. 18:00 -> 02:00): el
-   tramo de despues de las 00:00 pertenece a la jornada del dia anterior y
-   llega hasta la hora de cierre, pero nunca mas alla de la hora de corte de
-   la jornada (esa hora termina la jornada). Con un horario normal
-   (11:00 -> 22:00) nada de esto cambia el resultado. */
+   REGLA DEL HORARIO (la misma de horario-regla.js y del SQL 16b; docs seccion 19.7):
+     * "cierra" = "24:00" cierra a la medianoche de ese mismo dia (00:00 a 24:00 = todo el dia).
+     * Un horario que cruza la medianoche (cierra < abre, ej. 18:00 -> 02:00): el
+       tramo de despues de las 00:00 pertenece a la jornada del dia anterior y
+       llega hasta la hora de cierre, pero nunca mas alla de la hora de corte de
+       la jornada (esa hora termina la jornada). Con un horario normal
+       (11:00 -> 22:00) nada de esto cambia el resultado.
+     * (Un cierre igual a la apertura ya no se puede guardar; si hay uno guardado de antes,
+       sigue tratandose como cruce de medianoche, igual que siempre.) */
 async function estadoRestaurante(restaurante, momento) {
   let config = null;
 

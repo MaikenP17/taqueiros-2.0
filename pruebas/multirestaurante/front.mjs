@@ -849,7 +849,7 @@ async function escenario(nombre, fn) {
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
     const rutaManifest = EMULADOR.resolver({ ruta: '/manifest.json' });
     comprobar(rutaManifest.tipo === 'funcion' && rutaManifest.archivo === 'api/publico.js' && /_ruta=manifest/.test(rutaManifest.urlReescrita), 'vercel.json lleva /manifest.json a la funcion agrupada (modulo manifest)');
-    comprobar(/const VERSION = "v10"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v10, sin precache y el manifest siempre por la red');
+    comprobar(/const VERSION = "v11"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v11, sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
   });
 

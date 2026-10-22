@@ -862,7 +862,7 @@ async function escenario(nombre, fn) {
     await esperarDb(async () => (await cfgDe(A)).cerrado_temporal === false, 'A abierto otra vez');
 
     await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300);
-    await a.eval(`document.querySelectorAll('#filasHorario .fila-dia').forEach(function(f){ f.querySelector('.abre').value = '09:00'; f.querySelector('.cierra').value = '21:00'; }); document.getElementById('mensajeCerrado').value = 'Volvemos pronto A'; true`);
+    await a.eval(`document.querySelectorAll('#filasHorario .fila-dia').forEach(function(f){ f.querySelector('.abre').value = '09:00'; f.querySelector('.chk-24').checked = false; f.querySelector('.cierra').disabled = false; f.querySelector('.cierra').value = '21:00'; }); document.getElementById('mensajeCerrado').value = 'Volvemos pronto A'; true`);
     await a.clic('#guardarHorarios');
     await esperarDb(async () => (await cfgDe(A)).mensaje_cerrado === 'Volvemos pronto A', 'horario de A guardado');
     const ca = await cfgDe(A), cb = await cfgDe(B);
@@ -891,6 +891,47 @@ async function escenario(nombre, fn) {
     await a.esperar(`function(){return document.getElementById('toast').textContent.indexOf('caracteres especiales') >= 0;}`, 8000, 'aviso del 23514');
     comprobar((await cfgDe(A)).mensaje_cerrado === null, 'R3. un mensaje con un tabulador (lo rechaza la base, 23514) muestra el motivo y no cambia nada');
     await a.clic('#cancelarHorarios'); await sleep(200);
+
+    // ---- R7: 24:00 y medianoche en el horario (regla de horario-regla.js, SQL 16b) ----
+    const abrirHorario = async () => { await a.clic('#menuBtn'); await sleep(450); await a.clic('#horariosBtn'); await sleep(300); };
+    const fila0 = (js) => a.eval(`(function(){ var f = document.querySelector('#filasHorario .fila-dia'); ${js} })()`);
+    const guardarHorario = async () => { await a.clic('#guardarHorarios'); await sleep(500); };
+    await parchear('configuracion', `restaurante_id=eq.${A.id}`, { horarios: horarios.map((h, i) => (i === 1 ? { ...h, abre: '11:00', cierra: '24:00' } : { ...h, abre: '11:00', cierra: '22:00' })), mensaje_cerrado: null });
+    await abrirHorario();
+    comprobar(await a.eval(`(function(){ var f = document.querySelectorAll('#filasHorario .fila-dia')[1]; return f.querySelector('.chk-24').checked && f.querySelector('.cierra').disabled; })()`)
+      && await a.eval(`(function(){ var f = document.querySelectorAll('#filasHorario .fila-dia')[0]; return !f.querySelector('.chk-24').checked && !f.querySelector('.cierra').disabled && f.querySelector('.cierra').value === '22:00'; })()`),
+      'R7. un cierre guardado como 24:00 se ve con su casilla marcada (no como una hora vacia) y los demas dias siguen igual');
+    // un cierre de madrugada vale: 18:00 a 02:00
+    await fila0(`f.querySelector('.abre').value = '18:00'; f.querySelector('.cierra').value = '02:00';`);
+    await guardarHorario();
+    let cfg = await cfgDe(A);
+    comprobar(cfg.horarios[0].abre === '18:00' && cfg.horarios[0].cierra === '02:00' && cfg.horarios[1].cierra === '24:00',
+      'R7. un horario que cruza la medianoche (18:00 a 02:00) se guarda tal cual, y el 24:00 de otro dia no se pierde', JSON.stringify(cfg.horarios.slice(0, 2)));
+    // pasado de la hora de corte (05:00): se explica y no se manda nada
+    await abrirHorario();
+    const antes = log.filter((l) => l.uid === uDos.id && /^PATCH \/rest\/v1\/configuracion/.test(l.metodo + ' ' + l.ruta)).length;
+    await fila0(`f.querySelector('.abre').value = '18:00'; f.querySelector('.cierra').value = '06:00';`);
+    await guardarHorario();
+    comprobar((await toastTexto(a)).includes('no puede pasar de las 05:00') && (await cfgDe(A)).horarios[0].cierra === '02:00'
+      && log.filter((l) => l.uid === uDos.id && /^PATCH \/rest\/v1\/configuracion/.test(l.metodo + ' ' + l.ruta)).length === antes,
+      'R7. un cierre de madrugada despues de la hora de corte se rechaza con el motivo, sin mandar nada a la base', await toastTexto(a));
+    // cierre igual a la apertura: tambien
+    await fila0(`f.querySelector('.abre').value = '10:00'; f.querySelector('.cierra').value = '10:00';`);
+    await guardarHorario();
+    comprobar((await toastTexto(a)).includes('igual a la de apertura') && (await cfgDe(A)).horarios[0].cierra === '02:00', 'R7. un cierre igual a la apertura se rechaza con el motivo', await toastTexto(a));
+    // 24:00 desde la casilla
+    await fila0(`f.querySelector('.abre').value = '09:00'; var c = f.querySelector('.chk-24'); c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true }));`);
+    comprobar(await fila0(`return f.querySelector('.cierra').disabled;`), 'R7. con la casilla 24:00 marcada la hora de cierre se apaga');
+    await guardarHorario();
+    cfg = await cfgDe(A);
+    comprobar(cfg.horarios[0].abre === '09:00' && cfg.horarios[0].cierra === '24:00', 'R7. marcar 24:00 guarda el cierre a la medianoche', JSON.stringify(cfg.horarios[0]));
+    // un dia desmarcado no se revisa aunque sus horas sean iguales
+    await abrirHorario();
+    await fila0(`f.querySelector('.chk-24').checked = false; f.querySelector('.chk-24').dispatchEvent(new Event('change', { bubbles: true })); f.querySelector('.abre').value = '10:00'; f.querySelector('.cierra').value = '10:00'; var c = f.querySelector('.chk-activo'); c.checked = false; c.dispatchEvent(new Event('change', { bubbles: true }));`);
+    await guardarHorario();
+    cfg = await cfgDe(A);
+    comprobar(cfg.horarios[0].activo === false && cfg.horarios[0].abre === '10:00' && cfg.horarios[0].cierra === '10:00', 'R7. un dia desmarcado se guarda sin revisar sus horas', JSON.stringify(cfg.horarios[0]));
+    await parchear('configuracion', `restaurante_id=eq.${A.id}`, { horarios, mensaje_cerrado: null });
     comprobar(a.errores.length === 0, 'sin errores de JavaScript', a.errores.join(' | '));
   });
 
@@ -1235,7 +1276,7 @@ async function escenario(nombre, fn) {
     var els = document.body.querySelectorAll('*');
     for (var i = 0; i < els.length; i++) {
       var e = els[i];
-      if (e.closest('#rp-estado') || e.closest('#datosBtn') || e.hasAttribute('data-pr-rol') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.tagName === 'IFRAME') continue;
+      if (e.closest('#rp-estado') || e.closest('#datosBtn') || e.closest('#ayudaMedianoche') || e.closest('label.medianoche') || e.closest('#avisoVigencia') || e.hasAttribute('data-pr-rol') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.tagName === 'IFRAME') continue;
       var cs = getComputedStyle(e);
       var propios = Array.prototype.filter.call(e.childNodes, function(n){return n.nodeType === 3;}).map(function(n){return n.nodeValue.replace(/\\s+/g,' ').trim();}).filter(Boolean).join('|');
       var attrs = [];
@@ -1367,8 +1408,8 @@ async function escenario(nombre, fn) {
     comprobar(!/Taqueiros/i.test(tick) && !/Los Taqueiros/i.test(tick), 'ticket-comanda.js: ni el pie ni nada de Taqueiros (fuera de comentarios)');
     const sw = leer('sw.js');
     const swSinComentarios = sw.replace(/\/\*[\s\S]*?\*\//g, '');
-    comprobar(/const VERSION = "v10"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
-      'sw.js: version v10, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
+    comprobar(/const VERSION = "v11"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
+      'sw.js: version v11, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
     comprobar(/pathname === "\/manifest\.json"/.test(sw) && /startsWith\("\/api\/"\)/.test(sw) && /supabase\.co/.test(sw) && /Navegaciones|navigate/.test(sw), 'sw.js: manifest, /api/, Supabase y las paginas van siempre por la red (nada de un restaurante se guarda)');
     // el service worker solo guarda archivos estaticos de /Recursos/ y fuentes, y su cache es por origen
     comprobar(/startsWith\("\/Recursos\/"\)/.test(sw) && !/caches\.open\([^)]*\)\.then\(\(cache\) => cache\.addAll\(\[[^\]]/.test(sw), 'sw.js: solo guarda /Recursos/ y fuentes');

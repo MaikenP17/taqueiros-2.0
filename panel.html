@@ -241,9 +241,14 @@
   .modal-horarios h2{font-size:1.05rem; margin-bottom:.3rem;}
   .modal-horarios .ayuda{font-size:.8rem; color:var(--texto-secundario); margin-bottom:1.1rem; line-height:1.5;}
   .fila-dia{
-    display:flex; align-items:center; gap:.6rem;
+    display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
     padding:.5rem 0; border-bottom:1px solid rgba(var(--crema-rgb),.05);
   }
+  .fila-dia label.medianoche{
+    display:flex; align-items:center; gap:.3rem;
+    font-size:.72rem; color:var(--texto-secundario); cursor:pointer; user-select:none;
+  }
+  .ayuda-medianoche{font-size:.75rem; color:var(--texto-secundario); line-height:1.5; margin:-.6rem 0 1.1rem;}
   .fila-dia .nombre{flex:1; font-size:.85rem; font-weight:700; min-width:80px;}
   .fila-dia input[type="time"]{
     background:var(--carbon); color:var(--texto-claro);
@@ -826,6 +831,8 @@
     <h2>Horario de atención</h2>
     <p class="ayuda">Fuera de este horario los clientes no pueden pagar en línea, pero sí pueden escribir por WhatsApp. Desmarca un día para cerrarlo por completo.</p>
 
+    <p class="ayuda-medianoche" id="ayudaMedianoche">Marca «24:00» para cerrar a la medianoche. Si cierras de madrugada (por ejemplo, de 6:00 p. m. a 2:00 a. m.), escribe esa hora de cierre: cuenta para el día anterior y no puede pasar de las <span id="horaCorteAyuda">05:00</span>, que es cuando termina tu jornada.</p>
+
     <div id="filasHorario"></div>
 
     <label style="display:block; margin-top:1.1rem; font-size:.78rem; font-weight:700; color:var(--texto-secundario);">
@@ -890,6 +897,7 @@
 <script src="restaurante-publico.js?v=2"></script>
 <script src="panel-restaurante.js?v=1"></script>
 <script src="datos-restaurante.js?v=1"></script>
+<script src="horario-regla.js?v=1"></script>
 <script src="ticket-comanda.js?v=5"></script>
 <script>
 /* =========================================================
@@ -1908,7 +1916,13 @@ const modalHorarios = document.getElementById("modalHorarios");
 
 /* El horario viene de la base y se escribe dentro de atributos: solo entra una hora HH:MM valida. */
 function horaValida(v, porDefecto){
-  return typeof v === "string" && /^([01]\d|2[0-4]):[0-5]\d$/.test(v) ? v : porDefecto;
+  return typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? v : porDefecto;
+}
+
+/* La hora a la que termina la jornada (HH:MM): un cierre de madrugada no puede pasar de ella (horario-regla.js, regla 4) */
+function horaDeCorteDelHorario(){
+  const c = configuracion && typeof configuracion.hora_corte_jornada === "string" ? configuracion.hora_corte_jornada.slice(0, 5) : "";
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(c) ? c : "05:00";
 }
 
 function abrirHorarios(){
@@ -1918,22 +1932,34 @@ function abrirHorarios(){
   document.getElementById("filasHorario").innerHTML = DIAS_SEMANA.map((dia, i) => {
     const h = horarios[i] || { abre:"11:00", cierra:"22:00", activo:true };
     const activo = h.activo !== false;
+    const medianoche = h.cierra === "24:00";   // un <input type="time"> no puede mostrar 24:00: va con su propia casilla
     return '<div class="fila-dia" data-dia="' + i + '">' +
       '<span class="nombre">' + dia + '</span>' +
       '<span class="abre-cierra">' +
         '<input type="time" class="abre" value="' + horaValida(h.abre, "11:00") + '"' + (activo ? "" : " disabled") + '>' +
         '<span style="color:var(--texto-secundario);">a</span>' +
-        '<input type="time" class="cierra" value="' + horaValida(h.cierra, "22:00") + '"' + (activo ? "" : " disabled") + '>' +
+        '<input type="time" class="cierra" value="' + (medianoche ? "00:00" : horaValida(h.cierra, "22:00")) + '"' + (activo && !medianoche ? "" : " disabled") + '>' +
       '</span>' +
+      '<label class="medianoche" title="Cierra a la medianoche (24:00)"><input type="checkbox" class="chk-24"' + (medianoche ? " checked" : "") + (activo ? "" : " disabled") + '> 24:00</label>' +
       '<label class="activo"><input type="checkbox" class="chk-activo"' + (activo ? " checked" : "") + '> abre</label>' +
     '</div>';
   }).join("");
+  document.getElementById("horaCorteAyuda").textContent = horaDeCorteDelHorario();
 
-  // Al desmarcar un día se apagan sus horas
+  // Al desmarcar un día se apagan sus horas; con «24:00» marcada la hora de cierre no se escribe
   document.querySelectorAll("#filasHorario .chk-activo").forEach(chk => {
     chk.addEventListener("change", (e) => {
       const fila = e.target.closest(".fila-dia");
-      fila.querySelectorAll('input[type="time"]').forEach(i => { i.disabled = !e.target.checked; });
+      const activoAhora = e.target.checked;
+      fila.querySelector(".abre").disabled = !activoAhora;
+      fila.querySelector(".chk-24").disabled = !activoAhora;
+      fila.querySelector(".cierra").disabled = !activoAhora || fila.querySelector(".chk-24").checked;
+    });
+  });
+  document.querySelectorAll("#filasHorario .chk-24").forEach(chk => {
+    chk.addEventListener("change", (e) => {
+      const fila = e.target.closest(".fila-dia");
+      fila.querySelector(".cierra").disabled = e.target.checked;
     });
   });
 
@@ -1967,15 +1993,21 @@ document.getElementById("guardarHorarios").addEventListener("click", async (e) =
   const horarios = [...document.querySelectorAll("#filasHorario .fila-dia")].map((fila, i) => ({
     dia: DIAS_SEMANA[i],
     abre: fila.querySelector(".abre").value || "11:00",
-    cierra: fila.querySelector(".cierra").value || "22:00",
+    cierra: fila.querySelector(".chk-24").checked ? "24:00" : (fila.querySelector(".cierra").value || "22:00"),
     activo: fila.querySelector(".chk-activo").checked
   }));
 
-  // Un cierre antes de la apertura dejaria el local cerrado siempre
-  const invalido = horarios.find(h => h.activo && h.abre >= h.cierra);
-  if(invalido){
-    avisar("En " + invalido.dia + " la hora de cierre debe ser posterior a la de apertura", true);
-    return;
+  // La misma regla que aplica la base (horario-regla.js y SQL 16b): 24:00 cierra a la medianoche, un cierre menor que la
+  // apertura cruza la medianoche (hasta la hora de corte de la jornada) y cierre igual a apertura no vale.
+  if(window.HorarioRegla){
+    const corte = horaDeCorteDelHorario();
+    for(const h of horarios){
+      const problema = HorarioRegla.validarDia(h, corte);
+      if(problema){
+        avisar("En " + h.dia + ": " + problema.mensaje, true);
+        return;
+      }
+    }
   }
 
   const mensaje = document.getElementById("mensajeCerrado").value.trim();
