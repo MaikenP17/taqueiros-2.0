@@ -821,17 +821,17 @@
       direccion: "Avenida Libertadores Diagonal Santander 12 Norte # 3E-45 Torre 2 Apartamento 1204",
       barrio: "Urbanización Ciudad Jardín Etapa Cinco",
       indicaciones: "Portón negro junto a la droguería. Tocar el timbre, no llamar. " +
-        "Sin cebolla ni cilantro, salsa picante aparte. Pidió pa' ñoños: más limón.",
+        "Sin cebolla ni pepinillos, salsa picante aparte. Pidió pa' ñoños: más servilletas.",
       items: [
-        { id: "x1", nombre: "Tacos de Birria con Consomé (orden x3)", cantidad: 2, precio: 24000,
-          nota: "Sin cebolla, con mucho limón y tortilla bien doradita" },
-        { id: "x2", nombre: "Doriloco Especial Súper Cargado", cantidad: 1, precio: 18000 },
-        { id: "x3", nombre: "Agua de Jamaica 500 ml", cantidad: 3, precio: 5000, nota: "Sin hielo" },
+        { id: "x1", nombre: "Big Norte con Queso Extra (combo x3)", cantidad: 2, precio: 26000,
+          nota: "Sin cebolla, con mucha salsa y pan bien tostadito" },
+        { id: "x2", nombre: "Full Norte Súper Cargado", cantidad: 1, precio: 18000 },
+        { id: "x3", nombre: "Coca-Cola Lata 350 ml", cantidad: 3, precio: 4500, nota: "Sin hielo" },
         { id: "x4", nombre: "Supercalifragilisticoespialidosoextraordinario", cantidad: 1, precio: 9000 }
       ],
-      subtotal: 90000,
+      subtotal: 92500,
       costo_domicilio: 5000,
-      total: 95000,
+      total: 97500,
       wompi_metodo_pago: "NEQUI",
       pagado_en: new Date().toISOString(),
       creado_en: new Date().toISOString()

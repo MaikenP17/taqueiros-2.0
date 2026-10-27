@@ -86,8 +86,14 @@
    v11: paso 3A (superadmin y vigencia). panel.html gana la casilla "24:00" y la regla del horario
    (horario-regla.js, archivo nuevo) y la barra de aviso de la suscripcion del dueno; index.html muestra 24:00
    como medianoche. Mismo criterio: nada de eso se cachea aqui (HTML y scripts van a la red); el cambio de
-   version fuerza la reinstalacion del worker para que el panel instalado tome los cambios. */
-const VERSION = "v11";
+   version fuerza la reinstalacion del worker para que el panel instalado tome los cambios.
+
+   v12: rebrand del restaurante demo a "The Northe Burgers" (docs/multirestaurante.md, seccion 20). Cambian
+   la paleta y los iconos que sirve /manifest.json, y entran archivos NUEVOS bajo /Recursos/logo/northe-*
+   (nombres nuevos a proposito: asi ninguna copia vieja de logo.png o icono-*.png puede verse con la marca
+   nueva). Mismo criterio: el HTML y los scripts van a la red; subir la version borra las caches viejas y
+   obliga a reinstalar el worker en el panel ya instalado. */
+const VERSION = "v12";
 const CACHE_ESTATICO = "panel-estatico-" + VERSION;
 /* Prefijos de las caches de versiones anteriores (se borran al activarse la nueva). */
 const PREFIJOS_VIEJOS = ["taqueiros-panel-", "panel-estatico-"];

@@ -293,7 +293,8 @@
     Array.prototype.slice.call(document.querySelectorAll('link[rel="icon"]')).forEach(function (l) {
       l.parentNode.removeChild(l);
     });
-    var url = R.marca.logo || R.marca.icono_192;
+    /* El icono cuadrado primero: un logo muy horizontal o alto se aplasta en la pestana (16-32 px). */
+    var url = R.marca.icono_192 || R.marca.logo;
     if (!url) return;
     var enlace = document.createElement("link");
     enlace.setAttribute("rel", "icon");
