@@ -2738,3 +2738,257 @@ que `anon` y `authenticated` reciban de verdad `permission denied` en las funcio
 * **R5, R6, R8, D (18.1, 18.3), P1, P2, P4–P13 y R9/R10** siguen como estaban (R9 queda cubierto en el código; falta confirmarlo con la base real). El límite de peticiones (propuesta C) sigue sin implementar.
 * `crear_usuario` entrega la contraseña temporal en la respuesta HTTP (una vez, `no-store`): quien tenga el token del superadmin la ve. No hay forzado de cambio de contraseña (Supabase no lo ofrece sin una pantalla propia).
 * `registrar_pago` no es idempotente a propósito (cada llamada extiende): si repites la llamada por error, queda registrado dos veces y se corrige con `actualizar_restaurante`.
+
+## 20. Rebrand del restaurante demo a "The Northe Burgers" (SQL 17) y cómo repetirlo para otro restaurante
+
+El restaurante demo (id `00000000-0000-4000-8000-000000000001`, el que se llamaba **Los Taqueiros**) pasa a ser **The Northe Burgers**, una marca ficticia de comida rápida estilo street: nombre,
+textos, colores, logo, íconos, menú y fotos nuevos, en todo lo que ve un cliente, el dueño o el personal. Se hace **sobre el mismo restaurante** (conserva el id y el slug) y se hizo, a propósito, **sin
+tocar la lógica** de pedidos, pagos, Realtime, impresión, seguimiento, sesiones, vigencia ni seguridad. **Ningún SQL de esta sección se aplicó a la base real**: viven en `supabase/17-rebrand-northe.sql` y
+`supabase/17-revertir.sql` y los aplicas tú (20.11). Mientras no los apliques, el sitio sigue viéndose como Taqueiros: **lo que está en la base manda** (12.5, 14.4), y el código nuevo solo cambia el respaldo.
+
+### 20.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `supabase/17-rebrand-northe.sql` y `17-revertir.sql` (nuevos) | El rebrand en la base y su reversa exacta (20.8). Independientes de los SQL 16 y 16b (cualquier orden); necesitan los SQL 10 a 13. |
+| `supabase/subir-fotos-northe.mjs` (nuevo) | Sube las 13 fotos y las asigna a sus productos. Por defecto simula (20.8). |
+| `api/_respaldo-taqueiros.js` | Valores nuevos (marca, textos, redes, PWA). **No se renombró** el archivo ni `CONFIG_TAQUEIROS`. Debe ser igual al estado final SQL 12 + SQL 17 (una prueba lo exige). |
+| `Recursos/logo/northe-logo.png`, `northe-icono-192.png`, `northe-icono-512.png` (nuevos) | Logo recortado e íconos de la PWA (20.6). Los archivos viejos (`logo.png`, `icono-*.png`, `Recursos/tacos/…`) **se quedan**: la base los usa hasta aplicar el SQL 17 y la reversa los necesita. |
+| `api/crear-pedido.js`, `api/reembolso.js` | La referencia de los pedidos nuevos empieza por **`PED-`** (antes `TAQ-`), 20.5. |
+| `api/_notificar.js` | El aviso de CallMeBot dice 🍔 (antes 🌮). |
+| `ticket-comanda.js` | El ticket de prueba usa productos de Northe (Big Norte, Full Norte, Coca-Cola). |
+| `restaurante-publico.js` | El favicon prefiere `icono_192` (cuadrado) antes que el logo. |
+| `index.html` | Botones de redes sin salto con la constante `REDES_ENLAZAN` (20.7) y 11 colores de texto que no cumplían contraste. `pedido.html` y `panel.html`: 3 colores de texto. |
+| `sw.js` | v12 (no precachea nada: no había lista que revisar). |
+| `.gitignore` | `Recursos/NORTHE-NUEVO/` (originales pesados; las fotos viven en Supabase Storage). |
+| `pruebas/` | `rebrand-northe.mjs` (nueva), `textos-visibles.mjs` (nueva), `config-taqueiros-original.json` (los valores originales fijados), y los ajustes a propósito de 20.12. |
+
+### 20.2 La marca y la paleta
+
+**Logo** (`Recursos\NORTHE-NUEVO\logo northe.jpg.jpeg`, JPG de **1792×2400** y 1.9 MB, sin versión PNG ni fondo transparente): "THE" pequeño negro, "NORTHE" en bloque rojo condensado con contorno marrón y sombra
+mostaza, "Burgers" en script crema; sin mascota. **Colores medidos sobre el original**, promediando regiones planas (no un píxel): crema **#FFEBC6** (4 parches de fondo, desviación ≤ 1.3), rojo **#C92423**
+(596 000 píxeles planos), marrón **#220F08** (420 000) y mostaza **#EEA927** (94 000 píxeles, desviación 3–8 niveles: medición fiable, no hizo falta el valor de reserva).
+
+| Clave (`publico.marca.colores`) | Valor | Variable CSS |
+|---|---|---|
+| `primario` / `primario_oscuro` / `primario_brillo` | `#C92423` / `#8E1B1A` / `#E8514A` | `--rojo` / `--rojo-oscuro` / `--rojo-brillo` |
+| `claro` / `claro_suave` | `#FFEBC6` / `#FFF6E3` | `--crema` / `--crema-suave` |
+| `oscuro` / `oscuro_2` | `#220F08` / `#2E160D` | `--carbon` / `--carbon-2` (el panel deriva `--carbon-3`) |
+| `acento` | `#EEA927` | `--mostaza` |
+| `positivo` / `positivo_brillo` | `#5C7A3B` / `#7FA855` (los de siempre) | `--verde` / `--verde-brillo` |
+| `texto_secundario` / `texto_tenue` | `#E6D3AE` / `#BFA987` | `--texto-secundario` / `--texto-tenue` |
+| `colores_zonas` | los de siempre | (mapa de zonas) |
+
+**Contraste WCAG AA (≥ 4.5:1), calculado con un script local de apoyo** (sin dependencias, fuera del proyecto) que lee las reglas CSS de las 5 páginas y resuelve las variables con esta paleta:
+botón primario (`claro_suave` sobre `primario`) **5.20**, hover **8.42**; texto principal sobre `oscuro` **15.75** y sobre `oscuro_2` **14.51**; secundario **12.54 / 11.56**; tenue **8.11 / 7.47**;
+`primario_brillo` sobre `oscuro` **5.01** y sobre `oscuro_2` **4.61** (el primer valor propuesto, `#E14A42`, daba **4.03** sobre `oscuro_2` y se subió a `#E8514A`); `acento` sobre `oscuro` **9.07**;
+`oscuro` sobre `claro_suave` **17.15**; `primario` y `primario_oscuro` como texto sobre `claro_suave` **5.20 / 8.42**; `positivo` sobre `claro_suave` **4.54**; `positivo_brillo` sobre `oscuro` **6.70**.
+`primario` **no** debe usarse como texto sobre oscuro (3.30): el CSS no lo hace (solo `.flecha` sobre fondo claro; sobre oscuro usa `--rojo-brillo`). Resultado del barrido final: **0 reglas que fallen en toda superficie**.
+
+**Marrones escritos a mano en `index.html`**: los cálculos dicen qué se cambia y qué no (el criterio del pedido: solo si chocan con la marca o no cumplen contraste):
+
+| Valor | Dónde | Contraste | Decisión |
+|---|---|---|---|
+| `#5a4a3a` (14 usos), `#e9dcbb`, `#e2d4b4` (fondos de carga), `#8a6205`, `#c0392b`, `#a33`, `#8a2820`, `#3f5a24` | tarjetas y avisos sobre fondo crema | 4.6 a 8.5 | **Se quedan**: son marrones cálidos de la misma familia que el logo y cumplen. |
+| `#150d0b` | pie y final del degradado de portada | decorativo | **Se queda** (marrón casi negro, vecino de `#220F08`). |
+| `#8a7a63` (10 usos: unidad, "sin resultados", ayudas…) | texto sobre crema | **4.08** | **Cambiado** a `rgba(var(--carbon-rgb), .68)` (≈ 6.2:1), una variable que ya existía. |
+| `#6b5c4c` (`.copy` del pie, 2 en `pedido.html`, 1 en `panel.html`) | texto sobre fondo oscuro | **2.6 – 3.0** | **Cambiado** a `--texto-tenue` (y `--texto-secundario` en el panel, que ya recibe el tono tenue de la marca). `--texto-tenue` se agregó como variable neutra a `index.html` (en `pedido.html` ya existía). |
+
+Los azules de estado del panel (`entregado`, botón de mapa) son colores de **estado**, no de marca: no se tocan. El panel ya derivaba `--carbon-3` de `oscuro`/`oscuro_2`, así que sus superficies salen marrones solas.
+**Tipografía:** no se tocó (Anton para títulos y Libre Franklin para el cuerpo son los valores por defecto y combinan con el bloque condensado del logo); no se agregó ninguna clave.
+
+### 20.3 El menú y las descripciones ajustadas a las fotos
+
+Categorías y orden: 1 Hamburguesas 🍔, 2 Hot dogs 🌭, 3 Papas 🍟, 4 Bebidas 🥤 (ids `nb-hamburguesas`, `nb-hot-dogs`, `nb-papas`, `nb-bebidas`). Precios en pesos colombianos, enteros: Big Norte 26 000, Crispy Norte 22 000,
+Lil Norte 18 000; Classic Norte 12 000, Smoky Norte 15 000, Full Norte 18 000; Creamy Norte 14 000, Dirty Norte 17 000, Chori Norte 19 000; Agua 3 000, Coca-Cola 4 500, Pepsi 4 500, Sprite 4 500 (total 177 500).
+Ids de producto `nb-big-norte` … `nb-sprite`. En este esquema los ids son **por restaurante** (la llave es `(restaurante_id, id)`, SQL 10 paso 4.1), no globales; el prefijo `nb-` se usa igual para no mezclarse con los viejos y para reconocerlos.
+
+Se **abrió cada foto** y se comparó con la descripción propuesta; las descripciones de hot dogs y papas eran suposiciones. Los nombres coinciden con los banderines de todas las fotos. Cambios (lo mínimo, sin inventar ingredientes):
+
+| Producto | Antes | Después | Qué muestra la foto |
+|---|---|---|---|
+| Crispy Norte | …salsa BBQ y lechuga fresca. | Pollo crispy bien dorado, queso, tocineta y salsa BBQ. | sin lechuga; sí queso, tocineta y salsa |
+| Classic Norte | Salchicha, queso, papitas trituradas y salsas de la casa. | Salchicha clásica con mostaza y salsas de la casa. | solo mostaza y salsa roja |
+| Smoky Norte | Salchicha ahumada con tocineta, queso y salsa BBQ. | Salchicha ahumada con salsa BBQ, cebolla morada encurtida y cebolla crujiente. | sin queso; cebolla morada y crujiente (el resto no se nombra) |
+| Full Norte | El más cargado: salchicha, tocineta, queso, papitas y todas las salsas. | El más cargado: salchicha con cebolla crujiente, vegetales picados y todas las salsas. | sin tocineta, queso ni papitas |
+| Creamy Norte | Papas crinkle con salsa de queso cremosa. | Papas crinkle con pollo, cebolla, rúgula y salsa cremosa. | lleva pollo, cebolla y rúgula |
+| Dirty Norte | Papas crinkle con queso, tocineta y salsa picante. | Papas crinkle con carne en tiras, rúgula y salsa blanca. | sin tocineta; carne en tiras y salsa blanca |
+| Coca-Cola | Personal, bien fría. | Lata 350 ml, bien fría. | una lata de 350 ml |
+| Pepsi, Sprite | Personal, bien fría. | Lata, bien fría. | latas |
+| Big Norte, Lil Norte, Chori Norte, Agua | (sin cambio) | (sin cambio) | coinciden (Agua: botella Cristal de 600 ml) |
+
+(Decisión de Carlos: Smoky Norte **no** menciona carne desmechada aunque la foto parezca mostrarla.)
+
+### 20.4 Los textos finales (para aprobar)
+
+Tono street, desenfadado, español de Colombia, sin mexicano. Conservan los marcadores (`{cierre}`) y los tiempos de siempre. Están en `api/_respaldo-taqueiros.js` y en el SQL 17 (una prueba exige que sean idénticos):
+
+* **Nombre:** The Northe Burgers · **PWA:** "Panel The Northe Burgers" / "Comandas" · **Redes:** Instagram y TikTok `thenorthe.burgers` (inventadas; los botones no llevan a ninguna parte, 20.7).
+* **Título de página:** "The Northe Burgers | Burgers con actitud de calle en Cúcuta" · **Descripción:** "The Northe Burgers — hamburguesas smash, hot dogs cargados y papas crinkle en Cúcuta. Pide en línea y recibe tu pedido por WhatsApp."
+* **Eslogan:** "Burgers · Hot Dogs · Papas" · **Tagline:** "Street food con actitud: hamburguesas smash, hot dogs cargados y papas que no se olvidan. Pide en dos clics y recíbelo por WhatsApp."
+* **Pie:** "Hamburguesas smash, hot dogs cargados y papas crinkle hechos con receta propia, en el corazón de Cúcuta. Pide en línea y te lo llevamos hasta la puerta." · **Servicios:** "🛵 Domicilio gratis · 🥡 Para llevar · 🍽️ En el local" (sin cambio) · **Pie final:** "Cúcuta, Colombia. Burgers con actitud de calle 🍔" · **Nota de ejemplo:** "Ej: sin cebolla, extra salsa, tocarle el timbre..."
+* **Banners:** abierto 🔥 "¡La plancha está prendida!" / "Ahorita sí estamos atendiendo pedidos{cierre}. ¡Antójate y pide ya! 🍔" · cerrado 🍔 "Por hoy ya apagamos la plancha."
+* **Seguimiento:** "Suele estar listo en 25 – 40 minutos" · "Ya está en la plancha, unos 15 – 25 minutos más" · "El domiciliario va en camino, 10 – 20 minutos" · "¡Ya puedes pasar por él!" · "¡Buen provecho! 🍔" · frases "¡Recibimos tu pedido! 🍔", "Lo estamos preparando 🔥", "¡Va en camino! 🛵", "¡Tu pedido está listo! 🥡", "¡Entregado! 🎉".
+* **Ticket impreso:** el pie sale solo del nombre: "THE NORTHE BURGERS · PEDIDO WEB". **Aviso de CallMeBot:** "🍔 *NUEVO PEDIDO PAGADO*".
+
+**No se tocan** (decisión de Carlos): WhatsApp, teléfono, dirección, ciudad, región, ubicación (lat/lng), domicilio, horario (sigue 00:00–23:59; lo cambiará a mano), `cerrado_temporal`, `mensaje_cerrado` y las llaves públicas de Wompi. Los **30 pedidos de prueba** se conservan como historial.
+
+### 20.5 Lo que no cambia, y el slug
+
+**Identificadores técnicos que siguen diciendo "taqueiros"** (no son marca; renombrarlos rompería cosas): `RESTAURANTE_TAQUEIROS_ID` y `HOSTS_TRANSITORIOS_TAQUEIROS` (`api/_restaurante.js`), `CONFIG_TAQUEIROS` y el archivo
+`api/_respaldo-taqueiros.js`, `ORIGEN_TAQUEIROS` (`api/_domicilio.js`), `restaurante_taqueiros_id()` (SQL 10 y siguientes), `migracion-fotos-taqueiros.json`, las llaves del navegador `taqueiros-panel-*`,
+`taqueiros-pedidos-vistos-v1`… (`panel-restaurante.js`), los prefijos de caché de `sw.js`, el perfil `C:\TaqueirosPanel`, `--slug=taqueiros` por defecto en los scripts, el User-Agent `Taqueiros/1.0` de `api/_ubicacion.js`
+y los textos de prueba (`lostaqueiros`, `taqueiros.localhost`…). **Opinión:** conviene renombrar más adelante, y solo el código interno (las constantes y el archivo, una sola vez, con las pruebas verdes); **no** las llaves del
+navegador (borrarían las preferencias de impresión de los equipos ya instalados), ni los prefijos de `sw.js` (si cambian, `sw.js` ya sabe borrar los viejos), ni el slug.
+
+**Por qué es seguro dejar el slug `taqueiros` y qué riesgo tendría cambiarlo.** Para el cliente el slug **no se ve**: el restaurante se resuelve por el **host** (`restaurante_dominios`, 11) y el slug solo lo leen la comparación de
+`--slug=` en los scripts y, si algún día se usa `DOMINIO_BASE`, el subdominio (`taqueiros.midominio.com`). Cambiarlo: (a) rompería `taqueiros.localhost` y los fixtures de las pruebas internas y el valor por defecto de los scripts
+(`--slug=taqueiros`); (b) si hubiera un `DOMINIO_BASE`, cambiaría la dirección del subdominio y mataría los enlaces ya compartidos; (c) el slug se valida como único y estricto (19.4), y un `update` a mano en el momento
+equivocado deja al restaurante sin resolverse hasta corregirlo. Ganar, no gana nada visible.
+
+**Prefijo de la referencia (`PED-`).** El cliente ve la referencia (pantalla de confirmación, mensaje de WhatsApp, página de seguimiento). Llevaba la marca (`TAQ-…`) escrita en un archivo **compartido por todos los restaurantes**,
+así que ahora es neutra: `PED-<milisegundos>-<hex>`. Se comprobó con búsqueda en `api/`, SQL (`seguimiento`, `buscar_mis_pedidos`, `enlace_por_referencia`), pruebas y front que **nada valida el prefijo**: `seguimiento()` y
+`buscar_mis_pedidos` comparan la referencia **completa**; `pedido.html` acepta `^[A-Za-z0-9_-]{6,80}$`. Los pedidos anteriores (`TAQ-…`) conservan su referencia y se siguen abriendo por su enlace actual (probado, `rebrand-northe.mjs` A16 y F7).
+Wompi recibe una referencia nueva por cada pago, así que no hay nada guardado allí que dependa del prefijo.
+
+### 20.6 Las imágenes
+
+Con **Python + Pillow** (ya instalados en el PC; nada se agregó al proyecto; los scripts usados están en `docs/herramientas-imagenes/`, que no forma parte del sitio ni de las pruebas) a partir de los originales, **sin modificarlos**:
+* `northe-logo.png`: recortado al **contenido** con un margen del 5 % (queda casi cuadrado, 1.15:1: el encabezado lo muestra en una caja de 44×44 px y el original, con tanto fondo vacío, se vería diminuto), fondo crema, **800 px de ancho**, paleta de 40 colores tras aplanar el ruido del JPG con una mediana: **160 KB**.
+* `northe-icono-192.png` (6 KB) y `northe-icono-512.png` (41 KB): cuadrados, fondo crema sólido, logo centrado ocupando como máximo el **68 %** del lado (margen de seguridad ≥ 16 % por lado).
+* **Favicon:** el código ya ponía el logo como favicon y borraba cualquier `<link rel="icon">` fijo del HTML; no hay clave de config para un favicon propio. Se cambió **una línea** de `restaurante-publico.js` para que prefiera `icono_192` (cuadrado). **No se generaron** archivos `northe-favicon-32.png` ni de 180 px: nada los usaría (el sitio no usa `apple-touch`).
+* **Fotos de producto** (13, en `Recursos/NORTHE-NUEVO/listas/`, fuera de git): los originales son verticales 3:4 (1792×2400, 2.4–3 MB) y el sitio las muestra en cajas **4:3** con `object-fit: cover`, o sea que solo se vería la franja central. Se **recortó cada una a 4:3
+  eligiendo el encuadre a mano** (ventana de 1792×1344 px que deja entero el producto; en las hamburguesas y hot dogs el banderín con el nombre queda cortado o a medias, el producto no) y se bajó a **1200×900, JPG q86, entre 50 y 230 KB** (tope pedido: 300; el bucket acepta 2 MB). Las **4 bebidas** no caben enteras en 4:3 sin cortar la lata
+  o la botella: se extendió el lienzo a los lados con el propio fondo del estudio (columnas del borde estiradas, desenfocadas y fundidas con un degradado de 220 px, sin costura) para que se vean completas. Nombres sin espacios: `big-norte.jpg`, `crispy-norte.jpg`, `lil-norte.jpg`, `classic-norte.jpg`, `smoky-norte.jpg`, `full-norte.jpg`, `creamy-norte.jpg`, `dirty-norte.jpg`, `chori-norte.jpg`, `agua.jpg`, `coca-cola.jpg`, `pepsi.jpg`, `sprite.jpg`.
+* **No se generó** la imagen de vista previa 1200×630 (queda pendiente, 20.10).
+
+### 20.7 Botones de redes sin salto (`REDES_ENLAZAN`)
+
+Las cuentas `thenorthe.burgers` son inventadas: un enlace real llevaría al cliente a la cuenta de otra persona. Los botones de Instagram y TikTok del pie **se ven** (icono y nombre de usuario en el tooltip y para lectores de pantalla) pero **no llevan a ninguna parte**:
+se dibujan **sin `href`** (no hay clic ni navegación). El cambio es de **presentación y mínimo**: una constante en `index.html` y una función (`crearBotonRed`). **No toca la config ni ninguna regla de validación de la base** (el usuario `thenorthe.burgers` cumple la regla `usuario` de siempre).
+El WhatsApp del pie **no** se afecta: es un número real y siempre enlaza.
+
+```js
+const REDES_ENLAZAN = false;   // index.html, justo encima de crearBotonRed()
+```
+
+* **Cómo se reactiva:** cambiar `false` por `true` en esa línea (una sola palabra) y desplegar. Con `true` cada botón abre `https://instagram.com/<usuario>` y `https://tiktok.com/@<usuario>` en una pestaña nueva. La prueba `rebrand-northe.mjs` (F1–F5) ejecuta la función real con `false` y con `true`.
+* **Alcance:** la constante es **global**: afecta a **todos** los restaurantes del sitio (hoy solo existe el demo). **Hay que reactivarla ANTES de vender a un segundo restaurante** (o, mejor, cambiarla por una clave de la config de cada restaurante, p. ej. `publico.contacto.redes_enlazan`, lo que sí exigiría tocar las reglas de la base, 20.10); si no, sus clientes verán botones de redes que no hacen nada.
+* Cuando el demo tenga cuentas reales: poner el usuario real en la config (formulario "Datos de mi restaurante") y reactivar la constante.
+
+### 20.8 El SQL 17, su reversa y las fotos
+
+**`supabase/17-rebrand-northe.sql`** (idempotente y atómico, `begin … commit`, marcadores `>>> PASO`, "Run without RLS", resultado final de **23 filas "OK"**):
+0. Precondiciones: se detiene con un mensaje claro, sin cambiar nada, si faltan tablas o `restaurante_id` (SQL 10), si no existe el restaurante demo, si **no se llama "Los Taqueiros" ni "The Northe Burgers"** (alguien lo renombró) o si falta `config.publico` (SQL 12). Foto del "antes": huellas de pedidos, configuración, el resto de la config del demo, columnas del demo, productos viejos, otros restaurantes, tarifas, secretos y dominios.
+1. A la categoría **vieja** cuyo nombre choca con una nueva (hoy **"Bebidas"**; la base no admite dos con el mismo nombre en un restaurante) se le agrega **" (Taqueiros)"** (una sola vez, la 2.ª corrida no lo repite). La reversa lo quita.
+2. `nombre` y `config.publico`: solo se sobrescriben `marca` (sin `tipografia`), `textos`, `contacto.instagram` y `contacto.tiktok`, y `pwa`; el trigger de validación del SQL 13 revisa el resultado completo (el editor SQL corre como `postgres`, que `es_servidor()` reconoce, así que la protección del dueño no estorba).
+3. Crea las 4 categorías y los 13 productos (**sin foto**). Re-ejecutar **no** pisa `productos.imagen` ni `disponible`, y **no actualiza filas que no cambian** (`on conflict … do update … where … is distinct from`: ni mueve `actualizado_en` ni dispara Realtime).
+4. **Desactiva** (`activa = false`) todas las categorías viejas. No borra nada y **no toca el estado "agotado"** de los productos viejos: el sitio oculta los productos de una categoría apagada y el servidor rechaza pedirlos (`categoria_apagada`, 12.5).
+5. Comprobaciones (si alguna falla, **todo se revierte**): config exacta, textos sin mexicano, config válida, 4 categorías y 13 productos con su precio, descripción y orden, ninguna categoría vieja activa, el menú visible son **exactamente** los 13, y **huellas iguales** de todo lo que no debía cambiar.
+
+**Qué ve el cliente entre el SQL y la subida de fotos:** el menú nuevo completo con las tarjetas **sin foto** (el sitio ya las dibuja así: `card no-image`, sin imagen). No se rompe nada; el menú se cachea hasta 5 minutos.
+
+**`supabase/17-revertir.sql`:** nombre y config originales (los del SQL 12, copia fiel del commit `947b164`), y para los productos de Northe: **se borra** un `nb-*` solo si **ningún pedido** lo referencia (los pedidos guardan `{id, nombre, precio}` dentro de `items`, sin llave foránea; se busca el id ahí, solo en los pedidos de este restaurante); un producto referenciado se **conserva**, y su categoría queda **apagada** con " (Northe)" al final.
+Las categorías viejas se **encienden todas** (también una que hubiera estado apagada a propósito antes del SQL 17: no se guarda cuál) y pierden " (Taqueiros)". **Nunca toca pedidos.** Las fotos de Northe quedan huérfanas en Storage (no estorban; se pueden borrar a mano).
+
+**`supabase/subir-fotos-northe.mjs`** (mismo patrón que `migrar-fotos-raiz.mjs`): **por defecto solo simula**; con `--aplicar` sube. Lee `Recursos/NORTHE-NUEVO/listas/`; tabla fija archivo → id de producto; sube al bucket `productos` **solo bajo `{restaurante_id}/`** con `upsert`; **aborta sin hacer nada** si el SQL 17 no se aplicó (faltan productos `nb-*`) o si un archivo local falta, no es JPG o pesa ≥ 2 MB; asigna `productos.imagen` (la dirección pública exacta que acepta el trigger) solo si el producto sigue sin foto o con la misma (una foto ajena se **respeta**; `--forzar` la reemplaza); verifica por la lectura pública que cada foto responde **200 con los mismos bytes**; nunca imprime la llave; es seguro de repetir.
+
+**Camino alternativo (si el script diera problemas): subir las fotos a mano desde `menu-admin.html`.** Con el dueño de Northe: (1) abre `menu-admin.html` e inicia sesión; (2) busca el producto (por ejemplo "Big Norte") y pulsa su lápiz de editar; (3) en "Foto" elige el archivo de `Recursos\NORTHE-NUEVO\listas\` (`big-norte.jpg`…); (4) guarda y comprueba que la tarjeta muestra la foto; (5) repite con los 13 productos. El panel las sube a `{restaurante_id}/` por el mismo camino seguro y las valida igual.
+
+### 20.9 Cómo repetirlo para otro restaurante
+
+**Datos que se piden** (por restaurante): nombre; logo original (idealmente PNG con fondo transparente o un JPG grande; se mide el color sobre el original); colores (se miden del logo: fondo, primario, oscuro, acento); eslogan y frase de portada; textos del sitio y del seguimiento
+(en el tono de la marca); WhatsApp, teléfono, dirección, ciudad, ubicación (lat/lng), horario y domicilio (**no son marca: se conservan o se piden aparte**); usuarios de redes **reales** (o los provisionales con la constante apagada); el menú (categorías en orden con emoji, productos con nombre, descripción y precio entero) y **una foto por producto**.
+
+**Orden de pasos:**
+1. **Respaldo** de la base (`node supabase/exportar-respaldo.mjs`, copia fuera del repositorio) y una etiqueta de git que permita volver atrás (aquí: `taqueiros-final`).
+2. **Medir** colores y **probar contraste** (script local, 20.2); decidir qué marrones fijos del HTML chocan.
+3. **Generar las imágenes** (logo recortado, íconos 192/512, fotos 4:3 < 300 KB con nombres sin espacios) en archivos **nuevos** (nunca sobrescribir los viejos).
+4. **Mirar cada foto** contra su descripción y ajustar lo que la foto contradiga.
+5. **Código:** `api/_respaldo-taqueiros.js` solo si es el restaurante demo; para un restaurante nuevo **no hace falta tocar código**: su config vive en la base (alta con `sa_crear_restaurante` y `sa_editar_config`, 19.6).
+6. **SQL:** para el demo, `17-rebrand-northe.sql` y su reversa; para otro restaurante existente, copiar el 17 y cambiar (a) el id, (b) los valores de `_mr17_valores`, `_mr17_menu` y `_mr17_categorias`, (c) los nombres esperados de la precondición, (d) el prefijo de los ids (`nb-` por uno propio) y (e) los valores originales de la reversa, **sacándolos de la base real** (no de memoria).
+7. **Fotos:** copiar `subir-fotos-northe.mjs` con su tabla de archivo → producto, `--slug=<slug>`, simular, aplicar. Si falla, a mano desde `menu-admin.html` (20.8).
+8. **Pruebas:** las suites de 20.12 (la del rebrand sirve de plantilla) y las reales de 20.11.
+9. **Reactivar las redes** (`REDES_ENLAZAN`, 20.7) y fijar `wompi_modo` del restaurante (pendiente P1, secciones 13 y 14) **antes de cobrar**.
+
+**Archivos y SQL que se tocan:** el respaldo, las imágenes de `Recursos/`, `sw.js` (subir la versión), los marrones del HTML si chocan y el SQL del restaurante; **nunca** la lógica, la config de otro restaurante ni los pedidos.
+
+### 20.10 Imagen de vista previa 1200×630 (pendiente: qué haría falta)
+
+Hoy la tarjeta de WhatsApp/Instagram usa el **logo** (`marca.logo || marca.icono_512 || marca.icono_192`, `datosVistaPrevia` en `api/_publico.js`). Para usar una imagen propia 1200×630 haría falta:
+* **Clave de config:** `publico.marca.imagen_og` (clase `url`: ruta relativa del sitio o https del Storage, ≤ 500 caracteres) y el archivo `northe-og.png` (logo centrado sobre crema con margen).
+* **Validación en SQL:** agregar `('publico.marca.imagen_og', 'url', null, 500)` a la lista `reglas` de `config_restaurante_errores` (SQL 13). Si no, el trigger responde "clave desconocida" y **no deja guardar** la clave (tampoco `sa_editar_config`). La función es la más delicada de la base (valida secretos, HTML y formas): se haría con un **SQL 18** que la recree entera con ese único cambio mecánico y su reversa, y la batería `endurecer.mjs` (426) comparando ambas versiones con las mismas entradas.
+* **Cambio de contrato (aditivo):** `/api/restaurante` y `/api/manifest` ganarían `marca.imagen_og` (campo opcional; el front la ignora si no la conoce); `marcaPublica` en `api/_publico.js` tendría que dejarla pasar (hoy lista las claves una por una); `datosVistaPrevia` la preferiría al logo y `vista-previa.js` añadiría `og:image:width/height` y cambiaría `twitter:card` de `summary` a `summary_large_image`. Hay que actualizar `vista-previa.mjs` (57) y las listas de claves de `endurecer.mjs`.
+* **Riesgo:** **bajo en el resultado, medio en el proceso**: lo delicado es reescribir la función de validación (un error la dejaría rechazando toda config o aceptando de más), y el contrato de la vista previa (57 pruebas fijan su forma). Se mitiga con SQL aparte + reversa + pruebas existentes comparando versiones.
+* **Alternativa sin riesgo:** hacer que `datosVistaPrevia` prefiera `icono_512` (cuadrado, ya existe) al logo: una línea de código, sin SQL ni claves nuevas; WhatsApp muestra bien una miniatura cuadrada. No se hizo porque cambia el comportamiento ya cubierto por las 57 pruebas.
+
+### 20.11 Pasos para Carlos en Windows (orden exacto) y pasos externos
+
+**Aplicar** (cada paso espera tu captura antes del siguiente):
+1. **Respaldo** (ya hecho antes de empezar; repítelo si pasó más de un día): `node supabase/exportar-respaldo.mjs` con la llave cargada así: `$k = Read-Host "Llave SECRETA" -AsSecureString` y `$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password`; al final `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+2. **SQL 17:** Supabase → SQL Editor → New query → pega `supabase/17-rebrand-northe.sql` → **"Run without RLS"**. Debes ver **23 filas OK** (la fila "informativo" dice "13 de 13 sin foto"). Si falla dice "EL REBRAND 17 SE REVIRTIO" con la lista y **no cambia nada**.
+3. **Fotos, simulación:** con la llave cargada, `node supabase/subir-fotos-northe.mjs`. Debes ver las 13 fotos con su peso y "Resumen: 13 por subir".
+4. **Fotos, de verdad:** `node supabase/subir-fotos-northe.mjs --aplicar`. Debes ver 13 líneas `OK`, "13 subida(s) y asignada(s), 0 con error". Quita la llave: `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+5. **Mira el sitio** (Ctrl+F5; el menú puede tardar hasta 5 minutos): marca nueva, colores, 13 fotos, "Panel The Northe Burgers" al instalar. **Deshacer:** `supabase/17-revertir.sql` (mismas reglas) y, si quieres, `git revert` de los commits del rebrand.
+
+**Pruebas reales después** (con la llave cargada): `node supabase/probar-compatibilidad.mjs` (26), `node supabase/probar-servidor-multirestaurante.mjs` (191; también con `$env:VIA = "despachador"`), `node supabase/probar-aislamiento.mjs` (259; si solo fallan las de Realtime con "sin control positivo" es la inestabilidad conocida: repetir una vez). Además un **pedido de prueba con Wompi sandbox** que llegue al panel e imprima el ticket con el pie **"THE NORTHE BURGERS · PEDIDO WEB"**, y la **vista previa de WhatsApp** enviando el enlace con un parámetro nuevo (`?v=3`) para saltar la memoria de WhatsApp.
+
+**Pasos externos al código** (no se hicieron ni se pueden hacer desde aquí): **Wompi** (nombre del comercio: se cambia en el panel de Wompi; en sandbox puede no estar disponible, comprobarlo); **cron-job.org** (título del trabajo de alertas: solo ese; **no** tocar "Luna Rosa keep-alive", que apunta a OTRO proyecto de Supabase); **CallMeBot** (el nombre visible solo si lo usas); **la PWA ya instalada en el PC del local** (desinstalar y volver a instalar para ver el nombre e ícono nuevos; el perfil `C:\TaqueirosPanel` se queda como está); **vista previa de WhatsApp** (`?v=3`). Todo lo demás (GitHub, Vercel, la dirección `taqueiros-2-0.vercel.app`) **queda tal cual** por decisión tomada (21).
+
+### 20.12 Qué se probó y qué no
+
+* **Nuevas:** `pruebas/multirestaurante/rebrand-northe.mjs` (SQL 17 y reversa sobre Postgres 16 real —PGlite— con y sin los SQL 16/16b, idempotencia, huellas de todo lo que no debe cambiar, config final = respaldo del código, pedido que referencia un producto nuevo, precondiciones, el script de fotos como proceso aparte contra el Supabase falso con Storage, `REDES_ENLAZAN` en `false` y `true`, `PED-`, documentación) y `textos-visibles.mjs` (ningún texto visible dice ya Taqueiros, tacos, birria, comal ni lo mexicano).
+* **Ajustadas a propósito** (nada se debilitó): `config-publica.mjs` ya no exige que el respaldo sea idéntico al SQL 12: compara el SQL 12 contra los valores originales fijados (`config-taqueiros-original.json`, copia del respaldo de `947b164`) **y** SQL 12 + SQL 17 contra el respaldo nuevo (49 → 52). `agrupacion.mjs` enmascara `PED-` y `TAQ-`. El servidor falso respeta `x-upsert` en la subida a Storage. **Los demás ajustes, uno por uno, con su razón (todos son cambios deliberados del rebrand; la igualdad exacta se conserva y solo se excusa lo listado):**
+  * `escenarios-servidor.mjs` (204, igual que antes): el respaldo del código ahora es la marca nueva (colores, logo, emoji, tagline, redes); el restaurante "sin datos" no debe recibir **nada** del demo (se agregaron los marcadores de la marca nueva a la comprobación de fuga); la API y el manifest de Taqueiros aceptan **la marca anterior** (base con SQL 12), **la nueva** (después del SQL 17) o la de transición (código nuevo y base sin SQL 12), siempre coherente con el nombre. Se corre además con `SQL12_NO=1` (204).
+  * `agrupacion.mjs` (32): enmascara `PED-`/`TAQ-` y el emoji del encabezado del aviso de CallMeBot (🌮 → 🍔); es lo único que cambia entre el código de antes y el de ahora.
+  * `vista-previa.mjs` (57): 1g lee los valores originales fijados (la base de la prueba trae el SQL 12); 2d sigue exigiendo que `index.html` y `pedido.html` sean los de antes **byte a byte**, salvo los 4 cambios del paso 3A y los del rebrand (10 colores `#8a7a63`, `.copy`, `--texto-tenue`, los 2 botones de redes, el bloque de `REDES_ENLAZAN`, y 2 colores de `pedido.html`), cada uno contado exactamente.
+  * `front.mjs` (104): los botones de redes (visibles, sin enlace; solo el WhatsApp enlaza); `sw.js` v12; la comparación "Taqueiros idéntico" excusa únicamente el contraste (`rgb(138,122,99)`→`rgba(28,18,16,.68)`, `rgb(107,92,76)`→`rgb(185,168,140)`), las redes sin `href` y el favicon `icono_192`; y las páginas públicas no pueden llevar escrita la marca nueva.
+  * `panel.mjs` (356): `sw.js` v12; la comparación excusa solo el color de `.col-vacia`; las páginas privadas no pueden llevar escrita la marca nueva. `mutaciones-panel.mjs`: la mutación de la versión de `sw.js` apunta a v12.
+  * `e2e.js` (180): el punto "sin conexión" del panel pasa de `rgb(225,74,66)` a `rgb(232,81,74)` (el rojo vivo de la marca nueva; el panel de la prueba toma su marca del respaldo).
+  * `comparar-tickets.mjs` (7 de 7): el ticket de prueba se compara con los productos de muestra cambiados a propósito (8 reemplazos exactos); ahora además muestra las líneas que difieren.
+  * `supabase/probar-compatibilidad.mjs` (26 contra el falso): acepta cada marca solo junto con su nombre ("Los Taqueiros" + `#C1272D` o "The Northe Burgers" + `#C92423`), así sirve antes y después del SQL 17.
+  * **Números finales:** unitarias 99, `superadmin` 50, `sql16` 48, `crear-superadmin-test` 13, `servidor` 204 (también por despachador y con `SQL12_NO=1`), `agrupacion` 32, `vista-previa` 57, `front` 104, `panel` 356, `e2e` 180, `rls` 237, `endurecer` 426, `migrar-fotos` 126, `datos-restaurante` 76, `config-publica` **52** (antes 49: +3, SQL 12 + SQL 17), `dominios` 35, `hallazgos` 32, `planes` 11, `sim` 34 (×2), `cargar-secretos-test` 25, `inspeccion` 6, `comparar-tickets` 7 de 7; contra el falso: `probar-compatibilidad` 26, `probar-servidor-multirestaurante` 191 (también por despachador), `probar-superadmin` 50, `probar-aislamiento` 252 de 259 (las 7 de Realtime fallan localmente por diseño); **nuevas:** `rebrand-northe` **78** y `textos-visibles` **10**.
+* **Solo se puede probar contra la base real:** el SQL 17 sobre el esquema verdadero (en especial que **"Bebidas" sea la única categoría vieja que choque** y que el nombre actual sea exactamente "Los Taqueiros"), la subida de fotos al Storage real (límite de 2 MB, tipos permitidos), y la apariencia en producción.
+
+### 20.13 Decisiones y riesgos
+
+1. **Desactivar = apagar la categoría**, no tocar `productos.disponible` (que significa "agotado"): así no se pierde ningún estado y la reversa es solo volver a encender.
+2. **El 17 vuelve a encender sus categorías siempre** y **no** toca `imagen` ni `disponible` al re-ejecutarse. La reversa tampoco cambia `disponible`: un producto con pedidos queda en una categoría apagada, no "agotado", y el 17 lo recupera entero al volver a correr.
+3. **La reversa enciende todas las categorías viejas**, también una apagada a propósito antes (20.8).
+4. **Constante global de redes** (20.7): hay que reactivarla antes del segundo restaurante.
+5. **Las fotos de las bebidas llevan fondo extendido** (20.6) en vez de recorte; si se prefiere recorte duro, se regeneran con `docs/herramientas-imagenes/preparar-fotos.py` poniendo una fila de recorte en vez de `None`.
+6. **Fotos en 4:3**: los banderines con el nombre de las hamburguesas y hot dogs quedan cortados; el producto no.
+7. **Sin imagen 1200×630 ni favicon propio** (20.6, 20.10).
+
+## 21. PROPUESTA de cambio de dominio (no se ejecuta)
+
+**Esto es una propuesta: no se hizo nada de lo que sigue (NO se ejecuta).** Hoy el sitio vive en `taqueiros-2-0.vercel.app`; el restaurante demo ya es "The Northe Burgers" y esa dirección lo delata. Cambiar a un dominio propio (por ejemplo `pedidos.thenorthe.co`) es posible sin tocar el código, pero **hay partes fuera del código que dependen de la dirección** y por eso se decidió dejarlo para después.
+
+### 21.1 Qué depende de la dirección actual
+
+| Dónde | Qué depende | Qué pasa si no se actualiza |
+|---|---|---|
+| `restaurante_dominios` (SQL 11) | El restaurante se resuelve por el **host** de cada petición. | Un host que no está en la tabla da "Sitio no disponible" (404 neutro) en todo el sitio, la API y el panel. |
+| `api/_restaurante.js` (`HOSTS_TRANSITORIOS_TAQUEIROS`) | Solo vale mientras la tabla `restaurante_dominios` no existe (transitorio). No es necesario cambiarlo si la tabla ya está. | Nada, si el SQL 11 está aplicado. |
+| **Webhook de Wompi** (panel de Wompi → "URL de eventos") | Apunta a `https://taqueiros-2-0.vercel.app/api/webhook-wompi`. | Los pagos aprobados **no llegarían al servidor**: pedidos pagados que no aparecen en el panel. **Lo más delicado.** |
+| **cron-job.org** (alertas y keep-alive) | Las URL de los trabajos llevan el host y la cabecera `Authorization: Bearer`. | Las alertas de pedidos sin atender y el keep-alive dejarían de correr. (El cron propio de `vercel.json` es relativo: no cambia.) |
+| Redirección de Wompi | `index.html` usa `location.origin`: se adapta sola. | Nada. |
+| Vistas previas (`og:url`, `og:image`) | Se arman con el host de la petición. | Nada; pero WhatsApp/Instagram **guardan** la vista previa del enlace viejo. |
+| **Enlaces ya entregados** | Enlaces de seguimiento con token en chats de clientes y la biografía de redes. | Siguen funcionando **mientras la dirección vieja responda**. |
+| **Navegador, por origen** (PWA instalada, `localStorage`, caché de `sw.js`, perfil de Chrome del local) | Cada dirección es un origen distinto. | En la nueva, el panel pide iniciar sesión otra vez, se pierden las preferencias de impresión del equipo (hay que reconfigurar el perfil `C:\TaqueirosPanel`) y hay que reinstalar la PWA. |
+| Supabase Auth → URL Configuration (si se usa Site URL/redirects) | Solo si se activó. | Inicios de sesión que redirigen mal. |
+| `DOMINIO_BASE` (variable de Vercel) | Solo para subdominios `<slug>.<base>`; hoy vacía. | Nada. |
+
+### 21.2 Orden seguro, con reversa en cada paso
+
+1. **Antes:** respaldo de la base y anotar los valores actuales (URL del webhook y de los trabajos de cron-job.org).
+2. **Dominio en Vercel:** Project → Settings → Domains → agregar `pedidos.thenorthe.co`, apuntar el DNS (CNAME) y esperar el certificado. **Dejar el dominio `taqueiros-2-0.vercel.app` como alias** (no quitarlo): ambos funcionan. *Reversa: quitar el dominio nuevo.*
+3. **Base:** agregar el host nuevo a `restaurante_dominios` **sin quitar el viejo** (`insert … on conflict do nothing`, restaurante demo). Probar `/api/restaurante` y el sitio en el host nuevo. *Reversa: borrar esa fila.*
+4. **Pruebas en el dominio nuevo, con los dos dominios activos:** `probar-compatibilidad`, `probar-servidor-multirestaurante` y un pedido real de sandbox completo (pago → panel → ticket).
+5. **Wompi:** actualizar la **URL de eventos** al dominio nuevo (en sandbox primero, luego producción) y hacer un pago de prueba; comprobar que el pedido llega. *Reversa: volver a poner la URL anterior (sigue respondiendo).*
+6. **cron-job.org:** editar la URL de cada trabajo (alertas y keep-alive; **no** "Luna Rosa keep-alive") y usar "Run now". *Reversa: la URL anterior.*
+7. **Vistas previas y enlaces cacheados:** compartir el enlace nuevo con un parámetro (`?v=3`); en la biografía de las redes y en el mensaje de WhatsApp poner el dominio nuevo; probar el depurador de Facebook/Meta para refrescar `og:*`. **No** romper los enlaces viejos: dejar el alias vivo **mucho tiempo** (los de seguimiento con token ya están en chats de clientes).
+8. **Equipos del local:** reinstalar la PWA desde el dominio nuevo, volver a iniciar sesión y reconfigurar la impresión del perfil de Chrome; reconfigurar sonido y tamaño de ticket.
+9. **Recién al final y solo si se quiere:** redirigir el dominio viejo al nuevo (redirección 308 en Vercel), **después** de comprobar que Wompi y cron-job.org ya usan el nuevo y que los pedidos pendientes de pago cerraron. Mientras exista una sola URL guardada en algún tercero con el dominio viejo, **no** se quita.
+
+**Riesgos y por qué esta propuesta no se ejecuta ahora:** (a) el webhook de Wompi es lo único que, si se olvida, **pierde pagos** sin que el cliente lo note; (b) renombrar el proyecto de Vercel o cambiar la dirección rompería cron, webhook, `restaurante_dominios` y las vistas previas a la vez (por eso el pedido fue: **no** renombrar ni cambiar `taqueiros-2-0.vercel.app`); (c) las preferencias por navegador se pierden al cambiar de origen. Beneficio: una dirección que ya no diga "taqueiros" y un dominio propio para vender a un segundo restaurante (cada uno con el suyo, 11).
