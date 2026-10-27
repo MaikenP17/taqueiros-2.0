@@ -1301,7 +1301,10 @@ async function escenario(nombre, fn) {
     // (y el nombre de la tipografia lleva ahora su respaldo generico, sans-serif, tambien en el unico sitio donde no lo llevaba)
     // Cambio a proposito (paso 3A, R7): la hora de cierre 24:00 ya no se pone en el <input type="time"> (no la puede mostrar: quedaba vacia) sino en la
     // casilla "24:00"; el campo queda en 00:00 y apagado. Solo cambia ese valor.
-    const norm2 = (f) => norm(f).split(' ~ "Libre Franklin" ~ ').join(' ~ "Libre Franklin", sans-serif ~ ').split('class=cierra type=time value=24:00').join('class=cierra type=time value=00:00');
+    // Cambio a proposito (REBRAND, docs 20.2): el texto "Sin pedidos" de las columnas vacias (.col-vacia) era #6b5c4c (rgb 107,92,76), que sobre el fondo
+    // oscuro daba 2.6:1; ahora usa --texto-secundario, que en el panel es el tono "tenue" de la marca (aqui #B9A88C = rgb 185,168,140). SOLO ese elemento.
+    const contraste = (f) => (/^DIV ~ class=col-vacia ~ /.test(f) ? f.split('rgb(107, 92, 76)').join('rgb(185, 168, 140)') : f);
+    const norm2 = (f) => contraste(norm(f).split(' ~ "Libre Franklin" ~ ').join(' ~ "Libre Franklin", sans-serif ~ ').split('class=cierra type=time value=24:00').join('class=cierra type=time value=00:00'));
     const a = antiguo.filas.map(norm2), n = nuevo.filas.map(norm2);
     const diffs = [];
     if (a.length !== n.length) diffs.push(`elementos: ${a.length} antes, ${n.length} ahora`);
@@ -1396,7 +1399,9 @@ async function escenario(nombre, fn) {
   await escenario('12. Archivos: nada de Taqueiros escrito a mano en las paginas privadas, la libreria, el ticket ni el service worker', async () => {
     const leer = (f) => fs.readFileSync(path.join(f === 'supabase-publico.js' ? REPO : RAIZ_NUEVA, f), 'utf8');   // (en la revision por mutacion, RAIZ_NUEVA es la copia mutada)
     const prohibidos = [/Taqueiros/i, /C[uú]cuta/i, /573125249438/, /312 524/, /1AN/, /La Ceiba/, /lostaqueiros/i, /pub_(test|prod)_[A-Za-z0-9]{20}/, /vercel\.app/, /#C1272D/i, /#F7ECD6/i, /#1C1210/i, /#E3A008/i, /#8A1B1F/i, /#5C7A3B/i,
-                        /#B9A88C/i, /#2E1D19/i, /#241714/i, /#FFF8EA/i, /#E14A42/i, /#7FA855/i, /Recursos\/logo/, /Birria|Doriloco|comal/i, /TAQ-/, /🌮/, /rgba\((247,236,214|227,160,8|225,74,66|193,39,45|92,122,59|127,168,85|28,18,16),/];
+                        /#B9A88C/i, /#2E1D19/i, /#241714/i, /#FFF8EA/i, /#E14A42/i, /#7FA855/i, /Recursos\/logo/, /Birria|Doriloco|comal/i, /TAQ-/, /🌮/, /rgba\((247,236,214|227,160,8|225,74,66|193,39,45|92,122,59|127,168,85|28,18,16),/,
+                        // REBRAND: tampoco la marca NUEVA va escrita en las paginas compartidas (su marca vive en la base y en el respaldo del servidor)
+                        /Northe/i, /northe-/, /#C92423/i, /#220F08/i, /#E8514A/i, /#EEA927/i, /#FFEBC6/i, /#8E1B1A/i, /#2E160D/i, /#E6D3AE/i, /#BFA987/i, /thenorthe/i, /🍔/];
     for (const f of ['panel.html', 'menu-admin.html', 'historial.html', 'panel-restaurante.js']) {
       const c = leer(f);
       // permitido en la libreria: los nombres de las claves anteriores del navegador (para migrarlas)
@@ -1411,7 +1416,7 @@ async function escenario(nombre, fn) {
     comprobar(!/Taqueiros/i.test(tick) && !/Los Taqueiros/i.test(tick), 'ticket-comanda.js: ni el pie ni nada de Taqueiros (fuera de comentarios)');
     const sw = leer('sw.js');
     const swSinComentarios = sw.replace(/\/\*[\s\S]*?\*\//g, '');
-    comprobar(/const VERSION = "v11"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
+    comprobar(/const VERSION = "v12"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
       'sw.js: version v11, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
     comprobar(/pathname === "\/manifest\.json"/.test(sw) && /startsWith\("\/api\/"\)/.test(sw) && /supabase\.co/.test(sw) && /Navegaciones|navigate/.test(sw), 'sw.js: manifest, /api/, Supabase y las paginas van siempre por la red (nada de un restaurante se guarda)');
     // el service worker solo guarda archivos estaticos de /Recursos/ y fuentes, y su cache es por origen

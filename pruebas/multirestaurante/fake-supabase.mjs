@@ -290,7 +290,13 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           const ruta = decodeURIComponent(m[1]);
           if (req.method === 'POST') {
             try {
-              await enRol(ctx, async (tx) => tx.query(`insert into storage.objects (bucket_id, name, owner) values ('productos', $1, $2)`, [ruta, ctx.uid]));
+              /* Como Storage real: subir un nombre que ya existe es un 409 (Duplicate), salvo con la cabecera x-upsert: true,
+                 que lo reemplaza (supabase/subir-fotos-northe.mjs la usa para poder repetirse). */
+              const ya = (await db.query(`select 1 from storage.objects where bucket_id = 'productos' and name = $1`, [ruta])).rows.length > 0;
+              const upsert = String(req.headers['x-upsert'] || '').toLowerCase() === 'true';
+              if (ya && !upsert) return enviar(res, 400, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+              if (ya) await enRol(ctx, async (tx) => tx.query(`update storage.objects set owner = $2 where bucket_id = 'productos' and name = $1`, [ruta, ctx.uid]));
+              else await enRol(ctx, async (tx) => tx.query(`insert into storage.objects (bucket_id, name, owner) values ('productos', $1, $2)`, [ruta, ctx.uid]));
               archivos.set('productos/' + ruta, bytes);
               return enviar(res, 200, { Key: 'productos/' + ruta });
             } catch (e) { return enviar(res, 400, { statusCode: '403', error: 'Unauthorized', message: e.message }); }

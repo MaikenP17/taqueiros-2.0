@@ -971,7 +971,9 @@ async function escenario(nombre, fn) {
         "…y el punto es verde");
       await p.eval("window.__mock.canal('closed'); window.dispatchEvent(new Event('offline')); true");
       await p.esperar("function(){return document.getElementById('connTxt').textContent==='Desconectado';}", 5000, "Desconectado");
-      comprobar(await p.eval("getComputedStyle(document.querySelector('#conn .dot')).backgroundColor") === "rgb(225, 74, 66)" &&
+      /* REBRAND: el panel de esta prueba toma su marca del respaldo del servidor (api/_respaldo-taqueiros.js), que ahora es la de "The Northe Burgers":
+         el rojo vivo (primario_brillo) pasa de #E14A42 (rgb 225,74,66) a #E8514A (rgb 232,81,74). El punto verde (positivo_brillo) no cambia. */
+      comprobar(await p.eval("getComputedStyle(document.querySelector('#conn .dot')).backgroundColor") === "rgb(232, 81, 74)" &&
         await p.eval("document.getElementById('bannerCaido').classList.contains('visible')") &&
         (await p.eval("document.getElementById('bannerCaido').getBoundingClientRect().height")) > 30,
         "390 px: al perder la conexion el punto se pone rojo y sale el banner «SIN CONEXIÓN»");

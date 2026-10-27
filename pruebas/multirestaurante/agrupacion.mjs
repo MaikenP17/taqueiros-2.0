@@ -253,6 +253,8 @@ const RUTA_ANTES = {
 export function normalizar(t) {
   return String(t)
     .replace(/(PED|TAQ)-[0-9]+-[0-9a-f]{6}/g, 'REF-<ref>')   // PED-: prefijo neutro de los pedidos nuevos (rebrand); TAQ-: pedidos anteriores
+    // Rebrand (a proposito): el aviso de CallMeBot abria con el emoji de taco y ahora con la hamburguesa. Solo ese emoji del encabezado se enmascara.
+    .replace(/(🌮|🍔) \*NUEVO PEDIDO PAGADO\*/g, '<emoji> *NUEVO PEDIDO PAGADO*')
     .replace(/"tokenSeguimiento":"[0-9a-f]{32}"/g, '"tokenSeguimiento":"<tok>"')
     .replace(/[0-9a-f]{32}/g, '<hex32>')
     .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/g, '<ts>')

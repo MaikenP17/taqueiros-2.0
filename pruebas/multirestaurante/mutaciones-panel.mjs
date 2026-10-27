@@ -121,7 +121,7 @@ m('historial: la busqueda no se pide para este restaurante', HIS, "referencia:  
 
 // ---- ticket y service worker ----------------------------------------------------------------------------------------------------------------
 m('ticket: el pie no usa el nombre del restaurante', TIC, 'pie: textoPie(op.restaurante != null ? op.restaurante : nombreRestaurante),', 'pie: textoPie(""),', '^9\\.');
-m('sw: la version no sube', SW, 'const VERSION = "v11";', 'const VERSION = "v9";', '^12\\.');
+m('sw: la version no sube', SW, 'const VERSION = "v12";', 'const VERSION = "v9";', '^12\\.');
 m('sw: se vuelve a precachear algo', SW, 'const CASCARON = [];', 'const CASCARON = ["/Recursos/logo/logo.png"];', '^12\\.');
 m('sw: /api/ deja de ir siempre por la red', SW, '      || url.pathname.startsWith("/api/")\n', '', '^12\\.');
 

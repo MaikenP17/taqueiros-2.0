@@ -907,12 +907,15 @@ export async function correrEscenarios(opts) {
       const parcial = PUB.construirPublico({ ...taq, config: { publico: { marca: { colores: { primario: '#000000' } }, contacto: { whatsapp: '573000000001' } } } }, ex);
       const otro = PUB.construirPublico({ ...taq, id: '11111111-1111-4111-8111-111111111111', slug: 'otro', nombre: 'Otro', config: {} }, ex);
       const to = JSON.stringify(otro);
-      const completo = v.marca.colores.primario === '#C1272D' && v.marca.logo === 'Recursos/logo/logo.png' && v.contacto.whatsapp === '573125249438'
+      /* REBRAND: el respaldo del codigo ya es la marca de "The Northe Burgers" (estado final SQL 12 + SQL 17); el WhatsApp, la llave publica y la
+         ubicacion siguen siendo los de siempre. */
+      const completo = v.marca.colores.primario === '#C92423' && v.marca.logo === 'Recursos/logo/northe-logo.png' && v.contacto.whatsapp === '573125249438'
         && v.pago.llave_publica === 'pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz' && igual(v.ubicacion, { lat: 7.8997382, lng: -72.4968525 })
-        && v.textos.tagline.startsWith('Del comal directo a tu mesa');
-      const mezcla = parcial.marca.colores.primario === '#000000' && parcial.marca.colores.oscuro === '#1C1210'
+        && v.textos.tagline.startsWith('Street food con actitud') && v.marca.emoji === '\u{1F354}' && v.contacto.instagram === 'thenorthe.burgers';
+      const mezcla = parcial.marca.colores.primario === '#000000' && parcial.marca.colores.oscuro === '#220F08'
         && parcial.contacto.whatsapp === '573000000001' && parcial.contacto.telefono === '+57 312 524 9438';
-      const sinFuga = !/Taqueiros|C1272D|573125249438|pub_test_Bkf|pub_prod_Iwa|Cúcuta/i.test(to) && otro.pago.llave_publica === null;
+      // un restaurante SIN datos no recibe NADA del demo (ni la marca anterior ni la nueva)
+      const sinFuga = !/Taqueiros|C1272D|573125249438|pub_test_Bkf|pub_prod_Iwa|Cúcuta|Northe|C92423|northe-|thenorthe/i.test(to) && otro.pago.llave_publica === null;
       const aviso = logs.some((l) => /\[Publico\] Taqueiros usa \d+ valores de respaldo/.test(l));
       return es(completo && mezcla && sinFuga && aviso, JSON.stringify({ completo, mezcla, sinFuga, aviso }));
     });
@@ -920,9 +923,13 @@ export async function correrEscenarios(opts) {
       R.invalidarCache();
       const r = await invocar(M.restaurante, { host: HOST_TAQUEIROS, ruta: '/api/restaurante' });
       const c = r.cuerpo;
-      return es(r.status === 200 && c.slug === 'taqueiros' && c.nombre === 'Los Taqueiros' && c.moneda === 'COP'
-        && c.marca.colores.primario === '#C1272D' && c.marca.colores.oscuro === '#1C1210' && c.marca.emoji === '\u{1F32E}'
-        && c.textos.eslogan === 'Tacos · Birria · Antojitos' && c.contacto.whatsapp === '573125249438' && c.contacto.ciudad === 'Cúcuta'
+      /* REBRAND: la marca depende de lo que haya en la base: la ANTERIOR (SQL 12, antes del SQL 17), la NUEVA (despues del SQL 17: nombre "The Northe
+         Burgers") o, en una base sin SQL 12, el respaldo del codigo (la nueva marca con el nombre viejo: estado de transicion). Siempre COHERENTE. */
+      const marcaAnterior = c.marca.colores.primario === '#C1272D' && c.marca.colores.oscuro === '#1C1210' && c.marca.emoji === '\u{1F32E}' && c.textos.eslogan === 'Tacos · Birria · Antojitos';
+      const marcaNueva = c.marca.colores.primario === '#C92423' && c.marca.colores.oscuro === '#220F08' && c.marca.emoji === '\u{1F354}' && c.textos.eslogan === 'Burgers · Hot Dogs · Papas';
+      const coherente = (c.nombre === 'Los Taqueiros' && (marcaAnterior || (!real && marcaNueva))) || (c.nombre === 'The Northe Burgers' && marcaNueva);
+      return es(r.status === 200 && c.slug === 'taqueiros' && coherente && c.moneda === 'COP'
+        && c.contacto.whatsapp === '573125249438' && c.contacto.ciudad === 'Cúcuta'
         && igual(c.ubicacion, { lat: 7.8997382, lng: -72.4968525 }) && c.domicilio.ofrece === true && c.domicilio.tarifas.length === 5
         && ['test', 'produccion', null].includes(c.pago.modo) && (c.pago.llave_publica === null || /^pub_(test|prod)_/.test(c.pago.llave_publica))
         && (real || (c.pago.modo === 'test' && (c.pago.llave_publica === null || c.pago.llave_publica === 'pub_test_BkfgYqw5jzJrzH91HBDi7twQJJEcRXyz')))
@@ -985,7 +992,14 @@ export async function correrEscenarios(opts) {
       };
       R.invalidarCache();
       const r = await manifest(HOST_TAQUEIROS);
-      return es(r.status === 200 && JSON.stringify(cuerpoManifest(r)) === JSON.stringify(antiguo), String(r.cuerpo).slice(0, 400));
+      /* REBRAND: con la marca anterior (SQL 12) el manifest es EXACTAMENTE el de siempre; con la nueva (despues del SQL 17, o el respaldo del codigo en una
+         base sin SQL 12) es el de "Panel The Northe Burgers" con sus colores e iconos. Cualquier otra mezcla falla. */
+      const m = cuerpoManifest(r);
+      const nuevo = { ...antiguo, name: 'Panel The Northe Burgers', background_color: '#220F08', theme_color: '#C92423',
+        icons: [{ src: '/Recursos/logo/northe-icono-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' }, { src: '/Recursos/logo/northe-icono-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }] };
+      const esNuevo = m && m.name === nuevo.name && JSON.stringify({ ...m, description: nuevo.description }) === JSON.stringify(nuevo)
+        && /^Panel de comandas de (Los Taqueiros|The Northe Burgers): pedidos en tiempo real\.$/.test(m.description);
+      return es(r.status === 200 && (JSON.stringify(m) === JSON.stringify(antiguo) || esNuevo), String(r.cuerpo).slice(0, 400));
     });
     await T('manifest: un restaurante sin datos (D) tiene uno neutro, sin nada de Taqueiros; solo GET', async () => {
       const r = await manifest(hD); const p = await manifest(hD, 'POST');

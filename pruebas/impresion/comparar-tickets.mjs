@@ -45,12 +45,35 @@ try {
   // las horas dependen del momento en que corre cada vez
   const normal = (s) => s.replace(/\d{1,2}\/\d{1,2}\/\d{4},? \d{1,2}:\d{2}(:\d{2})? [ap]\.\s?m\./g, '<FECHA>')
                          .replace(/\d{1,2}:\d{2}(:\d{2})? [ap]\.\s?m\./g, '<HORA>');
+  /* REBRAND (a proposito): el ticket de PRUEBA usa productos de The Northe Burgers en vez de los de Taqueiros (ticket-comanda.js, pedidoDePrueba).
+     Solo se excusan estos textos y precios, cada uno EXACTAMENTE una vez; cualquier otra diferencia en ese ticket (o en los otros 6) sigue fallando. */
+  const MUESTRA = [
+    ['Tacos de Birria con Consomé (orden x3)', 'Big Norte con Queso Extra (combo x3)'],
+    ['Sin cebolla, con mucho limón y tortilla bien doradita', 'Sin cebolla, con mucha salsa y pan bien tostadito'],
+    ['Doriloco Especial Súper Cargado', 'Full Norte Súper Cargado'],
+    ['Agua de Jamaica 500 ml', 'Coca-Cola Lata 350 ml'],
+    ['Sin cebolla ni cilantro, salsa picante aparte.', 'Sin cebolla ni pepinillos, salsa picante aparte.'],
+    ['más limón.', 'más servilletas.'],
+    ['$90.000</span>', '$92.500</span>'],
+    ['$95.000</span>', '$97.500</span>']
+  ];
+  const deMuestra = (s) => MUESTRA.reduce((t, [viejo, nuevo]) => {
+    const partes = t.split(viejo);
+    if (partes.length !== 2) throw new Error(`el ticket de prueba de antes trae ${partes.length - 1} veces (se esperaba 1): ${viejo}`);
+    return partes.join(nuevo);
+  }, s);
   for (const f of fs.readdirSync(dirAntes).sort()) {
     const a = normal(fs.readFileSync(path.join(dirAntes, f), 'utf8'));
+    const a2 = f === '07-ticket-de-prueba.html' ? deMuestra(a) : a;
     const b = fs.existsSync(path.join(dirAhora, f)) ? normal(fs.readFileSync(path.join(dirAhora, f), 'utf8')) : null;
-    const igual = a === b;
+    const igual = a2 === b;
     if (!igual) fallas++;
-    console.log((igual ? 'IGUAL    ' : 'DISTINTO ') + f + '  (' + a.length + ' caracteres)');
+    console.log((igual ? 'IGUAL    ' : 'DISTINTO ') + f + '  (' + a.length + ' caracteres)' + (f === '07-ticket-de-prueba.html' && igual ? '  (salvo los productos de muestra, a proposito)' : ''));
+    if (!igual && b !== null) {   // muestra las primeras lineas distintas para saber QUE cambio
+      const la = a2.split(/(?<=>)/), lb = b.split(/(?<=>)/);
+      let mostradas = 0;
+      for (let i = 0; i < Math.max(la.length, lb.length) && mostradas < 12; i++) if (la[i] !== lb[i]) { console.log('   antes: ' + (la[i] || '').trim().slice(0, 160) + '\n   ahora: ' + (lb[i] || '').trim().slice(0, 160)); mostradas++; }
+    }
   }
 } finally {
   try { execFileSync('git', ['worktree', 'remove', '--force', arbol], { cwd: REPO, stdio: 'ignore' }); } catch (e) { /* ya no estaba */ }

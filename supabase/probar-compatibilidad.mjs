@@ -92,7 +92,11 @@ prueba("/api/restaurante resuelve el host de Taqueiros y responde 'servicio.sirv
 // (el endpoint ahora devuelve marca, textos, contacto, tarifas y la llave PUBLICA de pago: lo que no debe salir sigue siendo lo interno)
 prueba("/api/restaurante no expone plan, vigencia, secretos ni la config interna", !/"plan"|vigente|dias_gracia|modalidad|callmebot|secret|integridad|eventos|prv_/i.test(JSON.stringify(rr.cuerpo)), JSON.stringify(rr.cuerpo).slice(0, 150));
 prueba("/api/restaurante devuelve la marca, el contacto, las tarifas y la llave PUBLICA de Taqueiros (de la base o, si falta el SQL 12, de su respaldo)",
-  rr.cuerpo && rr.cuerpo.marca && rr.cuerpo.marca.colores && rr.cuerpo.marca.colores.primario === "#C1272D" && rr.cuerpo.contacto && rr.cuerpo.contacto.whatsapp === "573125249438"
+  // El rebrand (supabase/17-rebrand-northe.sql) cambia el nombre y los colores del restaurante demo: antes del SQL 17 es "Los Taqueiros" (#C1272D);
+  // despues, "The Northe Burgers" (#C92423). Se acepta cada marca solo junto con SU nombre; el contacto no cambia con el rebrand.
+  rr.cuerpo && rr.cuerpo.marca && rr.cuerpo.marca.colores
+  && ((rr.cuerpo.nombre === "Los Taqueiros" && rr.cuerpo.marca.colores.primario === "#C1272D") || (rr.cuerpo.nombre === "The Northe Burgers" && rr.cuerpo.marca.colores.primario === "#C92423"))
+  && rr.cuerpo.contacto && rr.cuerpo.contacto.whatsapp === "573125249438"
   && rr.cuerpo.domicilio && rr.cuerpo.domicilio.ofrece === true && rr.cuerpo.domicilio.tarifas.length === 5
   && rr.cuerpo.pago && (rr.cuerpo.pago.llave_publica === null || /^pub_(test|prod)_/.test(rr.cuerpo.pago.llave_publica)), JSON.stringify(rr.cuerpo).slice(0, 200));
 const desconocido = await new Promise((resolve) => {

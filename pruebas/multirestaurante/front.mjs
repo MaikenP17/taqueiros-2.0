@@ -461,8 +461,13 @@ async function escenario(nombre, fn) {
     comprobar(incluyeAlguno(ta, ['beta', 'Beta', 'Sushi', '🍣']).length === 0 && incluyeAlguno(tb, ['alfa', 'Alfa', 'Pizza', '🍕']).length === 0, 'ninguno ve texto del otro', incluyeAlguno(ta, ['beta', 'Beta', 'Sushi']).concat(incluyeAlguno(tb, ['alfa', 'Alfa', 'Pizza'])).join(','));
     comprobar(ta.includes('Pizza Alfa') && ta.includes('Exclusivo Alfa') && !ta.includes('Roll Beta') && tb.includes('Roll Beta') && !tb.includes('Pizza Alfa'), 'cada uno ve solo su menu');
     const redesA = await a.eval(`document.getElementById('footerSocials').innerHTML`), redesB = await b.eval(`document.getElementById('footerSocials').innerHTML`);
-    comprobar(redesA.includes('instagram.com/ig_alfa') && redesA.includes('wa.me/573100000001') && redesB.includes('wa.me/573100000002') && redesB.includes('tiktok.com/@tk_beta'),
-      'las redes y el WhatsApp del pie son los de cada uno', redesA + ' // ' + redesB);
+    /* REBRAND: con REDES_ENLAZAN = false (index.html, docs 20.7) los botones de Instagram y TikTok se ven con SU usuario pero NO enlazan
+       (sin href); el WhatsApp si enlaza. Antes esta prueba exigia los enlaces instagram.com/... y tiktok.com/...; la version con enlace real
+       (REDES_ENLAZAN = true) la ejecuta rebrand-northe.mjs (F2). Aqui ademas se exige que NO haya ningun enlace a esas redes. */
+    comprobar(redesA.includes('title="Instagram @ig_alfa"') && redesA.includes('title="TikTok @tk_alfa"') && redesA.includes('wa.me/573100000001')
+      && redesB.includes('wa.me/573100000002') && redesB.includes('title="TikTok @tk_beta"') && redesB.includes('title="Instagram @ig_beta"')
+      && !/instagram\.com|tiktok\.com/.test(redesA + redesB) && (redesA.match(/<a [^>]*href=/g) || []).length === 1 && (redesB.match(/<a [^>]*href=/g) || []).length === 1,
+      'las redes y el WhatsApp del pie son los de cada uno (Instagram y TikTok visibles sin enlace; solo el WhatsApp enlaza)', redesA + ' // ' + redesB);
     const domA = await a.eval(`JSON.stringify([calcularDomicilio(7.909,-72.5), calcularDomicilio(7.92,-72.5), calcularDomicilio(8.5,-72.5)])`);
     const domB = await b.eval(`JSON.stringify([calcularDomicilio(7.909,-72.5), calcularDomicilio(7.92,-72.5), calcularDomicilio(8.5,-72.5)])`);
     comprobar(domA === '[{"km":1.3,"precio":3000,"fueraDeCobertura":false},{"km":2.9,"precio":6000,"fueraDeCobertura":false},{"km":86.7,"precio":0,"fueraDeCobertura":true}]'
@@ -757,7 +762,16 @@ async function escenario(nombre, fn) {
     // Cambio a proposito (paso 3A, R7): el horario de la prueba es 00:00 a 24:00 y la pagina de antes mostraba el cierre 24:00 como
     // "12:00 p.m." (el mediodia, un error); ahora dice "12:00 a.m. (medianoche)". Solo cambia ese texto.
     const aMedianoche = (fila) => fila.split(' hasta las 12:00 p.m.').join(' hasta las 12:00 a.m. (medianoche)').split('– 12:00 p.m.').join('– 12:00 a.m. (medianoche)');
-    const a = antiguo.filas.map(aMedianoche), n = nuevo.filas;
+    /* Cambios a proposito del REBRAND (docs 20.2 y 20.7), con la paleta de Taqueiros que esta base trae (SQL 12). Son los UNICOS que se excusan:
+       (1) contraste: el marron #8a7a63 (rgb 138,122,99) pasa a carbon al 68 % (rgba 28,18,16,.68) y el #6b5c4c (rgb 107,92,76) a --texto-tenue
+           (rgb 185,168,140 = #B9A88C, el tenue de Taqueiros); (2) las redes: el enlace de Instagram y TikTok pasa a boton sin href/target/rel y
+           con el usuario en aria-label. Cualquier otra diferencia sigue haciendo fallar la prueba. */
+    const delRebrand = (fila) => aMedianoche(fila)
+      .split('rgb(138, 122, 99)').join('rgba(28, 18, 16, 0.68)')
+      .split('rgb(107, 92, 76)').join('rgb(185, 168, 140)')
+      .replace(/href=https:\/\/instagram\.com\/(\S+) aria-label=Instagram target=_blank rel=noopener/, 'aria-label=Instagram @$1 (pronto)')
+      .replace(/href=https:\/\/tiktok\.com\/@(\S+) aria-label=TikTok target=_blank rel=noopener/, 'aria-label=TikTok @$1 (pronto)');
+    const a = antiguo.filas.map(delRebrand), n = nuevo.filas;
     const diffs = [];
     if (a.length !== n.length) diffs.push(`elementos: ${a.length} antes, ${n.length} ahora`);
     for (let i = 0; i < Math.max(a.length, n.length); i++) {
@@ -770,7 +784,9 @@ async function escenario(nombre, fn) {
     if (!varsOk) diffs.push('variables CSS: ' + JSON.stringify(antiguo.vars) + ' vs ' + JSON.stringify(nuevo.vars));
     if (antiguo.titulo !== nuevo.titulo) diffs.push(`titulo: "${antiguo.titulo}" vs "${nuevo.titulo}"`);
     if (antiguo.desc !== nuevo.desc) diffs.push(`descripcion: "${antiguo.desc}" vs "${nuevo.desc}"`);
-    if (new URL(antiguo.icono, 'http://x/').pathname !== new URL(nuevo.icono, 'http://x/').pathname) diffs.push(`icono: ${antiguo.icono} vs ${nuevo.icono}`);
+    // Cambio a proposito (REBRAND, docs 20.6): el favicon prefiere el icono cuadrado (icono_192) al logo; Taqueiros tenia el logo como favicon.
+    const iconoAntes = new URL(antiguo.icono, 'http://x/').pathname === '/Recursos/logo/logo.png' ? '/Recursos/logo/icono-192.png' : new URL(antiguo.icono, 'http://x/').pathname;
+    if (iconoAntes !== new URL(nuevo.icono, 'http://x/').pathname) diffs.push(`icono: ${antiguo.icono} vs ${nuevo.icono}`);
     comprobar(diffs.length === 0, `Taqueiros identico (${etiqueta}): ${a.length} elementos comparados con estilos calculados`, diffs.join('\n    '));
   }
 
@@ -842,7 +858,9 @@ async function escenario(nombre, fn) {
   await escenario('9. Archivos: nada de Taqueiros escrito a mano en las paginas publicas, el service worker y el manifest', async () => {
     const leer = (f) => fs.readFileSync(path.join(f === 'vercel.json' || f === 'sw.js' ? REPO : RAIZ_NUEVA, f), 'utf8');
     const html = leer('index.html'), ped = leer('pedido.html'), lib = leer('restaurante-publico.js'), sw = leer('sw.js');
-    const prohibidos = [/Taqueiros/i, /C[uú]cuta/i, /573125249438/, /312 524/, /1AN/, /La Ceiba/, /lostaqueiros/i, /pub_(test|prod)_[A-Za-z0-9]{20}/, /vercel\.app/, /\bWOMPI_MODE\b/, /#C1272D/i, /#F7ECD6/i, /#1C1210/i, /#E3A008/i, /#8A1B1F/i, /#5C7A3B/i, /Birria|Tacos|dorilocos|comal/i];
+    const prohibidos = [/Taqueiros/i, /C[uú]cuta/i, /573125249438/, /312 524/, /1AN/, /La Ceiba/, /lostaqueiros/i, /pub_(test|prod)_[A-Za-z0-9]{20}/, /vercel\.app/, /\bWOMPI_MODE\b/, /#C1272D/i, /#F7ECD6/i, /#1C1210/i, /#E3A008/i, /#8A1B1F/i, /#5C7A3B/i, /Birria|Tacos|dorilocos|comal/i,
+                        // REBRAND: la marca NUEVA tampoco va escrita en las paginas publicas compartidas
+                        /Northe/i, /northe-/, /#C92423/i, /#220F08/i, /#E8514A/i, /#EEA927/i, /#FFEBC6/i, /#8E1B1A/i, /#2E160D/i, /#E6D3AE/i, /#BFA987/i, /thenorthe/i];
     // permitido: el nombre del objeto global compartido (window.SUPABASE_PUBLICO, definido en supabase-publico.js)
     const limpio = (s) => s.split('SUPABASE_PUBLICO').join('');
     for (const [n, c] of [['index.html', html], ['pedido.html', ped], ['restaurante-publico.js', lib]]) {
@@ -852,7 +870,7 @@ async function escenario(nombre, fn) {
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
     const rutaManifest = EMULADOR.resolver({ ruta: '/manifest.json' });
     comprobar(rutaManifest.tipo === 'funcion' && rutaManifest.archivo === 'api/publico.js' && /_ruta=manifest/.test(rutaManifest.urlReescrita), 'vercel.json lleva /manifest.json a la funcion agrupada (modulo manifest)');
-    comprobar(/const VERSION = "v11"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v11, sin precache y el manifest siempre por la red');
+    comprobar(/const VERSION = "v12"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v12 (rebrand), sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
   });
 

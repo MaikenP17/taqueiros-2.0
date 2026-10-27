@@ -14,11 +14,16 @@
    6. REVISION POR MUTACION del propio SQL 12: se rompe cada defensa y la migracion (o alguna prueba)
       tiene que detectarlo.
 ============================================================= */
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { crearBase, sembrar, sql10, sql, intentar, U, REPO } from './sim.mjs';
 
 const require = createRequire(import.meta.url);
 const { CONFIG_TAQUEIROS } = require(`${REPO}/api/_respaldo-taqueiros.js`);
+/* REBRAND (SQL 17): el respaldo del codigo ya NO es lo que escribe el SQL 12; es el estado final SQL 12 + SQL 17 (marca The Northe
+   Burgers). Lo que el SQL 12 escribe (Taqueiros) queda fijado en config-taqueiros-original.json, copia del respaldo del commit 947b164.
+   Cada comparacion que antes era "SQL 12 == respaldo" sigue existiendo, ahora contra ese original; y se agrega "SQL 12 + SQL 17 == respaldo". */
+const ORIGINAL = JSON.parse(fs.readFileSync(`${REPO}/pruebas/multirestaurante/config-taqueiros-original.json`, 'utf8'));
 
 const resultados = [];
 const prueba = (nombre, ok, info = '') => resultados.push({ nombre, ok: !!ok, info: ok ? '' : String(info) });
@@ -118,8 +123,21 @@ prueba('el dueno de Taqueiros sigue sin poder crear pedidos en otro restaurante'
 
 /* ---- 5. la mezcla de la config -------------------------------------------------------------------------------------- */
 const cfgT = (await db.query(`select config from public.restaurantes where id = '${TAQ}'`)).rows[0].config;
-prueba('con la config vacia, Taqueiros queda con EXACTAMENTE los valores de api/_respaldo-taqueiros.js', JSON.stringify(canon(cfgT)) === JSON.stringify(canon(CONFIG_TAQUEIROS)), JSON.stringify(cfgT).slice(0, 200));
-prueba('el JSON del SQL y el del respaldo del codigo coinciden', JSON.stringify(canon(JSON.parse(archivo.split('$cfg$')[1]))) === JSON.stringify(canon(CONFIG_TAQUEIROS)), '');
+prueba('con la config vacia, el SQL 12 deja a Taqueiros con EXACTAMENTE los valores originales (config-taqueiros-original.json, commit 947b164)', JSON.stringify(canon(cfgT)) === JSON.stringify(canon(ORIGINAL)), JSON.stringify(cfgT).slice(0, 200));
+prueba('el JSON del SQL 12 y el original fijado coinciden', JSON.stringify(canon(JSON.parse(archivo.split('$cfg$')[1]))) === JSON.stringify(canon(ORIGINAL)), '');
+{
+  /* REBRAND: el respaldo del codigo = estado final de la base despues del SQL 12 y del SQL 17 (config completa, sin dejar nada fuera) */
+  const b17 = await baseConSql10y11();
+  await b17.exec(archivo);
+  const r17 = ultimo(await b17.exec(sql('17-rebrand-northe.sql'))).rows;
+  const cfg17 = (await b17.query(`select config from public.restaurantes where id = '${TAQ}'`)).rows[0].config;
+  prueba('SQL 12 + SQL 17: el SQL 17 corre sobre la base del SQL 12 y todas sus comprobaciones dan OK', r17.length >= 20 && r17.every((x) => x.estado === 'OK'), JSON.stringify(r17.filter((x) => x.estado !== 'OK')));
+  prueba('SQL 12 + SQL 17: la config final de la base es EXACTAMENTE api/_respaldo-taqueiros.js (marca, textos, contacto, wompi, pwa, ubicacion y domicilio)',
+    JSON.stringify(canon(cfg17)) === JSON.stringify(canon(CONFIG_TAQUEIROS)), JSON.stringify(cfg17).slice(0, 200));
+  prueba('SQL 12 + SQL 17: lo que NO es marca (ubicacion, domicilio, wompi, whatsapp, telefono, direccion, ciudad) es identico al original',
+    JSON.stringify(canon({ u: cfg17.ubicacion, d: cfg17.domicilio, w: cfg17.publico.wompi, c: { ...cfg17.publico.contacto, instagram: 0, tiktok: 0 } }))
+    === JSON.stringify(canon({ u: ORIGINAL.ubicacion, d: ORIGINAL.domicilio, w: ORIGINAL.publico.wompi, c: { ...ORIGINAL.publico.contacto, instagram: 0, tiktok: 0 } })), '');
+}
 prueba('la config de otro restaurante sigue vacia', JSON.stringify((await db.query(`select config from public.restaurantes where id = '${OTRO}'`)).rows[0].config) === '{}', '');
 
 function canon(v) {
@@ -140,8 +158,8 @@ function canon(v) {
     c.publico.marca.colores.primario === '#000000' && c.publico.marca.emoji === '🍕' && c.publico.contacto.whatsapp === '573000000000'
     && c.ubicacion.lat === 1.5 && c.extra === 'x' && JSON.stringify(c.publico.nuevoCampo) === '[1,2]', JSON.stringify(c).slice(0, 300));
   prueba('con config previa: se agrega lo que faltaba (lng, resto de colores, textos, llaves publicas) y un null se llena',
-    c.ubicacion.lng === CONFIG_TAQUEIROS.ubicacion.lng && c.publico.marca.colores.oscuro === '#1C1210' && c.publico.marca.colores.acento === '#E3A008'
-    && c.publico.textos.tagline === CONFIG_TAQUEIROS.publico.textos.tagline && c.publico.wompi.llave_publica_test === CONFIG_TAQUEIROS.publico.wompi.llave_publica_test, JSON.stringify(c).slice(0, 300));
+    c.ubicacion.lng === ORIGINAL.ubicacion.lng && c.publico.marca.colores.oscuro === '#1C1210' && c.publico.marca.colores.acento === '#E3A008'
+    && c.publico.textos.tagline === ORIGINAL.publico.textos.tagline && c.publico.wompi.llave_publica_test === ORIGINAL.publico.wompi.llave_publica_test, JSON.stringify(c).slice(0, 300));
   const otro = (await base.query(`select config from public.restaurantes where id <> '${TAQ}'`)).rows;
   prueba('con config previa: los demas restaurantes no se tocan', otro.length > 0 && otro.every((r) => JSON.stringify(r.config) === '{"marca":"propia"}'), JSON.stringify(otro));
 }
@@ -165,7 +183,7 @@ async function sonda(base) {
   const b = await intentar(base, null, `select * from public.buscar_mis_pedidos(telefono => '3001119999', total_pagado => 7000)`, [], { rol: 'anon' });
   if (!b.ok || b.rows.length !== 1 || !b.rows[0].token_seguimiento || Number(b.rows[0].numero) !== Number(pedido.numero)) hallazgos.push('buscar_mis_pedidos no devuelve numero y token');
   const cfg = (await base.query(`select config from public.restaurantes where id = '${TAQ}'`)).rows[0].config;
-  if (JSON.stringify(canon(cfg)) !== JSON.stringify(canon(CONFIG_TAQUEIROS))) hallazgos.push('la config de Taqueiros no es la esperada');
+  if (JSON.stringify(canon(cfg)) !== JSON.stringify(canon(ORIGINAL))) hallazgos.push('la config de Taqueiros no es la esperada');
   return hallazgos;
 }
 

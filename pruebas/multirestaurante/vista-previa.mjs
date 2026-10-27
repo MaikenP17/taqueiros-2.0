@@ -178,7 +178,9 @@ async function main() {
 
     // Taqueiros (host real de produccion)
     const pt = await pedir({ host: HOST.TAQ, ua: wa });
-    const respaldo = require(path.join(RAIZ, 'api', '_respaldo-taqueiros.js')).CONFIG_TAQUEIROS.publico;
+    /* REBRAND: en esta base Taqueiros ya tiene su config del SQL 12 (la marca ANTERIOR); la vista previa tiene que leer ESA, no el respaldo
+       del codigo (que ahora es la marca nueva y solo completa lo que falta). El respaldo nuevo se prueba en textos-visibles.mjs (2b). */
+    const respaldo = JSON.parse(fs.readFileSync(path.join(RAIZ, 'pruebas', 'multirestaurante', 'config-taqueiros-original.json'), 'utf8')).publico;
     comprobar(pt.status === 200 && titulo(pt.html) === respaldo.textos.titulo_pagina && etiquetaMeta(pt.html, 'property', 'og:image')[0] === `https://${HOST.TAQ}/${respaldo.marca.logo}`
       && fs.existsSync(path.join(RAIZ, respaldo.marca.logo)) , '1g Taqueiros: su titulo, su descripcion y su logo (el archivo existe en el sitio)', JSON.stringify([titulo(pt.html), etiquetaMeta(pt.html, 'property', 'og:image')]));
 
@@ -224,8 +226,25 @@ async function main() {
     indexDeAntes = cambiar(indexDeAntes, 'alert(detalle.error || MENSAJE_SERVICIO_SUSPENDIDO);', 'alert(MENSAJE_SERVICIO_SUSPENDIDO);');
     indexDeAntes = cambiar(indexDeAntes, '  const [h,m] = hhmm.split(":").map(Number);\n  const period = h >= 12 ? "p.m." : "a.m.";',
       '  const [h,m] = hhmm.split(":").map(Number);\n  // 24:00 = cierra a la medianoche (regla del horario, horario-regla.js): no es el mediodia\n  if(h === 24 && m === 0) return "12:00 a.m. (medianoche)";\n  const period = h >= 12 ? "p.m." : "a.m.";');
-    comprobar(indexEstatico.replace(/\r\n/g, '\n') === indexDeAntes && pedidoEstatico.replace(/\r\n/g, '\n') === deGit('pedido.html'),
-      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html hechos a proposito en el paso 3A (las personas reciben el mismo HTML de siempre)', '');
+    /* Cambios hechos a proposito en el REBRAND a "The Northe Burgers" (docs 20): contraste de textos sobre fondo claro/oscuro (index y pedido) y los
+       botones de redes sin salto (index). Se aplican tambien al archivo de antes y la igualdad sigue siendo EXACTA: cualquier otra diferencia falla.
+       El bloque de las redes (comentario + REDES_ENLAZAN + crearBotonRed) se toma del archivo actual: su comportamiento lo prueba rebrand-northe.mjs (F1-F5). */
+    const cambiarN = (t, viejo, nuevo, n) => { const p = t.split(viejo); if (p.length !== n + 1) throw new Error(`el archivo de antes trae ${p.length - 1} veces (se esperaban ${n}) ` + viejo.slice(0, 50)); return p.join(nuevo); };
+    const actualIndex = indexEstatico.replace(/\r\n/g, '\n');
+    const iniRedes = actualIndex.indexOf('/* =========================================================\n   REDES SOCIALES: BOTONES VISIBLES PERO SIN SALTO');
+    const finRedes = actualIndex.indexOf('function ocultarSiVacio(');
+    if (iniRedes < 0 || finRedes < iniRedes) throw new Error('no encuentro el bloque de las redes en index.html');
+    indexDeAntes = cambiarN(indexDeAntes, 'color:#8a7a63', 'color:rgba(var(--carbon-rgb),.68)', 10);
+    indexDeAntes = cambiar(indexDeAntes, '.copy{text-align:center; margin-top:2.5rem; font-size:.78rem; color:#6b5c4c;}', '.copy{text-align:center; margin-top:2.5rem; font-size:.78rem; color:var(--texto-tenue);}');
+    indexDeAntes = cambiar(indexDeAntes, '    --texto-secundario: #C4C7CF;\n    --texto-claro: #F2F2F2;', '    --texto-secundario: #C4C7CF;\n    --texto-tenue: #A0A4AE;\n    --texto-claro: #F2F2F2;');
+    indexDeAntes = cambiar(indexDeAntes, 'crearEnlace("https://instagram.com/" + R.contacto.instagram, "Instagram", "\\u{1F4F7}")', 'crearBotonRed("https://instagram.com/" + R.contacto.instagram, "Instagram", "\\u{1F4F7}", R.contacto.instagram)');
+    indexDeAntes = cambiar(indexDeAntes, 'crearEnlace("https://tiktok.com/@" + R.contacto.tiktok, "TikTok", "\\u{1F3B5}")', 'crearBotonRed("https://tiktok.com/@" + R.contacto.tiktok, "TikTok", "\\u{1F3B5}", R.contacto.tiktok)');
+    indexDeAntes = cambiar(indexDeAntes, 'function ocultarSiVacio(', actualIndex.slice(iniRedes, finRedes) + 'function ocultarSiVacio(');
+    let pedidoDeAntes = deGit('pedido.html');
+    pedidoDeAntes = cambiar(pedidoDeAntes, '    color:#6b5c4c; text-transform:uppercase; letter-spacing:.03em;', '    color:var(--texto-tenue); text-transform:uppercase; letter-spacing:.03em;');
+    pedidoDeAntes = cambiar(pedidoDeAntes, 'font-size:.72rem; color:#6b5c4c; margin-top:1rem;', 'font-size:.72rem; color:var(--texto-tenue); margin-top:1rem;');
+    comprobar(actualIndex === indexDeAntes && pedidoEstatico.replace(/\r\n/g, '\n') === pedidoDeAntes,
+      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html del paso 3A y los del rebrand (contraste de textos y botones de redes sin salto; docs 20) (las personas reciben el mismo HTML de siempre)', '');
     void antes; void extraerAntes;
 
     // una persona que llegue a la funcion directamente es devuelta a la pagina de siempre, sin datos
