@@ -208,7 +208,11 @@ module.exports = async (req, res) => {
     total = subtotal + costoDomicilio;
 
     // ---- Referencia y firma de integridad --------------------
-    const referencia = "TAQ-" + Date.now() + "-" + crypto.randomBytes(3).toString("hex");
+    /* Prefijo NEUTRO ("PED-"): este archivo es compartido por todos los restaurantes y la referencia
+       la ve el cliente, asi que no lleva la marca de ninguno. Los pedidos anteriores conservan su
+       referencia "TAQ-..." y se siguen abriendo igual: nada valida el prefijo (solo la referencia
+       completa), ver docs/multirestaurante.md seccion 20. */
+    const referencia = "PED-" + Date.now() + "-" + crypto.randomBytes(3).toString("hex");
     const montoEnCentavos = total * 100;
     const moneda = "COP";
 

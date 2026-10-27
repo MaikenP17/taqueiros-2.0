@@ -23,7 +23,7 @@ const { exigirRestaurante } = require("./_restaurante.js");
    APROBADO y no tener ya fecha de reembolso. Llamarlo dos veces no cambia la
    fecha: responde ok con "yaRegistrado".
 
-   Cuerpo:  { "referencia": "TAQ-..." }
+   Cuerpo:  { "referencia": "PED-..." }   (los pedidos anteriores al rebrand tienen "TAQ-...")
    Los endpoints internos del panel NO se bloquean por suspension: un
    restaurante suspendido tiene que poder registrar sus reembolsos.
 ============================================================= */

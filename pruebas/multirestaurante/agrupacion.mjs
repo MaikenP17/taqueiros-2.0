@@ -252,7 +252,7 @@ const RUTA_ANTES = {
 /* Valores que por diseno cambian en cada corrida. */
 export function normalizar(t) {
   return String(t)
-    .replace(/TAQ-[0-9]+-[0-9a-f]{6}/g, 'TAQ-<ref>')
+    .replace(/(PED|TAQ)-[0-9]+-[0-9a-f]{6}/g, 'REF-<ref>')   // PED-: prefijo neutro de los pedidos nuevos (rebrand); TAQ-: pedidos anteriores
     .replace(/"tokenSeguimiento":"[0-9a-f]{32}"/g, '"tokenSeguimiento":"<tok>"')
     .replace(/[0-9a-f]{32}/g, '<hex32>')
     .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z/g, '<ts>')
