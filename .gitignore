@@ -33,3 +33,6 @@ desktop.ini
 
 # Respaldos de la base (traen datos de clientes: NUNCA al repositorio)
 respaldos/
+
+# Originales pesados de la marca nueva (las fotos viven en Supabase Storage; ver docs/multirestaurante.md seccion 20)
+Recursos/NORTHE-NUEVO/
