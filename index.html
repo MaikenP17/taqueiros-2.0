@@ -31,6 +31,7 @@
     --mostaza: #D4A72C;
     --verde: #4F8A5B;
     --texto-secundario: #C4C7CF;
+    --texto-tenue: #A0A4AE;
     --texto-claro: #F2F2F2;
     --rojo-rgb: 59,91,140;
     --rojo-oscuro-rgb: 42,66,102;
@@ -283,7 +284,7 @@
   .card.agotado .thumb img{filter:grayscale(.85);}
   .card.agotado:hover .thumb img{transform:none;}
   .etiqueta-agotado{
-    background:rgba(0,0,0,.08); color:#8a7a63;
+    background:rgba(0,0,0,.08); color:rgba(var(--carbon-rgb),.68);
     border:1px solid rgba(0,0,0,.15); border-radius:999px;
     padding:.4rem .8rem; font-size:.75rem; font-weight:800;
     white-space:nowrap;
@@ -361,7 +362,7 @@
   .drawer-head h2{font-size:1.3rem;}
   .drawer-head button{background:none; color:var(--crema-suave); font-size:1.6rem; line-height:1;}
   .drawer-items{flex:1; overflow-y:auto; padding:1rem 1.2rem;}
-  .drawer-empty{text-align:center; color:#8a7a63; padding:3rem 1rem;}
+  .drawer-empty{text-align:center; color:rgba(var(--carbon-rgb),.68); padding:3rem 1rem;}
   .drawer-empty .emoji{font-size:2.6rem; margin-bottom:.6rem;}
 
   .drawer-item{
@@ -376,7 +377,7 @@
   .drawer-item .meta{flex:1; display:flex; flex-direction:column; gap:.3rem;}
   .drawer-item .meta .top{display:flex; justify-content:space-between; gap:.5rem;}
   .drawer-item .meta .top h4{font-size:.95rem; font-weight:800;}
-  .drawer-item .unit{font-size:.78rem; color:#8a7a63;}
+  .drawer-item .unit{font-size:.78rem; color:rgba(var(--carbon-rgb),.68);}
   .drawer-item .row-bottom{display:flex; align-items:center; justify-content:space-between;}
   .drawer-item .subtotal{font-weight:800; color:var(--rojo-oscuro);}
   .remove-link{font-size:.75rem; color:#a33; font-weight:700; text-decoration:underline; background:none;}
@@ -402,7 +403,7 @@
   .whatsapp-btn:disabled{opacity:.5; cursor:not-allowed; transform:none;}
 
   /* ---------- PAGO EN LÍNEA (WOMPI) ---------- */
-  .pay-divider{display:flex; align-items:center; gap:.7rem; margin:.8rem 0; color:#8a7a63; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em;}
+  .pay-divider{display:flex; align-items:center; gap:.7rem; margin:.8rem 0; color:rgba(var(--carbon-rgb),.68); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.08em;}
   .pay-divider::before, .pay-divider::after{content:""; flex:1; height:1px; background:rgba(0,0,0,.1);}
   .pay-btn{
     width:100%; background:var(--rojo); color:var(--crema-suave); padding:1rem; border-radius:999px;
@@ -455,10 +456,10 @@
   .resultado-pedido:hover{border-color:var(--rojo); transform:translateY(-2px);}
   .resultado-pedido .info{flex:1; min-width:0;}
   .resultado-pedido .num{font-weight:800; font-size:.95rem;}
-  .resultado-pedido .est{font-size:.78rem; color:#8a7a63; margin-top:.15rem;}
+  .resultado-pedido .est{font-size:.78rem; color:rgba(var(--carbon-rgb),.68); margin-top:.15rem;}
   .resultado-pedido .flecha{color:var(--rojo); font-weight:800;}
   .buscar-vacio{
-    text-align:center; color:#8a7a63; font-size:.85rem;
+    text-align:center; color:rgba(var(--carbon-rgb),.68); font-size:.85rem;
     padding:1.2rem .5rem; line-height:1.55;
   }
 
@@ -543,7 +544,7 @@
 
   /* ---------- MAPA DE DOMICILIO ---------- */
   .mapa-bloque{margin-bottom:.9rem;}
-  .mapa-ayuda{font-size:.76rem; color:#8a7a63; line-height:1.5; margin-bottom:.5rem;}
+  .mapa-ayuda{font-size:.76rem; color:rgba(var(--carbon-rgb),.68); line-height:1.5; margin-bottom:.5rem;}
   #mapaDomicilio{
     width:100%; height:260px; border-radius:14px;
     border:1px solid rgba(0,0,0,.15); background:#e9dcbb; z-index:1;
@@ -571,7 +572,7 @@
     display:block; line-height:1.5; font-weight:600;
   }
   .domicilio-info.vacio{
-    background:rgba(0,0,0,.04); border-color:rgba(0,0,0,.12); color:#8a7a63;
+    background:rgba(0,0,0,.04); border-color:rgba(0,0,0,.12); color:rgba(var(--carbon-rgb),.68);
     font-weight:600; display:block; text-align:center;
   }
 
@@ -631,7 +632,7 @@
     display:flex; align-items:center; justify-content:center;
   }
 
-  .confirm-copia{text-align:center; font-size:.82rem; color:#8a7a63; margin-top:1rem; line-height:1.6;}
+  .confirm-copia{text-align:center; font-size:.82rem; color:rgba(var(--carbon-rgb),.68); margin-top:1rem; line-height:1.6;}
   .link-btn{
     background:none; color:var(--rojo-oscuro); font-weight:800; font-size:.82rem;
     text-decoration:underline; padding:.2rem; font-family:inherit;
@@ -705,7 +706,7 @@
     transition:background .2s ease, transform .2s ease;
   }
   .socials a:hover{background:var(--rojo); transform:translateY(-3px);}
-  .copy{text-align:center; margin-top:2.5rem; font-size:.78rem; color:#6b5c4c;}
+  .copy{text-align:center; margin-top:2.5rem; font-size:.78rem; color:var(--texto-tenue);}
 
   @media (max-width:640px){
     .brand .name{font-size:1.05rem;}
@@ -2597,7 +2598,7 @@ function mostrarPagoRechazado(transaction){
   document.getElementById("statusExtra").innerHTML =
     '<div class="rechazo-tranquilo">✅ No se te cobró nada</div>' +
     '<div class="rechazo-motivo"><strong>' + motivo.titulo + '</strong>' + motivo.consejo + '</div>' +
-    '<p style="text-align:center; font-size:.82rem; color:#8a7a63;">Tu pedido sigue guardado en el carrito.</p>';
+    '<p style="text-align:center; font-size:.82rem; color:rgba(var(--carbon-rgb),.68);">Tu pedido sigue guardado en el carrito.</p>';
 
   document.getElementById("statusBotones").hidden = false;
   document.getElementById("btnRechazoWhatsapp").style.display = R.contacto.whatsapp ? "" : "none";
@@ -2996,6 +2997,40 @@ function crearEnlace(href, etiqueta, contenido){
   return a;
 }
 
+/* =========================================================
+   REDES SOCIALES: BOTONES VISIBLES PERO SIN SALTO (PROVISIONAL)
+
+   Mientras sea false, los botones de Instagram y TikTok del pie SE VEN (con su icono y con el nombre de
+   usuario del restaurante en el tooltip y en el texto para lectores de pantalla) pero NO llevan a ninguna
+   parte: se dibujan SIN href, asi que no se puede hacer clic ni navegar. Existe porque las cuentas de redes
+   del restaurante demo son inventadas y todavia no existen en Instagram ni en TikTok: un enlace real
+   llevaria al cliente a la cuenta de otra persona.
+
+   Afecta a TODOS los restaurantes de este sitio, no solo al demo. Hoy solo existe el demo; esta
+   constante es global a proposito (cambio minimo de presentacion: no toca la config ni ninguna regla de
+   validacion de la base). El WhatsApp NO se ve afectado: ese si es un numero real y siempre enlaza.
+
+   COMO REACTIVARLA: cambiar el valor de abajo a true (una sola palabra). Con true cada boton vuelve a
+   abrir https://instagram.com/<usuario> y https://tiktok.com/@<usuario> en una pestana nueva.
+
+   OBLIGATORIO ANTES DE VENDER A UN SEGUNDO RESTAURANTE: ponerla en true (o, mejor, cambiarla por una
+   clave de la config de cada restaurante). Si no, sus clientes veran botones de redes que no hacen nada.
+   Esta advertencia tambien esta en docs/multirestaurante.md, secciones 20.7 y 20.9, y una prueba del
+   rebrand (carpeta pruebas/multirestaurante) comprueba que la constante exista, este comentada y funcione.
+========================================================= */
+const REDES_ENLAZAN = false;
+
+/* Boton de una red social: enlace real si REDES_ENLAZAN, o boton visible sin destino si no. */
+function crearBotonRed(href, etiqueta, contenido, usuario){
+  if(REDES_ENLAZAN) return crearEnlace(href, etiqueta, contenido);
+  const a = document.createElement("a");          // sin href: se ve igual pero no se puede abrir
+  a.setAttribute("aria-label", etiqueta + " @" + usuario + " (pronto)");
+  a.setAttribute("title", etiqueta + " @" + usuario);
+  a.style.cursor = "default";
+  a.textContent = contenido;
+  return a;
+}
+
 function ocultarSiVacio(id, texto){
   const el = document.getElementById(id);
   el.textContent = texto || "";
@@ -3035,8 +3070,8 @@ function aplicarMarca(){
 
   const redes = document.getElementById("footerSocials");
   redes.textContent = "";
-  if(R.contacto.instagram) redes.appendChild(crearEnlace("https://instagram.com/" + R.contacto.instagram, "Instagram", "\u{1F4F7}"));
-  if(R.contacto.tiktok) redes.appendChild(crearEnlace("https://tiktok.com/@" + R.contacto.tiktok, "TikTok", "\u{1F3B5}"));
+  if(R.contacto.instagram) redes.appendChild(crearBotonRed("https://instagram.com/" + R.contacto.instagram, "Instagram", "\u{1F4F7}", R.contacto.instagram));
+  if(R.contacto.tiktok) redes.appendChild(crearBotonRed("https://tiktok.com/@" + R.contacto.tiktok, "TikTok", "\u{1F3B5}", R.contacto.tiktok));
   if(R.contacto.whatsapp) redes.appendChild(crearEnlace("https://wa.me/" + R.contacto.whatsapp, "WhatsApp", "\u{1F4AC}"));
   redes.style.display = redes.firstChild ? "" : "none";
 
