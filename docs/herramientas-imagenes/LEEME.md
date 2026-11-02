@@ -8,6 +8,7 @@ los ejecuta. Se dejan aqui para poder repetir el proceso con otro restaurante si
 |---|---|---|
 | `medir-colores-logo.py` | Mide crema, rojo, marron y mostaza sobre el logo ORIGINAL promediando regiones planas | `python medir-colores-logo.py <logo>` |
 | `preparar-logo-e-iconos.py` | Logo recortado al contenido (800 px) e iconos 192 y 512 sobre fondo solido | `python preparar-logo-e-iconos.py <logo> <carpeta de salida>` |
+| `preparar-logo-transparente.py` | Logo PNG con transparencia REAL: comprueba el alfa, recorta al contenido (900 px) e iconos 192 y 512 sobre crema solido (margen seguro del 15 %) | `python preparar-logo-transparente.py <logo transparente> <carpeta de salida>` |
 | `preparar-fotos.py` | Fotos a 4:3, 1200x900, JPG < 300 KB; la tabla `FOTOS` dice el encuadre de cada una (y0) | `python preparar-fotos.py <carpeta> <carpeta de revision>` |
 | `contraste-wcag.py` | Contraste WCAG de la paleta contra las reglas CSS reales de las 5 paginas | `python contraste-wcag.py <raiz del proyecto>` |
 

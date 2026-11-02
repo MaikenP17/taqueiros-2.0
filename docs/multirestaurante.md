@@ -2960,6 +2960,112 @@ Hoy la tarjeta de WhatsApp/Instagram usa el **logo** (`marca.logo || marca.icono
 6. **Fotos en 4:3**: los banderines con el nombre de las hamburguesas y hot dogs quedan cortados; el producto no.
 7. **Sin imagen 1200×630 ni favicon propio** (20.6, 20.10).
 
+### 20.14 Estilo claro y minimalista del sitio público y logo con fondo transparente (`TEMA_CLARO`)
+
+El sitio público (menú, carrito, formularios, confirmación y seguimiento) pasa de oscuro (fondo marrón con degradado y rayas, logo dentro de una caja crema) a **claro y minimalista**: fondo crema liso, encabezado con solo el logo transparente, portada sin cajas, tarjetas claras con borde fino y sombra suave, botones rojos con texto crema. El **panel de comandas, `menu-admin.html` e `historial.html` siguen oscuros** (los usa el personal en la cocina). **No hay SQL nuevo** (el último sigue siendo el 17), no se tocó lógica (pedidos, pagos, Realtime, impresión, seguimiento, sesiones, vigencia, horarios, redes, contratos de API) y no hay dependencias ni funciones de Vercel nuevas (siguen 7 de 12).
+
+**Sobre el mockup.** El encargo decía que la fuente de verdad visual era `Recursos\NORTHE-NUEVO\mockup\mockup-inicio.png`. Ese archivo es **idéntico byte a byte al logo transparente** (mismo MD5, `e02f7720a2f12337c6f85c3a9b8d4418`, y el mismo tamaño de 1 797 822 bytes): se copió el logo con otro nombre y no trae el diseño. Se trabajó, por tanto, **solo con la descripción escrita del encargo** (versión móvil de la portada) y se extendió el mismo criterio al resto. **Pendiente:** que Carlos mande el mockup real y se compare contra las capturas (20.14.7); si difiere, son ajustes de CSS dentro del bloque del tema, sin tocar nada más.
+
+#### 20.14.1 El interruptor y cómo apagarlo
+
+Una constante, al inicio de `<body>` (antes de la pantalla de carga, para que no haya un parpadeo oscuro al abrir), en `index.html` y otra igual en `pedido.html`:
+
+```js
+const TEMA_CLARO = true;
+if(TEMA_CLARO) document.body.classList.add("tema-claro");
+```
+
+* **Apagarlo** = cambiar `true` por `false` **en las dos páginas** (una prueba exige que valgan lo mismo) y subir los dos archivos. No hay que tocar nada más: **todo** el CSS claro cuelga de la clase `tema-claro` (una prueba comprueba que cada regla del bloque empieza por `.tema-claro`) y el estilo oscuro de antes queda tal cual. Apagado, el sitio es **idéntico al de antes** (se comprueba con `vista-previa.mjs` 2d, byte a byte, y con `front.mjs` 5, comparando 600 elementos con estilos calculados contra el commit anterior).
+* El estilo **no sale de la base de datos**: los *colores* sí (`config.publico.marca.colores`), el *diseño* no. Por eso el interruptor afecta a **todos** los restaurantes que sirva este sitio.
+* Los colores salen de las variables que ya existían (`--rojo`, `--crema`, `--crema-suave`, `--carbon`, `--mostaza`, `--verde` y sus `-rgb`); el bloque no escribe ningún color nuevo a mano salvo el verde oscuro de texto `#3f5a24`, que ya estaba en la página. `--texto-secundario` y `--texto-tenue` son **claros** (nacieron para fondo oscuro): en el tema claro solo se usan en el pie.
+
+#### 20.14.2 Qué cambió, archivo por archivo
+
+| Archivo | Cambio |
+|---|---|
+| `index.html` | Interruptor al inicio de `<body>` y un bloque de CSS al final de `<style>` (95 reglas, todas bajo `.tema-claro`). Nada más. |
+| `pedido.html` | Lo mismo (interruptor propio, igual al de `index.html`; 40 reglas). Una regla pisa con `!important` el color claro en línea que `mostrarAviso()` pone al título del aviso "No encontramos ese pedido" (pensado para fondo oscuro). |
+| `Recursos/logo/northe-logo.png` | Reemplazado por el logo **con transparencia real**, recortado (900 px de ancho, 72 KB). **Mismo nombre**: la base y el respaldo no cambian. |
+| `Recursos/logo/northe-icono-192.png`, `northe-icono-512.png` | Rehechos desde el logo transparente **sobre crema sólido** `#FFEBC6`, con margen seguro del 15 %. Mismo nombre. |
+| `api/_publico.js` | La imagen de la vista previa de WhatsApp prefiere `icono_512` (fondo crema) al logo (una línea; el contrato no cambia). |
+| `panel-restaurante.js`, `panel.html` | El favicon y el `apple-touch-icon` del panel y el ícono de la notificación de pedido nuevo prefieren `icono_192` (fondo sólido) al logo. |
+| `sw.js` | **v13** (20.14.5). |
+| `docs/herramientas-imagenes/preparar-logo-transparente.py` | El script que genera el logo y los íconos (20.14.4). |
+| `pruebas/multirestaurante/` | `tema-claro.mjs` (nueva), `capturas-tema.mjs` (herramienta de capturas, no es una prueba) y los ajustes de 20.14.8. |
+
+**Páginas del personal (`panel.html`, `menu-admin.html`, `historial.html`):** no se les cambió el estilo. El logo transparente trae texto negro y crema y sobre el marrón no se leería, pero **todos los sitios donde sale ya lo ponían sobre un chip crema redondeado** (`background:var(--crema)` y 4 px de relleno: la pantalla de entrada, la barra superior y el menú lateral), así que se lee bien sin tocar CSS (una prueba lo exige para cada `img`).
+
+#### 20.14.3 Decisiones donde el encargo no lo definía
+
+| Tema | Decisión |
+|---|---|
+| Pie de página | **Se queda oscuro** (marrón de la marca), como ancla visual; su logo va en un chip crema por lo ya dicho. Con el color del `<body>` oscuro hubo que darle `color:var(--texto-claro)` al pie (sin eso, el nombre y las redes quedaban oscuro sobre oscuro: lo encontró la prueba de contraste en el navegador). |
+| Frase larga de la portada ("Street food con actitud…") | **Se dejó**, pequeña (13.6 px) y discreta, en marrón oscuro al 78 %, entre el logo y los botones. El mockup no la muestra: **Carlos decide si la quita** (se apaga con `ocultarSiVacio` poniendo el texto `tagline` vacío en la config, o con un `display:none` en el bloque). |
+| "Desliza" (flecha animada del final de la portada) | Se **oculta** en el tema claro (no está en el diseño y sobra en una portada minimalista). |
+| Aviso de abierto / cerrado | **Abierto:** claro, con una línea verde de 3 px debajo (el verde sólido competía con la portada). **Cerrado:** mostaza sólido con texto oscuro, porque ese sí tiene que verse. Solo cambió su aspecto, no su lógica. |
+| Botones al pasar el mouse | `--rojo-oscuro` (no `--rojo-brillo`: con texto crema daba ≈ 3.5:1 y no cumple AA). |
+| Botones secundarios | Con borde y texto marrón oscuro (`btn-secondary`, "Copiar link", "Usar mi ubicación", "Volver al menú" de la confirmación); los primarios, rojos. |
+| Nombre en texto del encabezado | Se esconde **solo cuando hay logo** (`:has(img[src])`): sigue en el DOM como texto para lectores de pantalla (y el logo lleva el nombre como `alt`). Un restaurante **sin logo** sigue viendo su nombre escrito. Con un navegador sin `:has()` (muy viejos) el nombre se vería junto al logo: degradación aceptable. |
+| Íconos de la PWA y favicon | Fondo crema sólido (un logo transparente con texto negro no se lee sobre el fondo oscuro de la pestaña ni sobre el blanco o negro de WhatsApp o iOS). |
+| Vista previa de WhatsApp | `icono_512` primero, luego el logo, luego `icono_192`. Se comprueba con `vista-previa.mjs`. |
+
+#### 20.14.4 El logo transparente: verificación, cómo se generó y cómo repetirlo
+
+* **Verificación del alfa** (el original de Carlos, `Recursos\NORTHE-NUEVO\northe_burgers_logo_transparente.png`, 1701×1464): canal alfa **real** (RGBA): **34.2 % de los píxeles con alfa 0**, las esquinas y los bordes con alfa 0, **0.27 % de semitransparentes** (el suavizado normal del borde) y la caja del contenido ocupa casi todo el lienzo. Sobre fondo crema los bordes salen limpios (sin cuadriculado, sin halos claros); sobre fondo oscuro se ve bien el rojo, el contorno y la sombra mostaza, pero **"THE" y la parte crema de "Burgers" se pierden** (texto negro y crema): por eso en el panel va sobre un chip crema. Si el alfa hubiera sido falso, el script se detiene y lo dice.
+* **Cómo se generó** (Python 3 + Pillow, ya instalados en el PC; no se agregó nada al proyecto; el original **no se modifica**):
+
+```powershell
+python docs\herramientas-imagenes\preparar-logo-transparente.py "Recursos\NORTHE-NUEVO\northe_burgers_logo_transparente.png" "Recursos\logo"
+```
+
+  El script comprueba el alfa, recorta a la caja del alfa con un margen del 2 %, escala a 900 px de ancho máximo y guarda `northe-logo.png` con paleta de 256 colores con alfa (**72 KB**, antes 160 KB); genera `northe-icono-192.png` (6.9 KB) y `northe-icono-512.png` (40 KB) sobre `#FFEBC6` con el logo ocupando el 70 % del lado (margen seguro del 15 % por lado). **Antes** de reemplazar se guardaron los tres archivos anteriores en `Recursos/NORTHE-NUEVO/anterior/` (carpeta ignorada por git; para volver atrás, copiarlos de vuelta a `Recursos/logo/`).
+* **Para otro restaurante:** (1) pide el logo en PNG con transparencia **real** (no un JPG ni un "PNG" con el cuadriculado dibujado); (2) cambia la constante `CREMA` del script por el color `claro` del restaurante; (3) corre el comando con sus rutas y nombra los archivos como diga su `config.publico.marca`; (4) mira el resultado sobre su color claro **y** sobre su color oscuro: si el logo lleva texto oscuro, el panel ya lo pone en chip; si lleva texto claro, se perdería sobre el crema de este tema (20.14.9).
+
+#### 20.14.5 Caché: por qué sw.js v13 y por qué no hizo falta un nombre nuevo
+
+Los archivos de logo cambian de contenido **con el mismo nombre**. Se revisó quién los puede tener guardados: `vercel.json` **no** pone `Cache-Control` a `/Recursos` (Vercel sirve estáticos con `max-age=0, must-revalidate`: el navegador revalida) y **solo `panel.html` registra el service worker** (el sitio público no). `sw.js` guarda lo que se pide bajo `/Recursos/` (primero la caché), así que el panel instalado podría seguir viendo el logo viejo: subir la versión a **v13** borra las cachés v12 y obliga a reinstalar el worker. Costo: una recarga más en el panel ya abierto. Por eso **no se usó un nombre nuevo ni SQL** (la opción con `northe-logo-t.png` y un `18-logo-transparente.sql` con su reversa se descartó: no hay riesgo real de logo viejo pegado). Una prueba exige que `vercel.json` siga sin caché larga y que el sitio público siga sin registrar el worker.
+
+#### 20.14.6 Contraste y accesibilidad
+
+Calculado con los colores de la marca (script local de apoyo, y en el navegador con los estilos calculados; `tema-claro.mjs` y `front.mjs` 10). Mínimo 4.5:1 en texto y 3:1 en componentes:
+
+| Pareja | Contraste |
+|---|---|
+| Eslogan: `primario` sobre `claro` | 4.77 |
+| Botón primario: `claro_suave` sobre `primario` / sobre `primario_oscuro` (hover) | 5.20 / 8.42 |
+| `oscuro` sobre `claro` / sobre `claro_suave` | 15.75 / 17.15 |
+| Precio: `primario_oscuro` sobre `claro_suave` | 8.42 |
+| Descripciones `#5a4a3a` sobre `claro_suave` / `claro` | 7.90 / 7.25 |
+| Frase de la portada (oscuro al 78 %) sobre `claro` | 8.45 |
+| Textos secundarios (oscuro al 68 % / 70 %) | 6.22 / 6.01 |
+| Verde oscuro de texto `#3f5a24` sobre `claro_suave` | 7.24 |
+| Aviso de cerrado: `oscuro` sobre `acento` | 8.1 |
+| Pie: `claro_suave` / `acento` / `texto_secundario` / `texto_tenue` sobre `oscuro` | 17.15 / 9.07 / 12.54 / 8.11 |
+| Borde de los campos (oscuro al 55 %) sobre blanco | 4.12 |
+| Aro de foco: `oscuro` sobre `claro` | 15.75 |
+
+Además: **foco visible** (aro de 3 px oscuro; mostaza en el pie), **tamaños táctiles de 44 × 44 px** en lo que se toca (carrito, categorías, "Mi pedido", botones, "+", "−", cerrar, redes), **sin desborde horizontal** a 360, 390, 768 y 1280 px (también con el carrito abierto) y el cajón del carrito sin sombra cuando está cerrado (la sombra se asomaba por el borde derecho).
+
+#### 20.14.7 Capturas
+
+`pruebas/multirestaurante/capturas-tema.mjs` (herramienta, no cuenta como prueba) levanta el sitio con la base falsa y el SQL 17 aplicado, abre Chrome y guarda PNG en **`Recursos\NORTHE-NUEVO\capturas\`** (ignorada por git): portada, página completa, menú con fotos, modal de producto, barra flotante, carrito, formulario de entrega (dos posiciones), "¿Buscas tu pedido?", pie, aviso de cerrado (portada y carrito) y seguimiento (con y sin pedido), en 390 y 1280 px. Con `TEMA=oscuro` se capturan con el interruptor apagado, para comparar. Uso: `node pruebas/multirestaurante/capturas-tema.mjs`.
+
+#### 20.14.8 Qué se probó y qué cambió en las pruebas
+
+* **Nuevas:** `tema-claro.mjs` (interruptor igual en las dos páginas, todo el CSS bajo la clase, sin colores nuevos, alfa real del logo, íconos opacos con margen del 15 %, páginas del personal oscuras con chip, favicon, vista previa con ícono, contraste AA, `sw.js` v13, documentación) y el escenario 10 de `front.mjs` (en el navegador: portada, encabezado, tarjetas, modal, carrito, formulario, aviso de cerrado, sin logo, sin desbordes, seguimiento, contraste medido y tamaños táctiles).
+* **Ajustadas a propósito** (sin debilitar nada): `vista-previa.mjs` 2d (el HTML estático es el de antes **más** el bloque de CSS y el interruptor, byte a byte; cualquier otra diferencia falla) y 1g/3h (la imagen es el ícono de 512); `front.mjs` 5 (compara contra el commit anterior **con el interruptor apagado**, con una copia de las páginas servida en otro puerto) y `sw.js` v13; `panel.mjs` (`sw.js` v13; el favicon es el ícono de 192, lo único que se excusa en la comparación con el commit anterior) y su mutación de `sw.js` (`mutaciones-panel.mjs`); `rebrand-northe.mjs` F9 (la v12 sigue documentada y la actual es la v13).
+* **Números finales** (línea base del rebrand → ahora): unitarias 99 (igual), `superadmin` 50, `sql16` 48, `crear-superadmin-test` 13, `servidor` 204 (también por despachador y con `SQL12_NO=1`), `agrupacion` 32, `vista-previa` 57 (mismo número: 2d, 1g y 3h se ajustaron, no se agregaron), **`front` 138** (antes 104: **+34** del escenario 10 nuevo; el escenario 5 sigue con sus 600 elementos comparados y los mismos números), `panel` 356, `e2e` 180, `rls` 237, `endurecer` 426, `migrar-fotos` 126, `datos-restaurante` 76, `config-publica` 52, `dominios` 35, `hallazgos` 32, `planes` 11, `sim` 34, `cargar-secretos-test` 25, `inspeccion` 6, `rebrand-northe` 78, `textos-visibles` 10, `comparar-tickets` 7 de 7; contra el falso: `probar-compatibilidad` 26, `probar-servidor-multirestaurante` 191 (también por despachador), `probar-superadmin` 50 y `probar-aislamiento` 252 de 259 (las 7 de Realtime fallan localmente con el falso por diseño); **nueva:** `tema-claro` **43**. Aparte, `python docs/herramientas-imagenes/contraste-wcag.py .` (el barrido de las reglas CSS reales contra la paleta) da **"FALLAN SEGURO: 0"**.
+* **Lo que solo se ve con ojos** (por eso las capturas): la composición, el equilibrio de espacios y la comparación con el mockup real.
+
+#### 20.14.9 Riesgos y pendientes
+
+1. **El tema es del código, no de la base: afecta a todos los restaurantes.** Antes de vender a un segundo restaurante hay que **decidir** si el estilo claro se queda para todos, o si se hace una clave de configuración (por ejemplo `publico.marca.tema`) y el interruptor deja de ser una constante. Mientras tanto, apagarlo es cambiar `true` por `false` en las dos páginas (20.14.1).
+2. **La paleta de otro restaurante puede no cumplir AA** en este tema (por ejemplo un `primario` muy claro con texto crema, o un `claro` muy oscuro): los contrastes se calcularon con la paleta de Northe. Para un restaurante nuevo, correr `docs/herramientas-imagenes/contraste-wcag.py` y `tema-claro.mjs` con sus colores.
+3. **Un logo con texto claro** se perdería sobre el crema (este tema pone el logo directo sobre el fondo claro, sin chip); el de Northe lleva texto oscuro.
+4. **Mockup real pendiente** (arriba): las diferencias con la descripción son ajustes de CSS.
+5. **Ver el cambio:** Ctrl + F5 en el computador; en el celular, cerrar y volver a abrir el navegador. La app del panel ya instalada puede tardar en actualizar el ícono (el worker v13 se instala al abrirla; si no cambia, desinstalar y volver a instalar).
+6. **Pruebas reales que siguen pendientes** (20.11): `probar-compatibilidad`, `probar-servidor-multirestaurante`, `probar-aislamiento`, el pedido de Wompi sandbox con el pie nuevo del ticket y la vista previa de WhatsApp con `?v=3` (ahora con el ícono de 512 sobre crema), y después la verificación del 3A.
+
 ## 21. PROPUESTA de cambio de dominio (no se ejecuta)
 
 **Esto es una propuesta: no se hizo nada de lo que sigue (NO se ejecuta).** Hoy el sitio vive en `taqueiros-2-0.vercel.app`; el restaurante demo ya es "The Northe Burgers" y esa dirección lo delata. Cambiar a un dominio propio (por ejemplo `pedidos.thenorthe.co`) es posible sin tocar el código, pero **hay partes fuera del código que dependen de la dirección** y por eso se decidió dejarlo para después.
