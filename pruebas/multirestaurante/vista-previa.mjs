@@ -243,8 +243,19 @@ async function main() {
     let pedidoDeAntes = deGit('pedido.html');
     pedidoDeAntes = cambiar(pedidoDeAntes, '    color:#6b5c4c; text-transform:uppercase; letter-spacing:.03em;', '    color:var(--texto-tenue); text-transform:uppercase; letter-spacing:.03em;');
     pedidoDeAntes = cambiar(pedidoDeAntes, 'font-size:.72rem; color:#6b5c4c; margin-top:1rem;', 'font-size:.72rem; color:var(--texto-tenue); margin-top:1rem;');
-    comprobar(actualIndex === indexDeAntes && pedidoEstatico.replace(/\r\n/g, '\n') === pedidoDeAntes,
-      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html del paso 3A y los del rebrand (contraste de textos y botones de redes sin salto; docs 20) (las personas reciben el mismo HTML de siempre)', '');
+    /* ESTILO CLARO (docs 20.14): un bloque de CSS al final de <style> (todo bajo body.tema-claro) y el interruptor al inicio de <body>, en las dos
+       paginas. Se toman del archivo actual y se agregan al de antes: la igualdad sigue siendo EXACTA, o sea que NADA mas cambio (ni una regla
+       oscura de las de siempre). Que el bloque sea correcto (todo cuelga de la clase, contraste, interruptor) lo prueba tema-claro.mjs. */
+    const tomar = (t, desde, hasta, incluye) => { const i = t.indexOf(desde); const j = t.indexOf(hasta, i); if (i < 0 || j < i) throw new Error('no encuentro ' + desde.slice(0, 60)); return t.slice(i, incluye ? j + hasta.length : j); };
+    const actualPedido = pedidoEstatico.replace(/\r\n/g, '\n');
+    const INI_CSS = '\n  /* =====================================================================================================\n     TEMA CLARO';
+    const FIN_JS = 'document.body.classList.add("tema-claro");\n</script>\n\n';
+    indexDeAntes = cambiar(indexDeAntes, '</style>', tomar(actualIndex, INI_CSS, '</style>') + '</style>');
+    indexDeAntes = cambiar(indexDeAntes, '<body>\n\n<!-- Pantalla de carga.', '<body>\n\n' + tomar(actualIndex, '<script>\n/* =========================================================\n   INTERRUPTOR DEL ESTILO CLARO', FIN_JS, true) + '<!-- Pantalla de carga.');
+    pedidoDeAntes = cambiar(pedidoDeAntes, '</style>', tomar(actualPedido, INI_CSS, '</style>') + '</style>');
+    pedidoDeAntes = cambiar(pedidoDeAntes, '<body>\n\n<!-- Pantalla de carga.', '<body>\n\n' + tomar(actualPedido, '<script>\n/* Interruptor del estilo claro', FIN_JS, true) + '<!-- Pantalla de carga.');
+    comprobar(actualIndex === indexDeAntes && actualPedido === pedidoDeAntes,
+      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html del paso 3A, los del rebrand (contraste de textos y botones de redes sin salto; docs 20) y el estilo claro (un bloque de CSS y el interruptor; docs 20.14) (las personas reciben el mismo HTML de siempre)', '');
     void antes; void extraerAntes;
 
     // una persona que llegue a la funcion directamente es devuelta a la pagina de siempre, sin datos

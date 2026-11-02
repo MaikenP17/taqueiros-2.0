@@ -543,8 +543,8 @@ async function escenario(nombre, fn) {
       comprobar(await a.eval(`document.querySelector('#loginForm img').getAttribute('src')`) === 'Recursos/alfa/logo.png'
         && await b.eval(`document.querySelector('#loginForm img').getAttribute('src')`) === 'Recursos/beta/logo.png', `${archivo}: cada uno con su logo`);
       comprobar(await a.eval(`document.querySelector('#loginForm img').getAttribute('alt')`) === `Casa Alfa ${sfx}`, `${archivo}: el logo lleva el nombre como texto alternativo`);
-      comprobar(await a.eval(`Array.from(document.querySelectorAll('link[rel=icon],link[rel=apple-touch-icon]')).map(function(l){return l.getAttribute('rel')+':'+l.getAttribute('href');}).sort().join(',')`) === 'apple-touch-icon:/Recursos/alfa/logo.png,icon:/Recursos/alfa/logo.png',
-        `${archivo}: favicon y apple-touch-icon son el logo del restaurante (y el icono provisional vacio ya no esta)`, await a.eval(`Array.from(document.querySelectorAll('link[rel=icon],link[rel=apple-touch-icon]')).map(function(l){return l.getAttribute('rel')+':'+l.getAttribute('href');}).join(',')`));
+      comprobar(await a.eval(`Array.from(document.querySelectorAll('link[rel=icon],link[rel=apple-touch-icon]')).map(function(l){return l.getAttribute('rel')+':'+l.getAttribute('href');}).sort().join(',')`) === 'apple-touch-icon:/Recursos/alfa/i192.png,icon:/Recursos/alfa/i192.png',
+        `${archivo}: favicon y apple-touch-icon son el icono de 192 del restaurante, con fondo solido; sin icono, el logo (y el icono provisional vacio ya no esta)`, await a.eval(`Array.from(document.querySelectorAll('link[rel=icon],link[rel=apple-touch-icon]')).map(function(l){return l.getAttribute('rel')+':'+l.getAttribute('href');}).join(',')`));
       comprobar(await variable(a, '--rojo') === '#112233' && await variable(b, '--rojo') === '#884400' && await variable(a, '--carbon') === '#0A0B0C' && await variable(b, '--carbon') === '#101820'
         && await variable(a, '--carbon-rgb') === '10,11,12' && await variable(b, '--mostaza') === '#00AA88', `${archivo}: los colores de cada marca se aplican como variables (y sus versiones rgb)`);
       comprobar(await variable(a, '--texto-secundario') === '#9999AA' && await variable(b, '--texto-secundario') === '#8899AA',
@@ -1315,7 +1315,11 @@ async function escenario(nombre, fn) {
     if (antiguo.titulo !== nuevo.titulo) diffs.push(`titulo: "${antiguo.titulo}" vs "${nuevo.titulo}"`);
     const ruta = (u) => new URL(u, 'http://x/').pathname;
     // (menu-admin e historial no tenian icono de pantalla de inicio: ahora lo tienen; solo se compara si la version anterior lo traia)
-    if (ruta(antiguo.icono) !== ruta(nuevo.icono) || (antiguo.apple && ruta(antiguo.apple) !== ruta(nuevo.apple))) diffs.push(`iconos: ${antiguo.icono}/${antiguo.apple} vs ${nuevo.icono}/${nuevo.apple}`);
+    /* Cambio a proposito (estilo claro y logo transparente, docs 20.14): el favicon y el apple-touch-icon del panel prefieren el icono con fondo
+       solido (icono_192, cuadrado y opaco) al logo, que ahora es transparente (texto negro): sobre la pestana oscura o el negro de iOS no se leeria.
+       Taqueiros tenia el logo (/Recursos/logo/logo.png) y ahora tiene su icono (/Recursos/logo/icono-192.png). Es lo UNICO que se excusa. */
+    const iconoDeAntes = (u) => (u && ruta(u) === '/Recursos/logo/logo.png' ? '/Recursos/logo/icono-192.png' : u && ruta(u));
+    if (iconoDeAntes(antiguo.icono) !== ruta(nuevo.icono) || (antiguo.apple && iconoDeAntes(antiguo.apple) !== ruta(nuevo.apple))) diffs.push(`iconos: ${antiguo.icono}/${antiguo.apple} vs ${nuevo.icono}/${nuevo.apple}`);
     if (antiguo.tema !== nuevo.tema) diffs.push(`theme-color: ${antiguo.tema} vs ${nuevo.tema}`);
     if (antiguo.familiaCuerpo !== nuevo.familiaCuerpo) diffs.push(`fuente del cuerpo: ${antiguo.familiaCuerpo} vs ${nuevo.familiaCuerpo}`);
     comprobar(diffs.length === 0, `Taqueiros identico (${etiqueta}): ${a.length} elementos comparados con estilos calculados`, diffs.join('\n    '));
@@ -1416,8 +1420,8 @@ async function escenario(nombre, fn) {
     comprobar(!/Taqueiros/i.test(tick) && !/Los Taqueiros/i.test(tick), 'ticket-comanda.js: ni el pie ni nada de Taqueiros (fuera de comentarios)');
     const sw = leer('sw.js');
     const swSinComentarios = sw.replace(/\/\*[\s\S]*?\*\//g, '');
-    comprobar(/const VERSION = "v12"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
-      'sw.js: version v11, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
+    comprobar(/const VERSION = "v13"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
+      'sw.js: version v13, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
     comprobar(/pathname === "\/manifest\.json"/.test(sw) && /startsWith\("\/api\/"\)/.test(sw) && /supabase\.co/.test(sw) && /Navegaciones|navigate/.test(sw), 'sw.js: manifest, /api/, Supabase y las paginas van siempre por la red (nada de un restaurante se guarda)');
     // el service worker solo guarda archivos estaticos de /Recursos/ y fuentes, y su cache es por origen
     comprobar(/startsWith\("\/Recursos\/"\)/.test(sw) && !/caches\.open\([^)]*\)\.then\(\(cache\) => cache\.addAll\(\[[^\]]/.test(sw), 'sw.js: solo guarda /Recursos/ y fuentes');

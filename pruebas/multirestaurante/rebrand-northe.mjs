@@ -439,7 +439,7 @@ async function main() {
     prueba('F7 pedido.html acepta tanto la referencia nueva (PED-...) como la vieja (TAQ-...) y su token', re.test('PED-1788325338685-ab12cd') && re.test('TAQ-1788325338685-ab12cd') && re.test('a'.repeat(32)) && !re.test('con espacio') && !re.test('x'));
     const rp = leer('restaurante-publico.js');
     prueba('F8 el favicon prefiere el icono cuadrado (icono_192) y solo cae al logo si no hay', /var url = R\.marca\.icono_192 \|\| R\.marca\.logo;/.test(rp));
-    prueba('F9 sw.js sube a v12 y documenta el cambio', /const VERSION = "v12";/.test(leer('sw.js')) && /v12: rebrand/.test(leer('sw.js')));
+    prueba('F9 sw.js: el rebrand (v12) sigue documentado y la version actual es la v13 del estilo claro (docs 20.14)', /const VERSION = "v13";/.test(leer('sw.js')) && /v12: rebrand/.test(leer('sw.js')) && /v13: estilo claro/.test(leer('sw.js')));
     const nt = leer('api/_notificar.js');
     prueba('F10 la alerta de CallMeBot ya no trae el emoji de taco', !/1F32E/i.test(nt) && /\\u\{1F354\} \*NUEVO PEDIDO PAGADO\*/.test(nt));
     const { construirComanda } = require(`${REPO}/api/_notificar.js`);

@@ -22,6 +22,10 @@
      6. Flujo de pago con un Wompi simulado: llave, monto, redireccion y enlace de seguimiento por token.
      7. El seguimiento (pedido.html) y "¿Buscas tu pedido?" muestran el numero del restaurante.
      8. El almacenamiento del navegador no mezcla restaurantes.
+     9. (archivos y service worker)
+    10. ESTILO CLARO (TEMA_CLARO, docs 20.14): portada, encabezado, tarjetas, modal, carrito, formulario, aviso de cerrado y seguimiento se ven
+        claros y minimalistas, con tamanos tactiles de 44 px, sin desbordes a 360/390/768/1280 px y con contraste AA medido en el navegador.
+        (El escenario 5 corre con el interruptor APAGADO y exige que Taqueiros se vea como antes.)
 
    Variables: CHROME=ruta\chrome.exe   SOLO="^(3|5)\."   (corre solo los escenarios que casen)
 ============================================================= */
@@ -48,6 +52,7 @@ const CHROME = process.env.CHROME || [
 
 const PUERTO_WEB = 8097;       // el sitio nuevo
 const PUERTO_ANTIGUO = 8096;   // el sitio como estaba antes (para comparar)
+const PUERTO_SIN_TEMA = 8101;  // el sitio de ahora con el interruptor TEMA_CLARO apagado (debe verse IDENTICO al de antes)
 const PUERTO_CDP = 9334;
 const PUERTO_FALSO = 54340;
 const COMMIT_ANTERIOR = 'debc1c5';
@@ -381,6 +386,14 @@ async function escenario(nombre, fn) {
     for (const f of ['index.html', 'pedido.html']) fs.writeFileSync(path.join(raizAntigua, f), execFileSync('git', ['show', `${COMMIT_ANTERIOR}:${f}`], { cwd: REPO, maxBuffer: 20e6 }));
   } catch (e) { hayAntiguo = false; console.log('(sin historial de ' + COMMIT_ANTERIOR + ': se omite la comparacion con la version anterior)'); }
 
+  /* El estilo claro (docs 20.14) cambia TODOS los colores a proposito. Para seguir comprobando que Taqueiros no cambio en nada mas, esta
+     copia de las paginas trae el interruptor TEMA_CLARO apagado: con el, el sitio tiene que verse exactamente como el de antes. */
+  const raizSinTema = fs.mkdtempSync(path.join(os.tmpdir(), 'taq-sintema-'));
+  for (const f of ['index.html', 'pedido.html', 'restaurante-publico.js']) {
+    const t = fs.readFileSync(path.join(RAIZ_NUEVA, f), 'utf8');
+    fs.writeFileSync(path.join(raizSinTema, f), f.endsWith('.html') ? t.replace('const TEMA_CLARO = true;', 'const TEMA_CLARO = false;') : t);
+  }
+  const sitioSinTema = await crearSitio({ raiz: raizSinTema, puerto: PUERTO_SIN_TEMA, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api') });
   const sitioNuevo = await crearSitio({ raiz: RAIZ_NUEVA, puerto: PUERTO_WEB, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api') });
   const sitioAntiguo = hayAntiguo ? await crearSitio({ raiz: raizAntigua, puerto: PUERTO_ANTIGUO, falsoUrl: URL_FALSO, rutaApi: path.join(REPO, 'api'), globalName: 'TAQUEIROS_SUPABASE' }) : null;
   const URL_N = (host) => `http://${host}:${PUERTO_WEB}`;
@@ -790,9 +803,9 @@ async function escenario(nombre, fn) {
     comprobar(diffs.length === 0, `Taqueiros identico (${etiqueta}): ${a.length} elementos comparados con estilos calculados`, diffs.join('\n    '));
   }
 
-  await escenario('5. TAQUEIROS SE VE IDENTICO (comparado con el commit ' + COMMIT_ANTERIOR + ')', async () => {
+  await escenario('5. TAQUEIROS SE VE IDENTICO con TEMA_CLARO apagado (comparado con el commit ' + COMMIT_ANTERIOR + ')', async () => {
     if (!hayAntiguo) { comprobar(true, '(omitido: no hay historial git)'); return; }
-    const URL_A = `http://taqueiros.localhost:${PUERTO_ANTIGUO}`, URL_NU = `http://taqueiros.localhost:${PUERTO_WEB}`;
+    const URL_A = `http://taqueiros.localhost:${PUERTO_ANTIGUO}`, URL_NU = `http://taqueiros.localhost:${PUERTO_SIN_TEMA}`;   // (con TEMA_CLARO apagado, ver arriba)
     const nuevoSitio = await abrir('taq-nuevo', URL_NU + '/');
     const viejoSitio = await abrir('taq-viejo', URL_A + '/');
     comparar('portada', await viejoSitio.eval(SNAP), await nuevoSitio.eval(SNAP));
@@ -870,16 +883,180 @@ async function escenario(nombre, fn) {
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
     const rutaManifest = EMULADOR.resolver({ ruta: '/manifest.json' });
     comprobar(rutaManifest.tipo === 'funcion' && rutaManifest.archivo === 'api/publico.js' && /_ruta=manifest/.test(rutaManifest.urlReescrita), 'vercel.json lleva /manifest.json a la funcion agrupada (modulo manifest)');
-    comprobar(/const VERSION = "v12"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v12 (rebrand), sin precache y el manifest siempre por la red');
+    comprobar(/const VERSION = "v13"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v13 (estilo claro), sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
+  });
+
+  await escenario('10. Estilo claro (TEMA_CLARO = true, docs 20.14): claro, minimalista, tactil y con contraste AA, con la paleta de The Northe Burgers', async () => {
+    const { CONFIG_TAQUEIROS } = require(path.join(REPO, 'api', '_respaldo-taqueiros.js'));
+    const menuN = { categoria: 'Hamburguesas', emoji: '🍔', productos: [['big', 'Big Norte', 26000, 'Triple carne smash, queso derretido y salsa rosa.'], ['lil', 'Lil Norte', 18000, 'Carne smash sencilla con tocineta crocante.']] };
+    const N = await restaurante('norte', { nombre: 'The Northe Burgers', config: JSON.parse(JSON.stringify(CONFIG_TAQUEIROS)), menu: menuN, tarifas: [[3, 3000], [8, 6000]] });
+    // una segunda categoria, para ver los dos estados de la barra de categorias (activa e inactiva)
+    await insertar('categorias', [{ restaurante_id: N.id, id: 'papas', nombre: 'Papas', emoji: '🍟', orden: 2, activa: true }]);
+    await insertar('productos', [{ restaurante_id: N.id, id: 'papas-n', nombre: 'Papas Norte', descripcion: 'Papas crinkle', precio: 9000, categoria: 'papas', orden: 3, disponible: true }]);
+    const sinLogo = JSON.parse(JSON.stringify(CONFIG_TAQUEIROS)); delete sinLogo.publico.marca.logo; delete sinLogo.publico.marca.icono_192; delete sinLogo.publico.marca.icono_512;
+    await restaurante('nortesl', { nombre: 'Norte Sin Logo', config: sinLogo, menu: menuN });
+    R.invalidarCache();
+
+    /* Contraste de verdad, en el navegador: color del texto y fondo EFECTIVO (los fondos translucidos se mezclan con lo que hay debajo). */
+    const CONTRASTE = `(function(lista){
+      function parse(c){var m=c.match(/rgba?\\(([^)]+)\\)/); var p=m[1].split(',').map(function(x){return parseFloat(x);}); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1};}
+      function sobre(f,b){return {r:f.r*f.a+b.r*(1-f.a),g:f.g*f.a+b.g*(1-f.a),b:f.b*f.a+b.b*(1-f.a),a:1};}
+      function fondo(e){var capas=[]; for(var n=e;n;n=n.parentElement){var c=parse(getComputedStyle(n).backgroundColor); if(c.a>0)capas.push(c); if(c.a>=1)break;}
+        var b={r:255,g:255,b:255,a:1}; for(var i=capas.length-1;i>=0;i--)b=sobre(capas[i],b); return b;}
+      function lum(c){function f(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);} return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);}
+      return lista.map(function(sel){var e=document.querySelector(sel); if(!e)return sel+': NO EXISTE';
+        var cs=getComputedStyle(e); var b=fondo(e); var t=sobre(parse(cs.color),b); var l1=lum(t),l2=lum(b); var r=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
+        return r>=4.5?null:sel+': '+r.toFixed(2)+' (texto '+cs.color+' sobre rgb('+Math.round(b.r)+','+Math.round(b.g)+','+Math.round(b.b)+'))';}).filter(Boolean);
+    })`;
+    const medidas = (pg, sel) => pg.eval(`(function(){return Array.prototype.map.call(document.querySelectorAll(${JSON.stringify(sel)}),function(e){var r=e.getBoundingClientRect();return {sel:${JSON.stringify(sel)},w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10};});})()`);
+    const abiertoClaro = async (nombre, ancho, alto) => abrir(nombre, URL_N('norte.localhost') + '/', { ancho, alto });
+
+    // ---- portada en 390 px: lo que pide el diseno ----
+    const m = await abiertoClaro('norte-390', 390, 844);
+    const portada = await m.eval(`(function(){
+      var g=function(s){return document.querySelector(s);}, cs=function(e,p){return getComputedStyle(e,p||null);};
+      var cta=g('#ctaMenu'), sec=g('.btn-secondary'), mp=g('.hero-mi-pedido'), logoH=g('header .brand img'), logoHero=g('.hero-logo-frame img');
+      return {
+        clase: document.body.classList.contains('tema-claro'), fondo: cs(document.body).backgroundColor, ruido: cs(g('.noise-bg')).display,
+        heroImg: cs(g('.hero')).backgroundImage, heroAntes: cs(g('.hero'),'::before').display,
+        marcoBorde: cs(g('.hero-logo-frame')).borderTopWidth, marcoFondo: cs(g('.hero-logo-frame')).backgroundColor, marcoSombra: cs(g('.hero-logo-frame')).boxShadow,
+        logoHeroCargado: logoHero.complete && logoHero.naturalWidth > 0, logoHeroAncho: Math.round(logoHero.getBoundingClientRect().width),
+        logoHCargado: logoH.complete && logoH.naturalWidth > 0, logoHFondo: cs(logoH).backgroundColor, logoHAlto: Math.round(logoH.getBoundingClientRect().height), logoHAlt: logoH.getAttribute('alt'),
+        nombreEnTexto: g('#marcaNombre').textContent, nombreAncho: Math.round(g('#marcaNombre').getBoundingClientRect().width),
+        encabezadoLinea: cs(g('header')).borderBottomWidth + ' ' + cs(g('header')).borderBottomColor, encabezadoSombra: cs(g('header')).boxShadow !== 'none',
+        eslogan: g('#heroEslogan').textContent, esloganColor: cs(g('#heroEslogan')).color, esloganEspaciado: parseFloat(cs(g('#heroEslogan')).letterSpacing), esloganMayus: cs(g('#heroEslogan')).textTransform,
+        miPedido: mp.textContent.trim(), miPedidoBorde: cs(mp).borderTopWidth, miPedidoSubrayado: cs(mp).textDecorationLine,
+        ctaFondo: cs(cta).backgroundColor, ctaColor: cs(cta).color, ctaRadio: cs(cta).borderTopLeftRadius, ctaAncho: Math.round(cta.getBoundingClientRect().width), ctaTexto: cta.textContent.trim(),
+        secBorde: cs(sec).borderTopWidth + ' ' + cs(sec).borderTopColor, secColor: cs(sec).color, secAncho: Math.round(sec.getBoundingClientRect().width), secFondo: cs(sec).backgroundColor,
+        tagline: g('#heroTagline').textContent.length, taglineTam: parseFloat(cs(g('#heroTagline')).fontSize), pieFondo: cs(g('footer')).backgroundColor,
+        carritoFondo: cs(g('#openCartBtn')).backgroundColor, ancho: innerWidth
+      };})()`);
+    const rgb = (hexa) => { const n = [1, 3, 5].map((i) => parseInt(hexa.slice(i, i + 2), 16)); return `rgb(${n.join(', ')})`; };
+    const col = CONFIG_TAQUEIROS.publico.marca.colores;
+    comprobar(portada.clase && portada.fondo === rgb(col.claro) && portada.ruido === 'none' && portada.heroImg === 'none' && portada.heroAntes === 'none',
+      'la pagina se pone clara: <body class="tema-claro"> con el fondo crema de la marca, liso (sin degradado, sin rayas, sin puntos)', JSON.stringify(portada));
+    comprobar(portada.marcoBorde === '0px' && portada.marcoFondo === 'rgba(0, 0, 0, 0)' && portada.marcoSombra === 'none' && portada.logoHeroCargado && portada.logoHeroAncho >= 280,
+      'el logo grande de la portada va sin caja, sin borde y sin sombra, cargado y grande (>= 280 px en el celular)', JSON.stringify([portada.marcoBorde, portada.marcoFondo, portada.marcoSombra, portada.logoHeroCargado, portada.logoHeroAncho]));
+    comprobar(portada.logoHCargado && portada.logoHFondo === 'rgba(0, 0, 0, 0)' && portada.logoHAlto === 44 && /^Logo The Northe Burgers$/.test(portada.logoHAlt) && portada.nombreEnTexto === 'THE NORTHE BURGERS' && portada.nombreAncho <= 1,
+      'el encabezado muestra SOLO el logo (sin cajita, 44 px); el nombre sigue ahi como texto para lectores de pantalla (y como alt del logo), pero no se ve', JSON.stringify([portada.logoHFondo, portada.logoHAlto, portada.logoHAlt, portada.nombreEnTexto, portada.nombreAncho]));
+    comprobar(/^1px rgb\(34, 15, 8\)$/.test(portada.encabezadoLinea) && portada.encabezadoSombra, 'el encabezado lleva una linea oscura fina (1 px, el marron de la marca) y una sombra suave', JSON.stringify([portada.encabezadoLinea, portada.encabezadoSombra]));
+    comprobar(/burgers/i.test(portada.eslogan) && portada.esloganColor === rgb(col.primario) && portada.esloganMayus === 'uppercase' && portada.esloganEspaciado >= 4,
+      'el eslogan va en rojo, mayusculas y con mucho espaciado entre letras', JSON.stringify([portada.eslogan, portada.esloganColor, portada.esloganMayus, portada.esloganEspaciado]));
+    comprobar(/Mi pedido/.test(portada.miPedido) && portada.miPedidoBorde === '0px' && portada.miPedidoSubrayado === 'underline', '"Mi pedido" es un enlace subrayado sin borde de boton', JSON.stringify([portada.miPedido, portada.miPedidoBorde, portada.miPedidoSubrayado]));
+    comprobar(portada.ctaFondo === rgb(col.primario) && portada.ctaColor === rgb(col.claro_suave) && /^\d+px$/.test(portada.ctaRadio) && parseInt(portada.ctaRadio) >= 100 && /Ver el men/.test(portada.ctaTexto) && portada.ctaAncho >= portada.ancho * 0.8,
+      '"Ver el menu" es el boton primario: rojo, texto crema, redondeado y casi del ancho de la pantalla', JSON.stringify([portada.ctaFondo, portada.ctaColor, portada.ctaRadio, portada.ctaAncho]));
+    comprobar(portada.secBorde === `2px ${rgb(col.oscuro)}` && portada.secColor === rgb(col.oscuro) && portada.secFondo === 'rgba(0, 0, 0, 0)' && Math.abs(portada.secAncho - portada.ctaAncho) <= 1,
+      '"Ubicacion y horarios" tiene borde y texto marron oscuro, sin relleno, y el mismo ancho que el boton primario', JSON.stringify([portada.secBorde, portada.secColor, portada.secFondo, portada.secAncho, portada.ctaAncho]));
+    comprobar(portada.tagline > 20 && portada.taglineTam <= 14, 'la frase larga de la portada sigue ahi pero pequena y discreta (<= 14 px)', JSON.stringify([portada.tagline, portada.taglineTam]));
+    comprobar(portada.pieFondo === rgb(col.oscuro) && portada.carritoFondo === rgb(col.primario), 'el pie se queda en marron oscuro (ancla visual) y el boton del carrito es rojo', JSON.stringify([portada.pieFondo, portada.carritoFondo]));
+
+    // ---- tamanos tactiles >= 44 px en el celular ----
+    let chicos = [];
+    for (const sel of ['#openCartBtn', '.cat-nav button', '.hero-mi-pedido', '#ctaMenu', '.btn-secondary', '#menu .add-btn', '.socials a', '.buscar-pedido-link']) {
+      for (const r of await medidas(m, sel)) if (r.h < 43.9 || r.w < 43.9) chicos.push(`${r.sel} ${r.w}x${r.h}`);
+    }
+    comprobar(chicos.length === 0, 'todo lo que se toca en la portada y el menu mide al menos 44 x 44 px (carrito, categorias, "Mi pedido", botones, "+", redes, "Buscas tu pedido")', chicos.join(' | '));
+    await m.eval(`document.querySelectorAll('#menu .card').forEach(function(c){c.classList.add('in-view')}); true`);
+    comprobar((await m.eval(`document.querySelectorAll('#menu .card').length`)) >= 2 && (await m.eval(`getComputedStyle(document.querySelector('#menu .card')).backgroundColor`)) === rgb(col.claro_suave)
+      && /rgba\(34, 15, 8, 0\.14\)/.test(await m.eval(`getComputedStyle(document.querySelector('#menu .card')).borderTopColor`)), 'las tarjetas del menu son crema suave con borde fino marron de baja opacidad', '');
+
+    // ---- contraste de la portada, el menu y el pie (estilos calculados, en el navegador) ----
+    await m.eval(`document.querySelector('.cat-nav button').classList.add('active'); true`);   // (ninguna categoria esta activa hasta que se baja por el menu)
+    await sleep(700);
+    let malos = await m.eval(`${CONTRASTE}(['.hero-eyebrow','.hero p.tagline','#ctaMenu','.btn-secondary','.hero-mi-pedido','.cart-btn','.cat-nav button.active','.cat-nav button:not(.active)','.category-head h2','.category-head .count','#menu .card h3','#menu .card p.desc','#menu .card .price','#menu .add-btn','footer p','footer h4','footer li','footer .copy','.buscar-pedido-link','#footerSocials a','.footer-brand span','footer a'])`);
+    comprobar(malos.length === 0, 'contraste AA (>= 4.5:1) en la portada, la barra de categorias, las tarjetas y el pie, medido en el navegador con los estilos calculados', malos.join(' | '));
+    malos = await m.eval(`${CONTRASTE}(['#statusBanner'])`);
+    comprobar(malos.length === 0, 'contraste AA del aviso de abierto', malos.join(' | '));
+
+    // ---- foco visible ----
+    await m.eval(`document.getElementById('ctaMenu').focus(); true`);
+    const foco = await m.eval(`(function(){var s=getComputedStyle(document.getElementById('ctaMenu')); return [document.activeElement.id, s.outlineStyle, s.outlineWidth, s.outlineColor, document.getElementById('ctaMenu').matches(':focus-visible')].join(' ');})()`);
+    comprobar(/^ctaMenu solid 3px rgb\(34, 15, 8\) /.test(foco), 'el foco del teclado se ve: aro de 3 px en el marron oscuro', foco);
+
+    // ---- modal de producto, carrito, formulario de entrega: contraste y tamanos ----
+    await m.clic('#menu .card');
+    await sleep(600);
+    malos = await m.eval(`${CONTRASTE}(['#modalName','#modalDesc','#modalPrice','#modalQtySlot .add-btn'])`);
+    comprobar(malos.length === 0 && (await m.eval(`getComputedStyle(document.getElementById('productModal')).backgroundColor`)) === rgb(col.claro_suave), 'el modal de producto es claro y cumple el contraste AA', malos.join(' | '));
+    chicos = [...(await medidas(m, '#modalCloseBtn')), ...(await medidas(m, '#modalQtySlot .add-btn'))].filter((r) => r.h < 43.9 || r.w < 43.9).map((r) => `${r.sel} ${r.w}x${r.h}`);
+    comprobar(chicos.length === 0, 'el modal de producto: cerrar y agregar miden al menos 44 x 44 px', chicos.join(' | '));
+    await m.clic('#modalQtySlot .add-btn'); await sleep(300);
+    await m.clic('#modalCloseBtn'); await sleep(500);
+    await m.clic('#openCartBtn'); await sleep(800);
+    malos = await m.eval(`${CONTRASTE}(['.drawer-head h2','.drawer-item h4','.drawer-item .unit','.drawer-item .subtotal','.remove-link','.note-label','.drawer-total span:first-child','.drawer-total span:last-child','.pay-divider','.whatsapp-btn'])`);
+    comprobar(malos.length === 0 && (await m.eval(`getComputedStyle(document.getElementById('drawer')).backgroundColor`)) === rgb(col.claro_suave), 'el carrito (cajon) es claro y cumple el contraste AA', malos.join(' | '));
+    chicos = [...(await medidas(m, '.drawer-head button')), ...(await medidas(m, '.drawer-item .qty-control button')), ...(await medidas(m, '.remove-link'))].filter((r) => r.h < 43.9 || r.w < 20).map((r) => `${r.sel} ${r.w}x${r.h}`);
+    comprobar(chicos.length === 0, 'el carrito: cerrar, mas/menos y "Quitar" miden al menos 44 px de alto', chicos.join(' | '));
+    await m.eval(`document.getElementById('payOnlineBtn').disabled=false; document.getElementById('payOnlineBtn').click(); true`);
+    await sleep(900);
+    malos = await m.eval(`${CONTRASTE}(['#paymentFormModal h3','#field-nombre label','#field-tipo > label','.order-type-option input:checked + span','.order-type-option input:not(:checked) + span','.mapa-ayuda','.btn-ubicacion','.domicilio-info','.pf-nada'])`);
+    malos = malos.filter((x) => !/\.pf-nada/.test(x));
+    comprobar(malos.length === 0, 'el formulario de entrega (con mapa) es claro y cumple el contraste AA', malos.join(' | '));
+    const borde = await m.eval(`(function(){var e=document.getElementById('pf-nombre'); var s=getComputedStyle(e); return s.borderTopColor+' '+s.backgroundColor;})()`);
+    comprobar(/^rgba\(34, 15, 8, 0\.55\) rgb\(255, 255, 255\)$/.test(borde), 'los campos del formulario tienen borde marron al 55 % (>= 3:1 contra el fondo blanco)', borde);
+    await m.eval(`document.getElementById('paymentFormCloseBtn').click(); document.getElementById('closeCartBtn').click(); true`); await sleep(500);
+    await m.eval(`document.getElementById('abrirMiPedidoTop').click(); true`); await sleep(700);
+    malos = await m.eval(`${CONTRASTE}(['#buscarPedidoOverlay h3','#buscarPedidoOverlay .desc','#field-bp-telefono label','#btnBuscarPedido'])`);
+    comprobar(malos.length === 0, 'la ventana "Buscas tu pedido" cumple el contraste AA', malos.join(' | '));
+    comprobar(m.errores.length === 0, 'sin errores de JavaScript con el estilo claro', m.errores.join('|'));
+
+    // ---- aviso de cerrado ----
+    await parchear('configuracion', `restaurante_id=eq.${N.id}`, { cerrado_temporal: true, mensaje_cerrado: 'Hoy descansamos' });
+    R.invalidarCache();
+    const c = await abiertoClaro('norte-cerrado', 390, 844);
+    malos = await c.eval(`${CONTRASTE}(['#statusBanner'])`);
+    const fondoCerrado = await c.eval(`getComputedStyle(document.getElementById('statusBanner')).backgroundColor`);
+    comprobar(malos.length === 0 && fondoCerrado === rgb(col.acento) && /Hoy descansamos/.test(await c.eval(`document.getElementById('statusBanner').textContent`)), 'el aviso de cerrado es mostaza con texto oscuro (se ve y cumple el contraste AA)', malos.join(' | ') + ' ' + fondoCerrado);
+    await parchear('configuracion', `restaurante_id=eq.${N.id}`, { cerrado_temporal: false, mensaje_cerrado: null });
+    R.invalidarCache();
+
+    // ---- el cajon cerrado no deja su sombra asomada por el borde derecho ----
+    const sombra = await c.eval(`(function(){var d=document.getElementById('drawer'); return [d.classList.contains('open'), getComputedStyle(d).boxShadow].join(' ');})()`);
+    comprobar(sombra === 'false none', 'el cajon del carrito cerrado no tiene sombra (la sombra solo existe abierto)', sombra);
+
+    // ---- sin logo: el nombre en texto SI se ve ----
+    const sl = await abrir('nortesl', URL_N('nortesl.localhost') + '/', { ancho: 390, alto: 844 });
+    const nombreVisible = await sl.eval(`(function(){var n=document.getElementById('marcaNombre'); var r=n.getBoundingClientRect(); var img=document.querySelector('header .brand img'); return [n.textContent, Math.round(r.width) > 40, getComputedStyle(img).display].join('|');})()`);
+    comprobar(/^NORTE SIN LOGO\|true\|none$/.test(nombreVisible), 'un restaurante SIN logo ve el nombre en texto en el encabezado (solo se esconde cuando hay un logo)', nombreVisible);
+
+    // ---- sin desbordes horizontales en 360, 390, 768 y 1280 px ----
+    for (const [ancho, alto] of [[360, 740], [390, 844], [768, 1024], [1280, 800]]) {
+      const g = await abiertoClaro('norte-' + ancho, ancho, alto);
+      await g.eval(`document.querySelectorAll('#menu .card').forEach(function(x){x.classList.add('in-view')}); document.querySelector('#menu .add-btn').click(); true`); await sleep(400);
+      const d1 = await g.eval(`[document.documentElement.scrollWidth, innerWidth].join(' ')`);
+      await g.eval(`document.getElementById('openCartBtn').click(); true`); await sleep(700);
+      const d2 = await g.eval(`[document.documentElement.scrollWidth, innerWidth, document.getElementById('drawer').getBoundingClientRect().right].join(' ')`);
+      const [s1, w1] = d1.split(' ').map(Number), [s2, w2] = d2.split(' ').map(Number);
+      comprobar(s1 <= w1 && s2 <= w2, `sin desborde horizontal a ${ancho} px (pagina y con el carrito abierto)`, d1 + ' | ' + d2);
+    }
+
+    // ---- seguimiento (pedido.html) con el mismo estilo ----
+    const ped = await insertar('pedidos', { restaurante_id: N.id, referencia: 'PED-T-' + sfx, estado: 'en_preparacion', cliente_nombre: 'Cliente', cliente_telefono: '3001234567', cliente_email: 'a@b.co', tipo_pedido: 'domicilio',
+      direccion: 'Calle 1 # 2-3', barrio: 'Centro', items: [{ nombre: 'Big Norte', cantidad: 2, precio: 26000 }], subtotal: 52000, costo_domicilio: 5000, total: 57000, estado_pago: 'aprobado', pagado_en: new Date().toISOString() });
+    const fila = (await srv('GET', `pedidos?id=eq.${ped.id}&select=token_seguimiento`))[0];
+    const sg = await pagina('norte-seguimiento', { ancho: 390, alto: 844 });
+    await sg.ir(URL_N('norte.localhost') + '/pedido.html?ref=' + fila.token_seguimiento);
+    await sg.esperar(`function(){return document.querySelectorAll('.progreso').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'seguimiento claro');
+    await sleep(700);
+    const seg = await sg.eval(`(function(){var cs=getComputedStyle(document.body); var im=document.querySelector('.cabecera img'); return [document.body.classList.contains('tema-claro'), cs.backgroundColor, getComputedStyle(im).backgroundColor, im.complete && im.naturalWidth>0, Math.round(im.getBoundingClientRect().width), getComputedStyle(document.querySelector('.card')).backgroundColor].join('|');})()`);
+    comprobar(seg === `true|${rgb(col.claro)}|rgba(0, 0, 0, 0)|true|${seg.split('|')[4]}|${rgb(col.claro_suave)}` && Number(seg.split('|')[4]) >= 150, 'el seguimiento del pedido tambien es claro: fondo crema, logo grande sin caja, tarjetas crema suave', seg);
+    malos = await sg.eval(`${CONTRASTE}(['.cabecera h1','.cabecera .ref','.card h2','.paso.hecho .txt','.paso.activo .txt','.paso:not(.hecho):not(.activo) .txt','.estado-frase','.estado-sub','.linea .cant','.linea .val','.total','.total span:first-child','.entrega-info','.entrega-info strong','.btn-wsp','.btn-menu','.actualizado'])`);
+    comprobar(malos.length === 0, 'el seguimiento cumple el contraste AA (textos, pasos, total, botones), medido en el navegador', malos.join(' | '));
+    const sinPedido = await pagina('norte-sin-pedido', { ancho: 390, alto: 844 });
+    await sinPedido.ir(URL_N('norte.localhost') + '/pedido.html?ref=' + 'z'.repeat(32));
+    await sinPedido.esperar(`function(){return document.querySelectorAll('.aviso').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'aviso de pedido no encontrado');
+    malos = await sinPedido.eval(`${CONTRASTE}(['.aviso strong','.aviso','.aviso a'])`);
+    comprobar(malos.length === 0 && (await sinPedido.eval(`getComputedStyle(document.querySelector('.aviso strong')).color`)) === rgb(col.oscuro), 'el aviso "No encontramos ese pedido" se lee sobre el crema (el color claro en linea se pisa)', malos.join(' | '));
+    comprobar(sg.errores.length === 0 && sinPedido.errores.length === 0, 'sin errores de JavaScript en el seguimiento', sg.errores.concat(sinPedido.errores).join('|'));
   });
 
   // ---------------------------------------------------------------------------------------------------------
   const fallas = resultados.filter((r) => !r.ok).length;
   console.log(`\n${resultados.length - fallas} PASAN, ${fallas} FALLAN.`);
   try { chrome.kill(); } catch (e) { /* ya cerro */ }
-  try { sitioNuevo.close(); if (sitioAntiguo) sitioAntiguo.close(); await falso.cerrar(); } catch (e) { /* ya cerro */ }
-  try { fs.rmSync(perfil, { recursive: true, force: true }); fs.rmSync(raizAntigua, { recursive: true, force: true }); } catch (e) { /* en uso */ }
+  try { sitioNuevo.close(); sitioSinTema.close(); if (sitioAntiguo) sitioAntiguo.close(); await falso.cerrar(); } catch (e) { /* ya cerro */ }
+  try { fs.rmSync(perfil, { recursive: true, force: true }); fs.rmSync(raizAntigua, { recursive: true, force: true }); fs.rmSync(raizSinTema, { recursive: true, force: true }); } catch (e) { /* en uso */ }
   process.exitCode = fallas ? 1 : 0;
   setTimeout(() => process.exit(process.exitCode), 800).unref();
 })().catch((e) => { console.error(e); process.exit(1); });
