@@ -1828,7 +1828,7 @@ function anunciarPedido(pedido){
       new Notification("Nuevo pedido " + numeroPedido(pedido), {
         body: pedido.cliente_nombre + " · " + formatoCOP(pedido.total)
               + "\n" + (TEXTO_TIPO[pedido.tipo_pedido] || ""),
-        icon: PR.R.marca.logo || undefined,
+        icon: PR.R.marca.icono_192 || PR.R.marca.logo || undefined,   // el icono tiene fondo solido (el logo es transparente)
         tag: "pedido-" + pedido.id
       });
     }catch(e){ /* algunos navegadores lo bloquean */ }

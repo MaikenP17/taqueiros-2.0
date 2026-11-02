@@ -146,7 +146,9 @@
     Array.prototype.slice.call(document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')).forEach(function (l) {
       l.parentNode.removeChild(l);
     });
-    var url = R.marca.logo || R.marca.icono_192;
+    /* El icono con fondo solido primero: el logo es transparente (texto negro y crema) y sobre la pestana oscura o el
+       negro de iOS no se leeria. */
+    var url = R.marca.icono_192 || R.marca.logo;
     if (!url) return;
     [["icon", "image/png"], ["apple-touch-icon", ""]].forEach(function (par) {
       var e = document.createElement("link");
