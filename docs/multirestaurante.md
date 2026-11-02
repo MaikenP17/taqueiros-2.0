@@ -23,7 +23,7 @@ Contenido: 1. Inventario anterior · 2. Diseño nuevo · 3. Matriz de permisos �
 14. Frontend público multi-restaurante (SQL 12) · 15. Paneles del personal por restaurante ·
 16. Endurecer la base (SQL 13 y 14) y mover las fotos de la raíz ·
 17. Agrupar endpoints, vista previa de enlaces y "Datos de mi restaurante" (SQL 15) · 18. Revisión adversaria de 2B-3, 2B-4 y 2B-5 ·
-**19. Panel de superadmin: la base y el servidor (SQL 16, SQL 16b y `api/superadmin.js`)**
+**19. Panel de superadmin: la base y el servidor (SQL 16, SQL 16b y `api/superadmin.js`)** · 20. Rebrand a The Northe Burgers (SQL 17) · 21. Propuesta de cambio de dominio · **22. Opciones de producto: quitar ingredientes y extras con precio (SQL 18, parte A)**
 
 ---
 
@@ -3098,3 +3098,191 @@ Además: **foco visible** (aro de 3 px oscuro; mostaza en el pie), **tamaños t�
 9. **Recién al final y solo si se quiere:** redirigir el dominio viejo al nuevo (redirección 308 en Vercel), **después** de comprobar que Wompi y cron-job.org ya usan el nuevo y que los pedidos pendientes de pago cerraron. Mientras exista una sola URL guardada en algún tercero con el dominio viejo, **no** se quita.
 
 **Riesgos y por qué esta propuesta no se ejecuta ahora:** (a) el webhook de Wompi es lo único que, si se olvida, **pierde pagos** sin que el cliente lo note; (b) renombrar el proyecto de Vercel o cambiar la dirección rompería cron, webhook, `restaurante_dominios` y las vistas previas a la vez (por eso el pedido fue: **no** renombrar ni cambiar `taqueiros-2-0.vercel.app`); (c) las preferencias por navegador se pierden al cambiar de origen. Beneficio: una dirección que ya no diga "taqueiros" y un dominio propio para vender a un segundo restaurante (cada uno con el suyo, 11).
+
+---
+
+## 22. Opciones de producto: quitar ingredientes y extras con precio (SQL 18) — parte A de B
+
+**Qué es.** Que cada producto permita lo típico de comidas rápidas: **quitar** ingredientes ("sin cebolla", gratis) y **agregar extras** con precio ("queso extra +$2.000"). Esta es la **parte A**: la **base de datos y el servidor**, con su seguridad y sus pruebas. **No se tocó ninguna pantalla** (`index.html`, `panel.html`, `historial.html`, `menu-admin.html`, `pedido.html`, el ticket): la **parte B** (modal del producto, carrito, mensaje de WhatsApp, ticket impreso, panel, historial y menu-admin) viene aparte. Hasta que exista la parte B, ningún navegador manda opciones: todo pedido real sigue siendo **idéntico** al de siempre.
+
+**Regla de oro (no negociable).** El precio **siempre** lo calcula el servidor desde la base, en el instante del pedido. El navegador manda solo **ids de opción**, jamás nombres ni precios. La caché del menú (60 s) **nunca** es fuente de precios.
+
+### 22.1 Qué se entregó
+
+| Archivo | Qué es |
+|---|---|
+| `supabase/18-opciones-producto.sql` (nuevo, **sin aplicar**) | Crea `public.producto_opciones` (RLS, políticas, triggers, límites), siembra las opciones del demo y se comprueba solo (**46 comprobaciones OK/FALLA**). Atómico, idempotente, marcadores `-- >>> PASO`, "Run without RLS". |
+| `supabase/18-revertir.sql` (nuevo) | Borra la tabla y sus dos funciones. Los pedidos no se tocan (guardan su propia copia). Dice cuántas filas de opciones se perdieron. |
+| `api/_precios.js` | `validarItems`: valida `opciones` de cada ítem y calcula **precio unitario = base + extras**. Guarda la copia (`precio_base`, `opciones`). Tope del subtotal (sin desbordar la columna `integer`). |
+| `api/_menu.js` | `leerOpcionesActivas` (menú) y `leerOpcionesParaCobrar` (cobro, sin caché). Si la tabla no existe, el menú sigue y el pedido sin opciones ni se entera. |
+| `api/crear-pedido.js` | Una sola línea: responde con el código propio (400 / 503) cuando las opciones fallan; lo demás sigue en 409 como siempre. |
+| `supabase/probar-opciones.mjs` (nuevo) | Prueba contra la base **real** (sesiones reales, restaurantes propios `test-opc-…`, se limpia solo, no crea pedidos). |
+| `pruebas/…` | `opciones.mjs` (SQL 18 con roles reales), `opciones-precios.test.js` (unitarias), `mutaciones-opciones.mjs` (revisión por mutación), grupo `opciones` de `escenarios-servidor.mjs`, escenario 15 de `panel.mjs`, una prueba más en `front.mjs`, dos en `ticket-comanda.test.js`; `fake-supabase.mjs` aplica el SQL 18 (`SQL18_NO=1` lo omite). |
+
+### 22.2 El modelo: `public.producto_opciones`
+
+| Columna | Tipo | Regla |
+|---|---|---|
+| `restaurante_id` | `uuid` | NOT NULL, **sin valor por defecto** (un insert que lo olvide falla), llave foránea a `restaurantes` |
+| `producto_id` | `text` | el producto; **llave foránea compuesta** `(restaurante_id, producto_id) → productos (restaurante_id, id)` con **ON DELETE CASCADE** (una opción jamás puede apuntar al producto de otro restaurante) |
+| `id` | `text` | `^[a-z0-9][a-z0-9-]{0,59}$` ("sin-cebolla", "extra-queso"); único **dentro del producto** |
+| `tipo` | `text` | `'quitar'` o `'extra'` |
+| `nombre` | `text` | 1 a 40 caracteres, sin espacios en los extremos, **sin controles, sin invisibles (ancho cero, BOM), sin marcas bidireccionales y sin `<` ni `>`** |
+| `precio` | `integer` | pesos, 0 a 50.000; **un `quitar` vale siempre 0** (CHECK) |
+| `orden` | `integer` | por defecto 0 (los `quitar` de la semilla van en 0-9; los extras, desde 10) |
+| `activa` | `boolean` | por defecto `true`; apagarla la saca del menú y el servidor deja de aceptarla |
+
+Llave primaria `(restaurante_id, producto_id, id)`. **Máximo 12 opciones por producto** (cuentan las apagadas; un trigger con candado `pg_advisory_xact_lock` impide que dos altas simultáneas pasen de 12). Triggers: `producto_opciones_restaurante_inmutable` (el **mismo** `bloquear_cambio_restaurante()` de productos y categorías) y `producto_opciones_validar` (nombre, tipo, precio, tope de 12, y **el producto y el id no se pueden cambiar** — los pedidos guardan una copia con ese id —; para cambiarlos se borra y se crea otra). Las reglas más graves están **dos veces** (trigger y CHECK): con el trigger apagado, los CHECK solos frenan `quitar` con precio, precios fuera de 0-50.000, tipo, id, y nombre con bidi/HTML/vacío/largo/espacios de borde (el SQL y `opciones.mjs` lo prueban). **No** está en la publicación de Realtime (nadie se suscribe a esta tabla).
+
+### 22.3 Permisos (misma matriz de productos y categorías, sección 3 y 16.5)
+
+| | dueño | cajero | cocina | superadmin | servidor | sin membresía / dueño inactivo | anon |
+|---|---|---|---|---|---|---|---|
+| `producto_opciones` | lee y escribe **solo las de su restaurante** | lee las de su restaurante | — | todo | todo | — | **—** |
+
+El rol se mide **en cada fila** (`rol_en(restaurante_id)`): ser dueño de A y solo cajero de B no da permiso de escribir en B. `authenticated` no puede `TRUNCATE`, ni `REFERENCES`, ni `TRIGGER`. **Decisión que se aparta del encargo:** el encargo pedía "lectura pública (anon y authenticated) de las opciones activas". **No se hizo** porque contradice una invariante ya probada (SQL 10 y 13: *anon no tiene privilegios sobre ninguna tabla de negocio y ninguna política alcanza a anon*; tests `rls`, `endurecer`, `probar-aislamiento` y las propias comprobaciones del SQL 10/11/18) y no hace falta: el menú público **lo entrega el servidor** (`/api/menu`, que lee con la llave secreta y solo muestra las opciones **activas**, igual que con productos). Si más adelante se quisiera leer directo desde el navegador, bastaría una política `select to anon` con `activa` y producto/categoría activos, pero **rompería esa invariante y sus pruebas**. La cocina tampoco lee la tabla (igual que `productos`): su ticket sale de la copia que guarda el pedido, no de esta tabla.
+
+### 22.4 El contrato del pedido (aditivo y retrocompatible)
+
+Cada ítem de `items` puede traer:
+
+```json
+{ "id": "nb-big-norte", "cantidad": 2, "precio": 26000, "opciones": ["sin-cebolla", "extra-queso"] }
+```
+
+* `opciones` es **opcional**: ausente, `null` o `[]` = comportamiento de siempre, **byte a byte** (el ítem guardado tiene las 4 claves `id, nombre, cantidad, precio`, y el servidor **ni consulta** la tabla de opciones).
+* Es un **arreglo de textos** (ids), **máximo 12**, **sin repetidos**, cada uno con la forma de un id (`^[a-z0-9][a-z0-9-]{0,59}$`). Cualquier otra cosa (texto suelto, número, booleano, `null`, objeto —aunque traiga `{id, nombre, precio}` puestos por el cliente—, lista anidada, mayúsculas, espacios, salto de línea, caracteres invisibles, 61 caracteres, `__proto__`) → **400** con el mensaje genérico *"Alguna de las opciones elegidas no es válida o ya no está disponible. Actualiza la página e intenta de nuevo."* **antes** de tocar la base.
+* **`precio` (el que el navegador dice estar mostrando) sigue siendo el precio BASE del producto**, como hoy. Mandar el precio con extras se detecta como cambio de precio (409, `preciosCambiados`). La parte B debe seguir mandando el base.
+* Lo que el cliente intente poner de más (`precio_base`, `nombre`, precios de opciones, `total`, `subtotal`…) **se ignora**: manda la base.
+
+### 22.5 Reglas de validación y cálculo del precio (`api/_precios.js`)
+
+Por cada ítem que pide opciones, el servidor lee de la base (sin caché, **una sola consulta** por pedido, filtrada por restaurante y por los productos del pedido que existen en el catálogo) y exige que **cada** opción:
+
+1. **exista** y sea **de ese producto de ese restaurante** (la opción de otro producto —aunque esté en el mismo pedido, en la línea de otro producto— y la de otro restaurante se rechazan; el mismo id en dos restaurantes se cobra al precio de cada uno);
+2. esté **activa**;
+3. sea usable aunque la base "no tuviera sus CHECK": tipo `quitar`/`extra`, **precio número entero** 0-50.000 (un `null`, `""` o `true` **no** se convierte en 0), un `quitar` con precio ≠ 0 se rechaza, y el nombre —saneado— no puede quedar vacío.
+
+Si algo no cuadra, **todo el pedido** se rechaza (400 genérico, sin decir cuál opción ni por qué, y no queda pedido): nunca se cobra "a medias". Precedencia: producto desconocido (409) → agotado/categoría apagada/precio cambiado (409) → opciones inválidas (400). Si las opciones no se pueden leer: tabla ausente → **400** *"Las opciones de producto todavía no están disponibles. Haz tu pedido sin opciones."*; cualquier otro fallo de la base → **503** *"No pudimos confirmar las opciones en este momento…"*.
+
+**Precio unitario = precio base + suma de los extras** (los `quitar` no suman). Subtotal = Σ unitario × cantidad. Se rechaza un subtotal mayor a 2.000.000.000 ("Total inválido") para que nunca desborde la columna `integer` (hoy el máximo alcanzable sin opciones es 1.500.000.000; con 12 extras de 50.000 se podía pasar).
+
+### 22.6 Qué se guarda en el pedido
+
+En la copia de cada ítem (columna `pedidos.items`, jsonb), **sin tocar las columnas existentes**:
+
+```json
+{ "id": "nb-big-norte", "nombre": "Big Norte", "cantidad": 2,
+  "precio": 28000,          // precio unitario FINAL (con extras): todo lo que ya suma ítems sigue cuadrando
+  "precio_base": 26000,     // sin extras
+  "opciones": [ { "id": "sin-cebolla", "tipo": "quitar", "nombre": "Sin cebolla", "precio": 0 },
+                { "id": "extra-queso", "tipo": "extra",  "nombre": "Queso extra",  "precio": 2000 } ] }
+```
+
+Es una **copia tomada de la base en ese momento** (nombre saneado: controles, ancho cero y bidi se vuelven espacio, máximo 40) y sale ordenada como en el menú (`orden`, luego `id`). Borrar o cambiar después una opción **no altera** los pedidos viejos. No existe ningún trigger ni CHECK sobre la forma o el tamaño de `items` (se revisó el inventario de inserts de la sección 16.2 y los SQL 10, 12, 13, 15 y 16: solo `proteger_campos_de_pago` impide *cambiar* `items` desde el navegador, y sigue igual), así que no hubo que ajustar nada en la base. Los pedidos existentes no se tocan y se leen igual.
+
+### 22.7 El menú público
+
+`/api/menu` (módulo `api/_modulos/menu.js` → `leerMenu`) devuelve, **por producto que tenga opciones ACTIVAS**, `opciones: [{ id, tipo, nombre, precio, orden }]` (ordenadas, sin `restaurante_id`, `activa` ni `producto_id`). Es **aditivo**: un producto sin opciones queda **exactamente** como siempre (sin la clave) y el resto del contrato no cambia. Respeta la caché de 60 s, el `Vary: Host`, el respaldo en memoria (que ahora también guarda las opciones) y la regla de servicio (un restaurante suspendido sigue mostrando su menú; lo que se bloquea es pedir). Si la tabla no existe (antes del SQL 18) o no se puede leer, **el menú sale igual, sin opciones** (nunca se cae por esto). El precio de un extra que se ve en el menú puede tener hasta 60 s de retraso; **no importa**, porque al crear el pedido el servidor lee el precio de la base.
+
+### 22.8 Lugares que suman o muestran ítems (revisados uno por uno)
+
+Se buscaron con `grep` todas las multiplicaciones precio × cantidad y las lecturas de `items` en `api/`, las páginas y el SQL. La prueba **E1/E2 de `opciones.mjs`** deja la lista cerrada: si aparece un lugar nuevo que multiplique un precio por una cantidad, la prueba falla hasta que se revise.
+
+| Lugar | Qué hace con los ítems | Con extras |
+|---|---|---|
+| `api/_precios.js` | **Único** sitio que arma el precio: unitario = base + extras; subtotal Σ unitario × cantidad | calcula bien (probado con cantidad 3, dos líneas del mismo producto, 12 opciones) |
+| `api/crear-pedido.js` | `total = subtotal + domicilio`; firma y guarda ese total; no vuelve a recorrer ítems | correcto; el domicilio no depende de los extras |
+| `api/generar-firma.js` | firma el `total` **guardado** del pedido (no suma ítems) | correcto (el monto sin extras da 404) |
+| `api/webhook-wompi.js` | compara el monto pagado con el `total` **guardado**; no recorre ítems | correcto (pagar el monto sin extras → "monto no coincide", no entra a cocina) |
+| `api/reembolso.js` | no compara montos; marca `reembolsado_en` de un pedido cancelado y cobrado | correcto |
+| `api/_notificar.js` (WhatsApp del servidor) | `precio × cantidad` con el precio **guardado** (final) | **suma bien**; **no muestra** las opciones todavía (parte B) |
+| `supabase/…` resumen de jornada | suma `total` y `subtotal` **guardados** y cuenta `cantidad` por nombre; ninguna función SQL toca `precio` de ítems | correcto (prueba F3) |
+| `panel.html` (tarjeta y ticket), `historial.html`, `pedido.html`, `index.html` (resumen y confirmación) | `precio × cantidad` con el precio **guardado** | **suman bien**; no muestran las opciones todavía (parte B). Pruebas con ítems nuevos: panel 15a-d, historial 15c, seguimiento (front), ticket (unitarias) |
+| `ticket-comanda.js` | solo lee `nombre`, `cantidad` y notas; ignora las claves que no conoce | no se rompe; **el ticket impreso aún no imprime las opciones** (parte B) |
+| `index.html` carrito del navegador (`p.price*qty`, 3 sitios) | suma por **precio base** | **pendiente de la parte B** (hoy no ofrece opciones, así que coincide con lo que cobra el servidor; la prueba E1 lo deja anotado como PENDIENTE) |
+
+### 22.9 Antes de correr el SQL 18 (la tabla no existe)
+
+Todo sigue funcionando y se probó (`SQL18_NO=1`, y las pruebas "[tabla ausente]" del grupo `opciones`): el pedido sin opciones funciona **exactamente igual** y no consulta la tabla; el menú responde 200 sin la clave `opciones`; un pedido **con** opciones responde **400** con un mensaje claro y genérico (sin nombres de tabla ni códigos de error) y no deja pedido. Si la tabla existe pero la base falla al leerla: el menú sale sin opciones, el pedido con opciones responde 503 y el pedido sin opciones no se entera.
+
+### 22.10 Las opciones propuestas (semilla del demo) — **Carlos debe aprobarlas o cambiarlas ANTES de aplicar el SQL**
+
+Salen de las descripciones **reales** de los 13 productos (SQL 17). Se puede quitar lo que la descripción menciona y que **no** es el producto base; nunca la carne, el pollo, la salchicha, el chorizo, el pan ni las papas. Los extras y sus precios son **de ejemplo**. Total: **57 opciones** (21 "quitar" y 36 extras).
+
+| Producto | Quitar (gratis) | Extras (precio) |
+|---|---|---|
+| Big Norte ($26.000) | Sin queso · Sin salsa rosa | Queso extra +$2.000 · Tocineta extra +$3.000 · Carne smash extra +$6.000 · Salsa extra +$1.000 |
+| Crispy Norte ($22.000) | Sin queso · Sin tocineta · Sin salsa BBQ | Queso extra +$2.000 · Tocineta extra +$3.000 · Pollo crispy extra +$5.000 · Salsa extra +$1.000 |
+| Lil Norte ($18.000) | Sin tocineta · Sin salsa picante | Queso extra +$2.000 · Tocineta extra +$3.000 · Carne smash extra +$6.000 · Salsa extra +$1.000 |
+| Classic Norte ($12.000) | Sin mostaza · Sin salsas | Salchicha extra +$3.500 · Queso extra +$2.000 · Tocineta extra +$3.000 · Salsa extra +$1.000 |
+| Smoky Norte ($15.000) | Sin salsa BBQ · Sin cebolla morada · Sin cebolla crujiente | Salchicha extra +$3.500 · Queso extra +$2.000 · Tocineta extra +$3.000 · Salsa extra +$1.000 |
+| Full Norte ($18.000) | Sin cebolla crujiente · Sin vegetales · Sin salsas | Salchicha extra +$3.500 · Queso extra +$2.000 · Tocineta extra +$3.000 · Salsa extra +$1.000 |
+| Creamy Norte ($14.000) | Sin cebolla · Sin rúgula · Sin salsa cremosa | Queso extra +$2.000 · Tocineta extra +$3.000 · Pollo crispy extra +$5.000 · Salsa extra +$1.000 |
+| Dirty Norte ($17.000) | Sin rúgula · Sin salsa blanca | Queso extra +$2.000 · Tocineta extra +$3.000 · Pollo crispy extra +$5.000 · Salsa extra +$1.000 |
+| Chori Norte ($19.000) | Sin salsas | Queso extra +$2.000 · Tocineta extra +$3.000 · Chorizo extra +$3.500 · Salsa extra +$1.000 |
+| Agua, Coca-Cola, Pepsi, Sprite | (sin opciones) | (sin opciones) |
+
+Para cambiar algo: editar la lista del **paso 0.2** de `18-opciones-producto.sql` (una fila por opción: producto, id, tipo, nombre, precio, orden) **antes** de correrlo. Detalles de la semilla: `ON CONFLICT DO NOTHING` — volver a correr el archivo **no duplica** y **no pisa** lo que el dueño haya cambiado (un precio, una opción apagada); lo que haya **borrado** de la semilla **vuelve**; lo que haya agregado se conserva. Las bebidas no llevan opciones.
+
+### 22.11 Cómo aplicar y revertir el SQL 18 (Windows)
+
+1. **Respaldo** (solo lee): `node supabase/exportar-respaldo.mjs` con la llave cargada así: `$k = Read-Host "Llave SECRETA" -AsSecureString` y `$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password`. Si dice "NO coincide", no sigas. Copia la carpeta de `respaldos\` fuera del repositorio.
+2. **Aplicar:** en Supabase → SQL Editor → New query, pega **todo** `supabase/18-opciones-producto.sql` y pulsa **"Run without RLS"**. Debes ver **46 filas, todas "OK"** (la última parte son las comprobaciones "sin cambios: …"). Si algo falla dice `EL SQL 18 SE REVIRTIO` y lista qué; la base queda como estaba. Se puede correr dos veces sin problema.
+3. **Probar contra la base real** (con la llave todavía cargada): `node supabase/probar-opciones.mjs`. Debes ver **38 PASAN, 0 FALLAN** y al final `Limpieza: todo lo creado se borro.` Luego `node supabase/probar-compatibilidad.mjs` (26) y `node supabase/probar-servidor-multirestaurante.mjs` (**195 si el SQL 18 aún no está aplicado, 247 con él**; también con `$env:VIA = "despachador"`). Quita la llave: `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+4. **Revertir** (solo si hace falta): pega `supabase/18-revertir.sql` y "Run without RLS". Debes ver todo "OK" y una fila informativa con cuántas filas de opciones se perdieron (si quieres conservarlas, antes: `select * from public.producto_opciones order by restaurante_id, producto_id, orden;` y guarda el resultado). Los pedidos no se tocan.
+
+`probar-opciones.mjs` crea sus propios restaurantes (`test-opc-<código>-a` y `-b`, apagados, sin dominio) y usuarios (`@opciones.example.com`), prueba permisos por rol con la llave publicable (lo que usa el navegador), reglas (13 rechazos 23514, tope de 12), el cálculo (llamando a las funciones reales del servidor), el menú y que **el demo no cambió**; no crea, cambia ni borra ningún pedido (ni en el demo ni en ninguno). Si la tabla no existe, sale con código 2 explicando qué correr, sin crear nada. Si lo interrumpes con Ctrl+C, limpia lo que alcanzó a crear (y al empezar barre restos de una corrida anterior).
+
+### 22.12 Pruebas locales (números)
+
+| Batería | Línea base | Ahora | Por qué cambia |
+|---|---|---|---|
+| unitarias (`node --test pruebas/*.test.js`) | 99 | **120** | +19 de `opciones-precios.test.js` (nuevo) y +2 en `ticket-comanda.test.js` (ítems nuevos y viejos mezclados) |
+| `servidor.mjs` (también `--via=despachador` y `--via=reescrita`) | 204 | **260** | +56 del grupo nuevo `opciones`; con `SQL18_NO=1` (tabla ausente): **208** (+4) |
+| `front.mjs` | 138 | **139** | +1: el seguimiento de un pedido con opciones |
+| `panel.mjs` | 356 | **360** | +4: escenario 15 (tablero e historial con ítems nuevos) |
+| contra el falso: `probar-servidor-multirestaurante` (también por despachador) | 191 | **247** | +56 (el mismo grupo); sin el SQL 18: **195** (+4). **Es lo que debe dar en la base real: 195 antes de aplicar el SQL 18 y 247 después** |
+| `tema-claro.mjs` | 43 | 43 | igual; la prueba 3h ("no hay SQL nuevo de este cambio") se ajustó **a propósito**: ya existe un `18-*` pero es el de opciones, no del estilo claro |
+| **nuevas:** `opciones.mjs` / `probar-opciones.mjs` (contra el falso) / `mutaciones-opciones.mjs` | — | **75** / **38** / **102 mutaciones** | pruebas nuevas |
+| sin cambio | | | superadmin 50, sql16 48, crear-superadmin-test 13, agrupacion 32, vista-previa 57, e2e 180, rls 237, endurecer 426, migrar-fotos 126, datos-restaurante 76, config-publica 52, dominios 35, hallazgos 32, planes 11, sim 34, cargar-secretos-test 25, inspeccion 6, rebrand-northe 78, textos-visibles 10, comparar-tickets 7 de 7, probar-compatibilidad 26, probar-superadmin 50, probar-aislamiento 252 de 259 (las 7 de Realtime fallan localmente con el falso, por diseño) |
+
+Comandos nuevos: `node pruebas/multirestaurante/opciones.mjs` (~17 s), `node pruebas/multirestaurante/servidor.mjs --grupo=opciones` (~4 s), `node --test pruebas/opciones-precios.test.js`, `node pruebas/multirestaurante/contra-falso.mjs probar-opciones.mjs`, `SQL18_NO=1 node pruebas/multirestaurante/servidor.mjs` (el código nuevo antes de correr el SQL 18), `node pruebas/multirestaurante/mutaciones-opciones.mjs --paralelo=3` (~15 min).
+
+**Qué cubren las nuevas.** `opciones.mjs` (75): A) el SQL 18 y su reversa corren dos veces, no cambian ninguna fila de negocio, conviven con los SQL 15, 16, 16b y 17 (antes o después) y con la reversa del 17, se detienen con un mensaje claro sin el SQL 10 o sin el menú del 17 y se revierten solos si una comprobación falla; B) la semilla (57, cada "quitar" nombra algo que la descripción real menciona, ninguno quita el producto base, precios, volver a correr no pisa); C) permisos con usuarios reales (dueño, cajero, cocina, dueño inactivo, sin membresía, superadmin, anon, servidor; dos restaurantes que no se ven ni se tocan; TRUNCATE denegado; dueño de A y cajero de B); D) reglas con el rol del dueño y con el trigger apagado; E) ningún lugar del código suma con el precio base; F) ítems nuevos y viejos se leen igual (ticket, jornada, seguimiento). Grupo `opciones` de `servidor.mjs` (56): precio, guardado, webhook, firma, reembolso, domicilio, 26 rechazos, ignorar lo inyectado, precedencias, sin caché, menú, tabla ausente, fallo de la base. `opciones-precios.test.js` (19): lo que la base real impide provocar (filas corruptas: `quitar` con precio, extra negativo, `null`, nombre solo de invisibles, desborde del subtotal).
+
+### 22.13 Revisión por mutación (`mutaciones-opciones.mjs`)
+
+**102 mutaciones** (50 del servidor —precio, validación, aislamiento y menú— y 52 del SQL 18 y su reversa): **92 detectadas, 10 equivalentes (cada una con su razón), 0 sobrevivientes** (más un control: el código original pasa todo antes de empezar). Servidor: 44 detectadas y 6 equivalentes. SQL: 48 y 4. Rompe, entre otras cosas: el cálculo (ignorar extras, restarlos, no multiplicar por la cantidad, cobrar el base, guardar el base como `precio`), cada regla de la forma del contrato, aceptar opciones apagadas / de otro producto / de otro restaurante / mal formadas, descartar una opción mala en silencio, el tope del subtotal, el saneado del nombre, el código 400/503, consultar otro restaurante, mostrar las apagadas en el menú, exponer columnas internas, y en el SQL: sin RLS, cajero o cocina con permisos, anon con lectura, un `default` en `restaurante_id`, FK sin cascada, PK sin restaurante, cada CHECK, el nombre con bidi / HTML / controles, el tope de 12, la identidad inmutable, triggers que no se crean, `SECURITY DEFINER`, EXECUTE para anon, semilla que pisa / inventa un ingrediente / quita la carne / siembra bebidas, comprobaciones que no revierten, y la reversa (no borra, borra de más, no se puede repetir).
+
+**Lo que la revisión encontró y se corrigió:** (1) *un error real del código*, antes de la revisión por mutación, con las pruebas unitarias: `Number(null)` es 0, así que una fila con precio `null` pasaba como un **extra gratis**; ahora se exige un número entero de verdad; (2) la primera pasada completa dejó sobrevivir una mutación del servidor —la opción de un producto pedida en la línea de **otro producto del mismo pedido** (el mapa de opciones se aplanaba y se aceptaba)—: se agregó una prueba de escenarios y una unitaria; (3) en el SQL, quitar el GRANT EXECUTE explícito a `authenticated` no cambia nada (Supabase ya se lo da por defecto): se declaró equivalente y se agregó la mutación que **sí** le quita el permiso (detectada); (4) las comprobaciones propias del SQL no probaban los CHECK *solos* (el trigger los tapaba): se agregó la prueba "CHECK sin trigger" dentro del SQL.
+
+**Las 10 equivalentes (no cambian lo que un atacante puede lograr):** servidor — (a) los `quitar` también suman su precio (`copiaDeOpcion` ya rechaza un `quitar` con precio ≠ 0); (b) descartar la opción mala y aceptar la línea (la comparación `elegidas.length !== idsOpciones.length` la rechaza igual: defensa en capas); (c) calcular `total` de otra forma al principio de `crear-pedido.js` (se pisa más abajo con `subtotal + costoDomicilio`); (d) pedir `select=*` en el menú (cada opción se arma campo por campo: nada interno llega); (e) no mirar el restaurante al pegar las opciones al producto (la lectura ya es del restaurante); (f) `precio` del menú sin `Number()` (PostgREST ya manda números). SQL — (g) el trigger sin el chequeo de `quitar` con precio y (h) sin el del rango de precio (los CHECK dicen lo mismo; la prueba "CHECK sin trigger" lo comprueba por separado); (i) quitar el candado del tope de 12 (PGlite no puede provocar dos transacciones simultáneas; se revisa por lectura y con `probar-opciones.mjs` en la base real); (j) omitir el GRANT EXECUTE a `authenticated` (ya lo tiene por defecto).
+
+### 22.14 Decisiones donde el encargo no lo definía
+
+* **anon no lee la tabla** (22.3): se aparta del texto del encargo para no romper la invariante del SQL 10/13; el menú público lo entrega el servidor.
+* **La cocina no lee la tabla**, como con `productos`. Si la parte B necesitara que la cocina o el cajero la lean desde el navegador, es una política de una línea.
+* **`precio` mostrado = precio base** (22.4), para no cambiar el significado del campo actual ni la lógica de `preciosCambiados`.
+* **Un `quitar` no se puede convertir en pagado ni un extra en `quitar` con precio** (CHECK); tampoco se puede mover una opción de producto o cambiarle el id.
+* **`<` y `>` prohibidos en el nombre** de una opción (defensa extra: el nombre irá a páginas, tickets y mensajes; la parte B igual debe insertarlo con `textContent`).
+* **Tope del subtotal** de 2.000.000.000 (evita un 500 por desborde del `integer`); no cambia nada de lo alcanzable hoy.
+* **La semilla es ON CONFLICT DO NOTHING** (no pisa cambios del dueño). El SQL 18 **exige** el menú del SQL 17 (los 13 productos `nb-*`) y se detiene nombrando los que falten.
+* **Categoría "hot dogs":** el encargo la llamó `nb-hotdogs`; en la base real es `nb-hot-dogs`. La semilla no depende de las categorías (solo de los ids de producto).
+* **El simulador general** (`fake-supabase.mjs`) crea los 13 productos `nb-*` como andamio, corre el SQL 18 y los quita: así todas las baterías tienen la tabla (vacía) sin cambiar el menú de Taqueiros que usan casi todas.
+
+### 22.15 Riesgos conocidos y qué revisar con Opus 5.5 en esfuerzo High
+
+1. **Cálculo de precio** (`api/_precios.js`): revisar que *ningún* camino cobre con el precio base cuando hay opciones y que el redondeo/tope no cambie lo de hoy.
+2. **Validación de opciones**: la estrictitud del contrato (¿conviene aceptar un objeto `{id}` en el futuro? hoy se rechaza a propósito) y el mensaje genérico.
+3. **RLS de la tabla**: revisar las cuatro políticas y el trigger del tope de 12 (candado `pg_advisory_xact_lock`; la concurrencia real **no** se puede probar en PGlite —un solo proceso—: se comprueba por lectura y con `probar-opciones.mjs` contra la base real).
+4. **Staleness del menú (60 s)**: si el dueño sube el precio de un extra, un cliente con el menú viejo verá el precio anterior y el servidor cobrará el nuevo; Wompi muestra el monto real antes de pagar, pero la parte B debería comparar el `total` que devuelve `crear-pedido` con el que mostró y avisar. Apagar una opción deja de aceptarla de inmediato (400 genérico) aunque el menú en caché todavía la ofrezca hasta 60 s.
+5. **El ticket y el WhatsApp del servidor aún no muestran las opciones** (parte B). Mientras la interfaz no mande opciones, no pasa; pero si alguien llamara a la API a mano con opciones, el pedido se cobraría bien y la cocina vería solo "2x Big Norte" sin la nota. **No desplegar la interfaz de opciones sin el ticket.**
+6. **Reversa y datos**: revertir pierde las opciones cargadas (no los pedidos). `ON DELETE CASCADE`: borrar un producto borra sus opciones; la reversa del SQL 17 (que borra los productos nuevos) también las borra.
+7. **`index.html` (carrito):** suma por precio base; es lo correcto *hoy*, y es lo primero que la parte B debe cambiar.
+
+### 22.16 Qué sigue
+
+1. **Revisión de seguridad** de esta parte A (22.15).
+2. **PARTE B** (interfaz del cliente): modal del producto, carrito, mensaje de WhatsApp, ticket impreso, panel, historial y menu-admin (alta/edición/apagado de opciones por el dueño). Incluir ahí además el arreglo del aviso de abierto que hoy termina en "p.m.." con dos puntos.
+3. Después, las pruebas reales del rebrand y la verificación del 3A.
