@@ -400,3 +400,27 @@ test("las claves de las preferencias del ticket son neutras (la migracion desde 
   assert.equal(T.TAMANO_KEY, "panel-ticket-tamano-v1");
   assert.equal(T.MODO_HOJA_KEY, "panel-ticket-hoja-v1");
 });
+
+/* ---------- Items con opciones (SQL 18): el pedido guarda precio final, precio_base y opciones ---------- */
+
+test("un item NUEVO (con precio_base y opciones) se lee igual que uno antiguo: mismos datos del ticket, sin romperse", () => {
+  const antiguo = Object.assign({}, base, { items: [{ id: "taco", nombre: "Taco", cantidad: 2, precio: 10000 }] });
+  const nuevo = Object.assign({}, base, { items: [{
+    id: "taco", nombre: "Taco", cantidad: 2, precio: 15000, precio_base: 10000,
+    opciones: [{ id: "sin-cebolla", tipo: "quitar", nombre: "Sin cebolla", precio: 0 }, { id: "extra-queso", tipo: "extra", nombre: "Queso extra", precio: 2000 }]
+  }] });
+  const a = T.preparar(antiguo), n = T.preparar(nuevo);
+  assert.deepEqual(n.items, a.items, "las opciones se imprimiran en la parte B; mientras tanto el ticket ignora las claves que no conoce");
+  assert.equal(n.items[0].cantidad, 2);
+  assert.equal(n.items[0].nombre, "Taco");
+  assert.equal(n.numero, a.numero);
+});
+
+test("mezclar items antiguos y nuevos en el mismo pedido no cambia el orden ni la cantidad de lineas", () => {
+  const p = Object.assign({}, base, { items: [
+    { id: "a", nombre: "Antiguo", cantidad: 1, precio: 5000 },
+    { id: "b", nombre: "Nuevo", cantidad: 3, precio: 7000, precio_base: 5000, opciones: [{ id: "x", tipo: "extra", nombre: "X", precio: 2000 }] },
+    { id: "c", nombre: "Otro antiguo", cantidad: 2, precio: 1000 }
+  ] });
+  assert.deepEqual(T.preparar(p).items.map((i) => i.nombre + ":" + i.cantidad), ["Antiguo:1", "Nuevo:3", "Otro antiguo:2"]);
+});

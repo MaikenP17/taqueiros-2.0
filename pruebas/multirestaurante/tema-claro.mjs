@@ -148,7 +148,8 @@ for (const [lado, ruta] of [[192, marca.icono_192], [512, marca.icono_512]]) {
 prueba('3f el logo anterior (caja crema) quedo guardado fuera de las rutas servidas (Recursos/NORTHE-NUEVO/anterior/, ignorada por git) y el .gitignore la cubre',
   /^Recursos\/NORTHE-NUEVO\/$/m.test(fs.readFileSync(path.join(REPO, '.gitignore'), 'utf8')), '');
 prueba('3g los nombres no cambian (la base y el respaldo apuntan a los mismos archivos: no hizo falta SQL)', marca.logo === 'Recursos/logo/northe-logo.png' && marca.icono_192 === 'Recursos/logo/northe-icono-192.png' && marca.icono_512 === 'Recursos/logo/northe-icono-512.png', JSON.stringify([marca.logo, marca.icono_192, marca.icono_512]));
-prueba('3h no hay SQL nuevo de este cambio (el ultimo es el 17)', !fs.readdirSync(path.join(REPO, 'supabase')).some((f) => /^18-/.test(f)), fs.readdirSync(path.join(REPO, 'supabase')).filter((f) => /^18-/.test(f)).join(','));
+// (Desde las opciones de producto existe el SQL 18, pero es de OTRO cambio: el estilo claro sigue sin traer SQL propio.)
+prueba('3h no hay SQL nuevo de este cambio (el estilo claro no trajo SQL; el unico 18-* es el de opciones de producto)', fs.readdirSync(path.join(REPO, 'supabase')).filter((f) => /^18-/.test(f)).every((f) => /^18-(opciones-producto|revertir)\.sql$/.test(f)), fs.readdirSync(path.join(REPO, 'supabase')).filter((f) => /^18-/.test(f)).join(','));
 
 /* ---------------- 4. paginas del personal ---------------- */
 for (const f of ['panel.html', 'menu-admin.html', 'historial.html']) {

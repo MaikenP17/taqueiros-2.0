@@ -55,6 +55,7 @@ export async function correrEscenarios(opts) {
   let authEstado = 0;             // si no es 0, /auth/v1/user responde ese HTTP (simula Auth con error)
   let idsPrueba = [];             // para que /api/alertas (modo real) solo vea restaurantes de prueba
   let retener = null;             // (url, metodo) => Promise | null: detiene una peticion a la base (para provocar carreras)
+  let opcionesFalla = null;       // 'ausente' (la tabla producto_opciones no existe: 404) | 'error' (la base responde 500) | null
   let callmebotResponde = () => ({ status: 200, texto: 'Message queued. You will receive it in a few seconds' });
 
   const H = (extra) => {
@@ -92,6 +93,11 @@ export async function correrEscenarios(opts) {
       if (retener) { const p = retener(url, metodo); if (p) await p; }
       if (falla && falla(url)) throw new Error('red caida (simulada)');
       if (authEstado && url.includes('/auth/v1/user')) return new Response('{"msg":"fallo interno"}', { status: authEstado });
+      if (opcionesFalla && url.includes('/rest/v1/producto_opciones')) {
+        return opcionesFalla === 'ausente'
+          ? new Response(JSON.stringify({ code: 'PGRST205', message: "Could not find the table 'public.producto_opciones' in the schema cache" }), { status: 404 })
+          : new Response(JSON.stringify({ code: 'XX000', message: 'fallo simulado' }), { status: 500 });
+      }
       if (dominiosAusente && url.includes('/rest/v1/restaurante_dominios')) {
         return new Response(JSON.stringify({ code: 'PGRST205', message: "Could not find the table 'public.restaurante_dominios' in the schema cache" }), { status: 404 });
       }
@@ -1309,6 +1315,311 @@ export async function correrEscenarios(opts) {
     });
 
     /* =====================================================================
+       5b. OPCIONES DE PRODUCTO (SQL 18): quitar ingredientes y extras con precio
+       Dos restaurantes propios (O y O2) para no mover los conteos de los demas grupos. Sin la tabla (la base real antes de
+       correr el SQL 18, o la local con SQL18_NO=1) solo se prueba lo que debe seguir funcionando igual.
+    ===================================================================== */
+    grupo('opciones');
+    let tablaOpciones = true;
+    try { await leer('producto_opciones', 'select=id&limit=1'); } catch (e) { tablaOpciones = false; }
+
+    const O = await nuevoRestaurante('op', { config: { ubicacion: ORIGEN, domicilio: { factor_recorrido: 1.0 } } });
+    const O2 = await nuevoRestaurante('oq');
+    const hO = hostDe('op'), hO2 = hostDe('oq');
+    await dominio(hO, O); await dominio(hO2, O2);
+    await menuDe(O, [['taco', 'Taco de O', 10000], ['otro', 'Otro de O', 7000], ['doce', 'Doce de O', 4000], ['bebida', 'Bebida de O', 3000]]);
+    await menuDe(O2, [['taco', 'Taco de O2', 20000]]);
+    await tarifasDe(O, [[2, 4500], [999, null]]);
+    for (const r of [O, O2]) await parchear('configuracion', `restaurante_id=eq.${r.id}`, { horarios: horariosTodoElDia(), cerrado_temporal: false });
+    await ponerSecretos(O, 'op');
+    await ponerSecretos(O2, 'oq');
+    R.invalidarCache();
+
+    const opcionFila = (r, producto, id, tipo, nombre, precio, orden = 0, activa = true) => ({ restaurante_id: r.id, producto_id: producto, id, tipo, nombre, precio, orden, activa });
+    if (tablaOpciones) {
+      await insertar('producto_opciones', [
+        opcionFila(O, 'taco', 'sin-cebolla', 'quitar', 'Sin cebolla', 0, 0), opcionFila(O, 'taco', 'sin-salsas', 'quitar', 'Sin salsas', 0, 1),
+        opcionFila(O, 'taco', 'extra-queso', 'extra', 'Queso extra', 2000, 10), opcionFila(O, 'taco', 'extra-tocineta', 'extra', 'Tocineta extra', 3000, 11),
+        opcionFila(O, 'taco', 'extra-apagada', 'extra', 'Apagada', 1500, 12, false),
+        opcionFila(O, 'otro', 'extra-solo', 'extra', 'Solo del otro', 500, 0),
+        opcionFila(O2, 'taco', 'extra-queso', 'extra', 'Queso extra O2', 9000, 0), opcionFila(O2, 'taco', 'extra-solo-o2', 'extra', 'Solo de O2', 700, 1),
+        opcionFila(O2, 'taco', 'sin-cebolla', 'quitar', 'Sin cebolla', 0, 2)
+      ].concat(Array.from({ length: 12 }, (_, i) => opcionFila(O, 'doce', 'ex-' + (i + 1), 'extra', 'Extra ' + (i + 1), 100, i))));
+    }
+
+    const MENSAJE_OPCIONES = 'Alguna de las opciones elegidas no es válida o ya no está disponible. Actualiza la página e intenta de nuevo.';
+    const MENSAJE_SIN_TABLA = 'Las opciones de producto todavía no están disponibles. Haz tu pedido sin opciones.';
+    const itemO = (extra) => Object.assign({ id: 'taco', cantidad: 1, precio: 10000 }, extra);
+    const crearO = (items, c) => crearPedidoEn(hO, O, items, c);
+    const guardadoO = (r) => pedidoDe(O, r.cuerpo.referencia);
+    const tocoOpciones = (desde) => registro.slice(desde).some((x) => x.url.includes('/rest/v1/producto_opciones'));
+    const menuDeO = async (host = hO) => (await invocar(M.menu, { host, ruta: '/api/menu' })).cuerpo;
+    const productoDelMenu = (menu, id) => (menu.productos || []).find((p) => p.id === id);
+
+    /* ---- lo que debe funcionar IGUAL con o sin la tabla ---- */
+    const pruebasSinTabla = () => {
+      const et = tablaOpciones ? ' [tabla ausente simulada]' : ' [tabla ausente]';
+      return (async () => {
+        await T('sin opciones: el pedido funciona exactamente igual y NO consulta la tabla de opciones' + et, async () => {
+          const desde = registro.length;
+          const r = await crearO([itemO({ cantidad: 2 })]);
+          const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
+          return es(r.status === 200 && r.cuerpo.subtotal === 20000 && r.cuerpo.total === 20000 && p && igual(p.items, [{ id: 'taco', nombre: 'Taco de O', cantidad: 2, precio: 10000 }]) && !tocoOpciones(desde), JSON.stringify(r.cuerpo).slice(0, 200));
+        });
+        await T('opciones vacias o nulas son lo mismo que no mandarlas' + et, async () => {
+          const rs = [await crearO([itemO({ opciones: [] })]), await crearO([itemO({ opciones: null })]), await crearO([itemO()])];
+          const ps = await Promise.all(rs.map(guardadoO));
+          return es(rs.every((r) => r.status === 200 && r.cuerpo.total === 10000) && ps.every((p) => igual(p.items, ps[0].items)) && Object.keys(ps[0].items[0]).sort().join() === 'cantidad,id,nombre,precio', JSON.stringify(ps.map((p) => p.items)));
+        });
+        await T('el menu publico responde 200 y sin la clave "opciones" en ningun producto' + et, async () => {
+          if (tablaOpciones) opcionesFalla = 'ausente';
+          try {
+            const m = await invocar(M.menu, { host: hO, ruta: '/api/menu' });
+            return es(m.status === 200 && m.cuerpo.ok === true && m.cuerpo.productos.length === 4 && m.cuerpo.productos.every((p) => !('opciones' in p)), m.status + ' ' + JSON.stringify(m.cuerpo).slice(0, 150));
+          } finally { opcionesFalla = null; }
+        });
+        await T('un pedido CON opciones responde un error claro y generico (400), no deja pedido y no rompe nada' + et, async () => {
+          if (tablaOpciones) opcionesFalla = 'ausente';
+          try {
+            const antes = await contarPedidos(O);
+            const r = await crearO([itemO({ opciones: ['extra-queso'] })]);
+            const dentro = JSON.stringify(r.cuerpo);
+            return es(r.status === 400 && r.cuerpo.error === MENSAJE_SIN_TABLA && !/PGRST|producto_opciones|schema|42P01/i.test(dentro) && (await contarPedidos(O)) === antes, r.status + ' ' + dentro.slice(0, 200));
+          } finally { opcionesFalla = null; }
+        });
+      })();
+    };
+
+    if (!tablaOpciones) {
+      await pruebasSinTabla();
+    } else {
+      // ---------------- precio y guardado ----------------
+      let pedidoConExtras = null;
+      await T('SOLO QUITAR: no cambia el precio; la copia guarda las opciones, el precio base y el unitario', async () => {
+        const r = await crearO([itemO({ opciones: ['sin-cebolla', 'sin-salsas'] })]);
+        const p = await guardadoO(r);
+        return es(r.status === 200 && r.cuerpo.subtotal === 10000 && r.cuerpo.total === 10000 && igual(p.items, [{
+          id: 'taco', nombre: 'Taco de O', cantidad: 1, precio: 10000, precio_base: 10000,
+          opciones: [{ id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }, { id: 'sin-salsas', tipo: 'quitar', nombre: 'Sin salsas', precio: 0 }]
+        }]) && p.subtotal === 10000 && p.total === 10000, JSON.stringify(p && p.items));
+      });
+      await T('EXTRAS: precio unitario = base + extras; con cantidad 3 el total multiplica el precio FINAL (3 x 15000 = 45000)', async () => {
+        const r = await crearO([itemO({ cantidad: 3, opciones: ['extra-queso', 'extra-tocineta'] })]);
+        pedidoConExtras = r.cuerpo;
+        const p = await guardadoO(r);
+        return es(r.status === 200 && r.cuerpo.subtotal === 45000 && r.cuerpo.total === 45000 && r.cuerpo.firma === sha(`${r.cuerpo.referencia}4500000COP${secretoDe('op', 'integridad-test')}`)
+          && p.items[0].precio === 15000 && p.items[0].precio_base === 10000 && p.items[0].cantidad === 3 && p.subtotal === 45000 && p.total === 45000
+          && igual(p.items[0].opciones, [{ id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }, { id: 'extra-tocineta', tipo: 'extra', nombre: 'Tocineta extra', precio: 3000 }]), JSON.stringify([r.cuerpo, p && p.items]));
+      });
+      await T('MEZCLA: el orden en que llegan no importa; la copia sale en el orden del menu (quitar, luego extras) y los quitar no suman', async () => {
+        const r = await crearO([itemO({ opciones: ['extra-tocineta', 'sin-cebolla', 'extra-queso'] })]);
+        const p = await guardadoO(r);
+        return es(r.status === 200 && p.items[0].precio === 15000 && p.items[0].opciones.map((o) => o.id).join() === 'sin-cebolla,extra-queso,extra-tocineta', JSON.stringify(p && p.items));
+      });
+      await T('dos lineas del MISMO producto con opciones distintas se cobran cada una por su cuenta (2 x 10000 + 1 x 12000)', async () => {
+        const r = await crearO([itemO({ cantidad: 2 }), itemO({ cantidad: 1, opciones: ['extra-queso'] })]);
+        const p = await guardadoO(r);
+        return es(r.status === 200 && r.cuerpo.subtotal === 32000 && p.items.length === 2 && p.items[0].precio === 10000 && !('opciones' in p.items[0]) && p.items[1].precio === 12000, JSON.stringify(r.cuerpo));
+      });
+      await T('el producto con 12 opciones permite pedir las 12 a la vez (4000 + 12 x 100)', async () => {
+        const ids = Array.from({ length: 12 }, (_, i) => 'ex-' + (i + 1));
+        const r = await crearO([{ id: 'doce', cantidad: 1, precio: 4000, opciones: ids }]);
+        const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
+        return es(r.status === 200 && r.cuerpo.total === 5200 && p.items[0].opciones.length === 12 && p.items[0].precio === 5200, r.status + ' ' + JSON.stringify(r.cuerpo));
+      });
+      await T('el precio mostrado (campo "precio") sigue siendo el BASE: mandar el precio con extras se detecta como cambio (409) y no se cobra', async () => {
+        const antes = await contarPedidos(O);
+        const r = await crearO([itemO({ precio: 12000, opciones: ['extra-queso'] })]);
+        return es(r.status === 409 && r.cuerpo.preciosCambiados.length === 1 && r.cuerpo.preciosCambiados[0].precioNuevo === 10000 && (await contarPedidos(O)) === antes, JSON.stringify(r.cuerpo));
+      });
+      await T('domicilio con extras: el costo del domicilio no depende de los extras y el total es subtotal + domicilio (15000 + 4500)', async () => {
+        const r = await crearPedidoEn(hO, O, [itemO({ opciones: ['extra-queso', 'extra-tocineta'] })], clienteDomicilio(P1));
+        const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
+        return es(r.status === 200 && r.cuerpo.subtotal === 15000 && r.cuerpo.costoDomicilio === 4500 && r.cuerpo.total === 19500 && p.total === 19500 && p.subtotal === 15000
+          && r.cuerpo.firma === sha(`${r.cuerpo.referencia}1950000COP${secretoDe('op', 'integridad-test')}`), JSON.stringify(r.cuerpo));
+      });
+      await T('el mismo id de opcion en dos restaurantes cobra el precio de SU restaurante (O: 2000, O2: 9000)', async () => {
+        const a = await crearO([itemO({ opciones: ['extra-queso'] })]);
+        const b = await crearPedidoEn(hO2, O2, [{ id: 'taco', cantidad: 1, precio: 20000, opciones: ['extra-queso'] }]);
+        const pb = await pedidoDe(O2, b.cuerpo.referencia);
+        return es(a.cuerpo.total === 12000 && b.cuerpo.total === 29000 && pb.items[0].opciones[0].nombre === 'Queso extra O2', JSON.stringify([a.cuerpo, b.cuerpo]));
+      });
+      await conInvariante('crear-pedido con opciones (O)', [O.id], () => crearO([itemO({ opciones: ['extra-queso'] })]));
+
+      // ---------------- cobro: Wompi, firma, reembolso ----------------
+      await T('WEBHOOK: el monto exacto CON extras aprueba el pedido y entra a cocina', async () => {
+        const r = await webhook(evento({ referencia: pedidoConExtras.referencia, montoCentavos: 4500000, secreto: secretoDe('op', 'eventos-test') }));
+        const p = await pedidoDe(O, pedidoConExtras.referencia);
+        return es(r.status === 200 && p.estado === 'nuevo' && p.estado_pago === 'aprobado' && p.total === 45000, `${r.status} ${p.estado} ${p.estado_pago}`);
+      });
+      await T('WEBHOOK: pagar el monto SIN extras (3 x 10000) no aprueba el pedido: queda en error y NO entra a cocina', async () => {
+        const c = await crearO([itemO({ cantidad: 3, opciones: ['extra-queso', 'extra-tocineta'] })]);
+        const r = await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: 3000000, secreto: secretoDe('op', 'eventos-test') }));
+        const p = await pedidoDe(O, c.cuerpo.referencia);
+        return es(r.status === 200 && r.cuerpo.warning === 'monto no coincide' && p.estado === 'pendiente_pago' && p.estado_pago === 'error', `${r.status} ${JSON.stringify(r.cuerpo)} ${p.estado} ${p.estado_pago}`);
+      });
+      await T('GENERAR-FIRMA: firma el total CON extras de un pedido pendiente; el monto sin extras no (404)', async () => {
+        const c = await crearO([itemO({ cantidad: 2, opciones: ['extra-queso'] })]);      // 2 x 12000 = 24000
+        const buena = await invocar(M.firma, { metodo: 'POST', host: hO, cuerpo: { referencia: c.cuerpo.referencia, montoEnCentavos: 2400000, modo: 'test' } });
+        const mala = await invocar(M.firma, { metodo: 'POST', host: hO, cuerpo: { referencia: c.cuerpo.referencia, montoEnCentavos: 2000000, modo: 'test' } });
+        return es(buena.status === 200 && buena.cuerpo.firma === sha(`${c.cuerpo.referencia}2400000COP${secretoDe('op', 'integridad-test')}`) && mala.status === 404, `${buena.status} ${mala.status}`);
+      });
+      await T('REEMBOLSO: un pedido con extras, cobrado y cancelado, se registra como reembolsado (una sola vez)', async () => {
+        const c = await crearO([itemO({ opciones: ['extra-tocineta'] })]);
+        await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: 1300000, secreto: secretoDe('op', 'eventos-test') }));
+        await parchear('pedidos', `referencia=eq.${c.cuerpo.referencia}&restaurante_id=eq.${O.id}`, { estado: 'cancelado' });
+        const r1 = await M.reembolso.registrarReembolso(O.id, c.cuerpo.referencia);
+        const r2 = await M.reembolso.registrarReembolso(O.id, c.cuerpo.referencia);
+        const p = await pedidoDe(O, c.cuerpo.referencia);
+        return es(r1.ok && !r1.yaRegistrado && r2.ok && r2.yaRegistrado && p.reembolsado_en && p.total === 13000 && p.items[0].precio === 13000, JSON.stringify([r1, r2]));
+      });
+
+      // ---------------- rechazos ----------------
+      const rechazo = async (nombre, items) => T(`RECHAZO 400 generico, sin pedido: ${nombre}`, async () => {
+        const antes = await contarPedidos(O);
+        const r = await crearO(items);
+        const cuerpo = JSON.stringify(r.cuerpo);
+        return es(r.status === 400 && r.cuerpo.error === MENSAJE_OPCIONES && (await contarPedidos(O)) === antes && !/extra-solo-o2|no-existe|PGRST|producto_opciones/.test(cuerpo.replace(MENSAJE_OPCIONES, '')), `${r.status} ${cuerpo.slice(0, 200)}`);
+      });
+      await rechazo('una opcion que no existe', [itemO({ opciones: ['no-existe'] })]);
+      await rechazo('una opcion APAGADA', [itemO({ opciones: ['extra-apagada'] })]);
+      await rechazo('una opcion de OTRO producto del mismo restaurante', [itemO({ opciones: ['extra-solo'] })]);
+      await rechazo('una opcion de OTRO restaurante (solo existe en O2)', [itemO({ opciones: ['extra-solo-o2'] })]);
+      await rechazo('una opcion buena y una mala juntas (no se cobra a medias)', [itemO({ opciones: ['extra-queso', 'no-existe'] })]);
+      await rechazo('opcion mala en la segunda linea (la primera es buena)', [itemO(), itemO({ opciones: ['extra-apagada'] })]);
+      await rechazo('una opcion repetida', [itemO({ opciones: ['extra-queso', 'extra-queso'] })]);
+      await rechazo('13 opciones (mas del maximo de 12)', [itemO({ opciones: Array.from({ length: 13 }, (_, i) => 'op-' + i) })]);
+      await rechazo('"opciones" no es una lista (texto)', [itemO({ opciones: 'extra-queso' })]);
+      await rechazo('"opciones" no es una lista (objeto)', [itemO({ opciones: { 'extra-queso': 1 } })]);
+      await rechazo('"opciones" es un numero', [itemO({ opciones: 5 })]);
+      await rechazo('una opcion que es un numero', [itemO({ opciones: [5] })]);
+      await rechazo('una opcion que es un booleano', [itemO({ opciones: [true] })]);
+      await rechazo('una opcion que es null', [itemO({ opciones: [null] })]);
+      await rechazo('una opcion que es un objeto con id, nombre y precio puestos por el cliente', [itemO({ opciones: [{ id: 'extra-queso', nombre: 'Gratis', precio: 0 }] })]);
+      await rechazo('una opcion que es una lista', [itemO({ opciones: [['extra-queso']] })]);
+      await rechazo('una opcion vacia', [itemO({ opciones: [''] })]);
+      await rechazo('una opcion con mayusculas', [itemO({ opciones: ['Extra-Queso'] })]);
+      await rechazo('una opcion con espacios', [itemO({ opciones: ['extra queso'] })]);
+      await rechazo('una opcion con barra o comillas', [itemO({ opciones: ['extra/queso", "x'] })]);
+      await rechazo('una opcion de 61 caracteres', [itemO({ opciones: ['a'.repeat(61)] })]);
+      await rechazo('una opcion con __proto__', [itemO({ opciones: ['__proto__'] })]);
+      await rechazo('una opcion con salto de linea', [itemO({ opciones: ['extra-queso\n'] })]);
+      await rechazo('una opcion con caracteres invisibles', [itemO({ opciones: ['extra-queso' + String.fromCharCode(0x200b)] })]);
+      await T('RECHAZO: "constructor" y "toString" (pasan la forma de un id) tampoco existen: 400', async () => {
+        const a = await crearO([itemO({ opciones: ['constructor'] })]); const b = await crearO([itemO({ opciones: ['tostring'] })]);
+        return es(a.status === 400 && b.status === 400, `${a.status} ${b.status}`);
+      });
+      await T('RECHAZO: la opcion de un producto pedida en la linea de OTRO producto del MISMO pedido (las dos lineas existen) -> 400, sin pedido', async () => {
+        const antes = await contarPedidos(O);
+        const a = await crearO([itemO({ opciones: ['extra-queso'] }), { id: 'otro', cantidad: 1, precio: 7000, opciones: ['extra-queso'] }]);
+        const b = await crearO([{ id: 'otro', cantidad: 1, precio: 7000, opciones: ['extra-solo'] }, itemO({ opciones: ['extra-solo'] })]);
+        const c = await crearO([itemO({ opciones: ['extra-queso'] }), { id: 'otro', cantidad: 1, precio: 7000, opciones: ['extra-solo'] }]);
+        return es(a.status === 400 && b.status === 400 && c.status === 200 && c.cuerpo.total === 12000 + 7500 && (await contarPedidos(O)) === antes + 1, [a.status, b.status, c.status].join(' '));
+      });
+      await T('lo que el cliente intente poner de mas (precio_base, nombre, precios de opciones, total) se IGNORA: manda la base', async () => {
+        const r = await invocar(M.crear, { metodo: 'POST', host: hO, cuerpo: Object.assign(cuerpoPedido([itemO({
+          opciones: ['extra-queso'], precio_base: 1, nombre: 'HACKEADO', precio_final: 1, precioOpciones: { 'extra-queso': 0 }, opcionesPrecios: [0], descuento: 99
+        })]), { total: 1, subtotal: 1, costoDomicilio: -5 }) });
+        const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
+        return es(r.status === 200 && r.cuerpo.total === 12000 && p.items[0].nombre === 'Taco de O' && p.items[0].precio === 12000 && p.items[0].precio_base === 10000
+          && Object.keys(p.items[0]).sort().join() === 'cantidad,id,nombre,opciones,precio,precio_base' && p.items[0].opciones[0].precio === 2000, JSON.stringify(p && p.items));
+      });
+
+      // ---------------- precedencias ----------------
+      await T('un producto que no existe con opciones: manda "desconocidos" (409), no el error de opciones', async () => {
+        const r = await crearO([{ id: 'no-hay', cantidad: 1, precio: 1, opciones: ['extra-queso'] }]);
+        return es(r.status === 409 && igual(r.cuerpo.desconocidos, ['no-hay']), JSON.stringify(r.cuerpo));
+      });
+      await T('un producto agotado con opciones malas: manda "agotados" (409)', async () => {
+        await parchear('productos', `restaurante_id=eq.${O.id}&id=eq.taco`, { disponible: false });
+        try {
+          const r = await crearO([itemO({ opciones: ['no-existe'] })]);
+          return es(r.status === 409 && r.cuerpo.agotados.length === 1 && r.cuerpo.agotados[0].id === 'taco', JSON.stringify(r.cuerpo));
+        } finally { await parchear('productos', `restaurante_id=eq.${O.id}&id=eq.taco`, { disponible: true }); }
+      });
+      await T('cantidad invalida con opciones buenas: sigue siendo "Cantidad invalida" (409)', async () => {
+        const r = await crearO([itemO({ cantidad: 0, opciones: ['extra-queso'] })]);
+        return es(r.status === 409 && /Cantidad inválida/.test(r.cuerpo.error), JSON.stringify(r.cuerpo));
+      });
+
+      // ---------------- sin cache ----------------
+      await T('SIN CACHE: cambiar el precio de un extra rige en el siguiente pedido; apagarlo lo rechaza; encenderlo lo acepta', async () => {
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.taco&id=eq.extra-queso`, { precio: 2500 });
+        const a = await crearO([itemO({ opciones: ['extra-queso'] })]);
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.taco&id=eq.extra-queso`, { activa: false });
+        const b = await crearO([itemO({ opciones: ['extra-queso'] })]);
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.taco&id=eq.extra-queso`, { activa: true, precio: 2000 });
+        const c = await crearO([itemO({ opciones: ['extra-queso'] })]);
+        return es(a.cuerpo.total === 12500 && b.status === 400 && c.cuerpo.total === 12000, `${a.cuerpo.total} ${b.status} ${c.cuerpo.total}`);
+      });
+      await T('el menu que el cliente ya tenia (con el precio viejo del extra) no manda: el pedido se cobra con el de la base', async () => {
+        const menuViejo = productoDelMenu(await menuDeO(), 'taco').opciones.find((o) => o.id === 'extra-tocineta');
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.taco&id=eq.extra-tocineta`, { precio: 3500 });
+        const r = await crearO([itemO({ opciones: ['extra-tocineta'] })]);
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.taco&id=eq.extra-tocineta`, { precio: 3000 });
+        return es(menuViejo.precio === 3000 && r.cuerpo.total === 13500, `${menuViejo.precio} ${r.cuerpo.total}`);
+      });
+
+      // ---------------- el menu publico ----------------
+      await T('MENU: cada producto con opciones ACTIVAS las trae (id, tipo, nombre, precio, orden), en orden y sin las apagadas', async () => {
+        const m = await menuDeO();
+        const taco = productoDelMenu(m, 'taco');
+        return es(taco.opciones.map((o) => o.id).join() === 'sin-cebolla,sin-salsas,extra-queso,extra-tocineta'
+          && igual(taco.opciones[2], { id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000, orden: 10 })
+          && igual(taco.opciones[0], { id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0, orden: 0 }), JSON.stringify(taco.opciones));
+      });
+      await T('MENU: es aditivo; un producto sin opciones queda como siempre (sin la clave) y las claves de los productos no cambian', async () => {
+        const m = await menuDeO();
+        const bebida = productoDelMenu(m, 'bebida');
+        const clavesBase = Object.keys(bebida).sort().join();
+        return es(!('opciones' in bebida) && clavesBase === 'categoria,descripcion,disponible,id,imagen,nombre,orden,precio'
+          && Object.keys(productoDelMenu(m, 'taco')).sort().join() === 'categoria,descripcion,disponible,id,imagen,nombre,opciones,orden,precio' && m.ok === true && Array.isArray(m.categorias), clavesBase);
+      });
+      await T('MENU: las opciones no filtran nada interno (ni restaurante_id, ni activa, ni producto_id) y son de ESE restaurante', async () => {
+        const m = await menuDeO(); const m2 = await menuDeO(hO2);
+        const todas = m.productos.flatMap((p) => p.opciones || []);
+        const claves = new Set(todas.flatMap((o) => Object.keys(o)));
+        const t2 = productoDelMenu(m2, 'taco');
+        return es(igual(Array.from(claves).sort(), ['id', 'nombre', 'orden', 'precio', 'tipo']) && !JSON.stringify(m).includes(O2.id)
+          && t2.opciones.map((o) => o.id).join() === 'extra-queso,extra-solo-o2,sin-cebolla' && t2.opciones[0].precio === 9000 && !JSON.stringify(m2).includes('extra-tocineta'), JSON.stringify(Array.from(claves)));
+      });
+      await T('MENU: apagar una opcion la saca del menu; el producto que se queda sin opciones pierde la clave', async () => {
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.otro`, { activa: false });
+        const m = await menuDeO();
+        await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.otro`, { activa: true });
+        const m2 = await menuDeO();
+        return es(!('opciones' in productoDelMenu(m, 'otro')) && productoDelMenu(m2, 'otro').opciones.length === 1, '');
+      });
+      await T('MENU: el respaldo del menu (la ultima copia buena) conserva las opciones', async () => {
+        await menuDeO();
+        falla = (u) => u.includes('/rest/v1/productos') && u.includes(`restaurante_id=eq.${O.id}`);
+        let m;
+        try { m = await invocar(M.menu, { host: hO, ruta: '/api/menu' }); } finally { falla = null; }
+        return es(m.status === 200 && m.cuerpo.deRespaldo === true && productoDelMenu(m.cuerpo, 'taco').opciones.length === 4, m.status + ' ' + JSON.stringify(m.cuerpo).slice(0, 120));
+      });
+      await conInvariante('menu con opciones (O)', [O.id], () => invocar(M.menu, { host: hO, ruta: '/api/menu' }));
+
+      // ---------------- fallos de la tabla ----------------
+      await pruebasSinTabla();
+      await T('si la base falla al leer las opciones: el menu sale igual (sin ellas) y el pedido con opciones responde 503; sin opciones no se entera', async () => {
+        opcionesFalla = 'error';
+        try {
+          const m = await invocar(M.menu, { host: hO, ruta: '/api/menu' });
+          const antes = await contarPedidos(O);
+          const con = await crearO([itemO({ opciones: ['extra-queso'] })]);
+          const sin = await crearO([itemO()]);
+          return es(m.status === 200 && m.cuerpo.productos.every((p) => !('opciones' in p)) && con.status === 503 && /No pudimos confirmar las opciones/.test(con.cuerpo.error) && sin.status === 200 && (await contarPedidos(O)) === antes + 1, `${m.status} ${con.status} ${sin.status}`);
+        } finally { opcionesFalla = null; }
+      });
+    }
+
+    // Los pedidos de este grupo se quitan: no deben aparecer en las alertas ni en los conteos de los grupos que siguen
+    {
+      const lista = `(${[O.id, O2.id].join(',')})`;
+      try { await fetchReal(`${URL_BASE}/rest/v1/pedidos?restaurante_id=in.${lista}`, { method: 'DELETE', headers: H({ Prefer: 'return=minimal' }) }); } catch (e) { /* la limpieza final lo reintenta */ }
+    }
+
+    /* =====================================================================
        6. WEBHOOK DE WOMPI
     ===================================================================== */
     grupo('webhook');
@@ -1489,7 +1800,7 @@ export async function correrEscenarios(opts) {
       const p = await pedidoDe(B, refB);
       return es(p.alerta_enviada === false && !callmebot.some((c) => c.text.includes(refB)), '');
     });
-    await conInvariante('alertas', [A.id, B.id, C.id, D.id, ...(real ? [] : [TAQUEIROS_ID])], async () => {
+    await conInvariante('alertas', [A.id, B.id, C.id, D.id, O.id, O2.id, ...(real ? [] : [TAQUEIROS_ID])], async () => {
       await sembrarSinAtender(A, `TAQ-AL-${sfx}-INV`);
       await conCron(M.alertas);
     });

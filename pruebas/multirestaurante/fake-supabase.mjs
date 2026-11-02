@@ -7,6 +7,34 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { crearBase, sembrar, sql10, REPO } from './sim.mjs';
 
+/* El SQL 18 exige el menu de The Northe Burgers (productos nb-*, SQL 17). Este simulador general NO aplica el 17 (cambiaria el
+   menu de Taqueiros que usan casi todas las pruebas), asi que los 13 productos se crean como ANDAMIO, se corre el 18 y se quitan:
+   lo sembrado se va en cascada y la tabla queda con su forma, sus politicas y sus triggers, SIN datos. Si el 17 ya esta
+   aplicado (los nb-* existen), no se toca nada. */
+export const PRODUCTOS_NB = ['nb-big-norte', 'nb-crispy-norte', 'nb-lil-norte', 'nb-classic-norte', 'nb-smoky-norte', 'nb-full-norte',
+  'nb-creamy-norte', 'nb-dirty-norte', 'nb-chori-norte', 'nb-agua', 'nb-coca-cola', 'nb-pepsi', 'nb-sprite'];
+export async function aplicarSql18(db, archivo, { conSemilla = false } = {}) {
+  const TAQ = '00000000-0000-4000-8000-000000000001';
+  const hay = (await db.query(`select count(*)::int n from public.productos where restaurante_id = $1 and id like 'nb-%'`, [TAQ])).rows[0].n;
+  const andamio = hay === 0;
+  if (andamio) {
+    await db.query(`insert into public.categorias (restaurante_id, id, nombre, emoji, orden, activa) values ($1, 'nb-andamio', 'Andamio SQL 18', 'x', 99, false)`, [TAQ]);
+    for (const [i, id] of PRODUCTOS_NB.entries()) {
+      await db.query(`insert into public.productos (restaurante_id, id, nombre, descripcion, precio, categoria, orden) values ($1, $2, $3, 'andamio', 1000, 'nb-andamio', $4)`, [TAQ, id, 'Andamio ' + id, i]);
+    }
+  }
+  try {
+    const r = await db.exec(fs.readFileSync(archivo, 'utf8'));
+    const malas = r[r.length - 1].rows.filter((x) => x.estado !== 'OK');
+    if (malas.length) throw new Error('SQL 18 con comprobaciones en FALLA: ' + malas.map((x) => x.verificacion).join(' | '));
+  } finally {
+    if (andamio && !conSemilla) {
+      await db.query(`delete from public.productos where restaurante_id = $1 and id like 'nb-%'`, [TAQ]);
+      await db.query(`delete from public.categorias where restaurante_id = $1 and id = 'nb-andamio'`, [TAQ]);
+    }
+  }
+}
+
 /* validarConfig: false apaga SOLO el trigger de validacion de restaurantes.config del SQL 13 (el resto del 13 queda
    activo). Lo usan las baterias que prueban lo que hacen el servidor y el navegador con una config hostil o de forma
    vieja (defensa en profundidad): la base ya no deja guardar esos datos, pero esas capas tienen que seguir
@@ -40,6 +68,10 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
     if (!process.env.SQL16_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f16)) await db.exec(fs.readFileSync(f16, 'utf8'));
     const f16b = path.join(REPO, 'supabase', '16b-horario.sql');
     if (!process.env.SQL16B_NO && !process.env.SQL15_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f16b)) await db.exec(fs.readFileSync(f16b, 'utf8'));
+    // SQL 18 (opciones de producto: tabla producto_opciones). SQL18_NO=1 lo omite (para probar el codigo ANTES de correrlo: la
+    // tabla no existe, el menu sale sin opciones y un pedido con opciones responde un error claro).
+    const f18 = process.env.SQL18_ARCHIVO || path.join(REPO, 'supabase', '18-opciones-producto.sql');
+    if (!process.env.SQL18_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f18)) await aplicarSql18(db, f18);
     if (validarConfig === false && !process.env.VALIDAR_CONFIG && !process.env.SQL13_NO && !process.env.SQL12_NO) {
       await db.exec('alter table public.restaurantes disable trigger restaurantes_validar_config');
     }

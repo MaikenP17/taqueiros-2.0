@@ -1776,6 +1776,29 @@ async function escenario(nombre, fn) {
   });
 
   // ---------------------------------------------------------------------------------------------------------
+  await escenario('15. Items con opciones (SQL 18): el tablero y el historial leen un pedido NUEVO (precio final, precio_base y opciones) igual que uno antiguo, con el mismo total', async () => {
+    // El pedido nuevo: 2 x Taco Alfa a 12000 (10000 + queso extra 2000); el antiguo del mismo restaurante sigue como estaba.
+    const nuevo = await pedido(A, `OPC-${sfx}`, '3001110099', 24000, {
+      items: [{ id: 'taco', nombre: 'Taco Alfa', cantidad: 2, precio: 12000, precio_base: 10000,
+        opciones: [{ id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }, { id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }] }]
+    });
+    const pg = await panelDe('15-panel', 'alfa.localhost', uA);
+    await sleep(400);
+    const tarjetaDe = (id) => pg.eval(`(function(){var a=document.querySelector('#board .pedido[data-id="${id}"]');return a?{items:a.querySelector('.pedido-items').textContent,total:a.querySelector('.pedido-total').textContent,badge:a.querySelector('.badge-pagado').textContent}:null;})()`);
+    const n = await tarjetaDe(nuevo.id), v = await tarjetaDe(pA1.id);
+    comprobar(n && /2×/.test(n.items) && n.items.includes('Taco Alfa') && n.items.includes('$24.000') && n.total.includes('$24.000') && n.badge.includes('$24.000'),
+      '15a. Tablero: el pedido con opciones muestra 2× Taco Alfa por $24.000 (precio final x cantidad) y el mismo total', JSON.stringify(n));
+    comprobar(v && v.items.includes('$9.000') && v.total.includes('$9.000'), '15b. Tablero: el pedido antiguo de siempre sigue mostrando $9.000', JSON.stringify(v));
+    const ha = await abrir('15-historial', URL_N('alfa.localhost') + '/historial.html'); await iniciarSesion(ha, uAB); await appAbierta(ha);
+    await ha.clic('.pestanas button[data-vista=buscar]');
+    await ha.escribir('#bReferencia', `OPC-${sfx}`); await ha.clic('#btnBuscar');
+    await ha.esperar(`function(){return /pedido/.test(document.getElementById('resultados').innerText) && !/Buscando/.test(document.getElementById('resultados').innerText);}`, 8000, 'busqueda del pedido con opciones');
+    const h = await ha.eval(`document.getElementById('resultados').textContent`);
+    comprobar(h.includes('Taco Alfa') && h.includes('$24.000') && h.includes(`OPC-${sfx}`), '15c. Historial: la busqueda encuentra el pedido con opciones y muestra el mismo producto y total', h.slice(0, 200));
+    comprobar(pg.errores.length === 0 && ha.errores.length === 0, '15d. Sin errores de JavaScript con items nuevos', [...pg.errores, ...ha.errores].join(' | '));
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
   const fallas = resultados.filter((r) => !r.ok).length;
   console.log(`\n${resultados.length - fallas} PASAN, ${fallas} FALLAN.`);
   try { chrome.kill(); } catch (e) { /* ya cerro */ }

@@ -1043,6 +1043,16 @@ async function escenario(nombre, fn) {
     comprobar(seg === `true|${rgb(col.claro)}|rgba(0, 0, 0, 0)|true|${seg.split('|')[4]}|${rgb(col.claro_suave)}` && Number(seg.split('|')[4]) >= 150, 'el seguimiento del pedido tambien es claro: fondo crema, logo grande sin caja, tarjetas crema suave', seg);
     malos = await sg.eval(`${CONTRASTE}(['.cabecera h1','.cabecera .ref','.card h2','.paso.hecho .txt','.paso.activo .txt','.paso:not(.hecho):not(.activo) .txt','.estado-frase','.estado-sub','.linea .cant','.linea .val','.total','.total span:first-child','.entrega-info','.entrega-info strong','.btn-wsp','.btn-menu','.actualizado'])`);
     comprobar(malos.length === 0, 'el seguimiento cumple el contraste AA (textos, pasos, total, botones), medido en el navegador', malos.join(' | '));
+    // ---- seguimiento de un pedido con OPCIONES (items nuevos: precio final, precio_base, opciones): se lee igual que uno antiguo ----
+    const pedOpc = await insertar('pedidos', { restaurante_id: N.id, referencia: 'PED-OPC-' + sfx, estado: 'nuevo', cliente_nombre: 'Cliente', cliente_telefono: '3001234568', cliente_email: 'a@b.co', tipo_pedido: 'llevar',
+      items: [{ id: 'x', nombre: 'Big Norte', cantidad: 2, precio: 28000, precio_base: 26000, opciones: [{ id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }, { id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }] }],
+      subtotal: 56000, costo_domicilio: 0, total: 56000, estado_pago: 'aprobado', pagado_en: new Date().toISOString() });
+    const filaOpc = (await srv('GET', `pedidos?id=eq.${pedOpc.id}&select=token_seguimiento`))[0];
+    const sgOpc = await pagina('norte-seguimiento-opciones', { ancho: 390, alto: 844 });
+    await sgOpc.ir(URL_N('norte.localhost') + '/pedido.html?ref=' + filaOpc.token_seguimiento);
+    await sgOpc.esperar(`function(){return document.querySelectorAll('.linea').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'seguimiento con opciones');
+    const lineasOpc = await sgOpc.eval(`Array.from(document.querySelectorAll('.linea')).map(function(l){return l.textContent;}).join(' | ')`);
+    comprobar(/2×Big Norte/.test(lineasOpc) && lineasOpc.includes('$56.000') && sgOpc.errores.length === 0, 'el seguimiento de un pedido con opciones muestra el producto y su subtotal (2 x 28.000 = 56.000) igual que uno antiguo, sin errores', lineasOpc + ' ' + sgOpc.errores.join('|'));
     const sinPedido = await pagina('norte-sin-pedido', { ancho: 390, alto: 844 });
     await sinPedido.ir(URL_N('norte.localhost') + '/pedido.html?ref=' + 'z'.repeat(32));
     await sinPedido.esperar(`function(){return document.querySelectorAll('.aviso').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'aviso de pedido no encontrado');
