@@ -92,8 +92,14 @@
    la paleta y los iconos que sirve /manifest.json, y entran archivos NUEVOS bajo /Recursos/logo/northe-*
    (nombres nuevos a proposito: asi ninguna copia vieja de logo.png o icono-*.png puede verse con la marca
    nueva). Mismo criterio: el HTML y los scripts van a la red; subir la version borra las caches viejas y
-   obliga a reinstalar el worker en el panel ya instalado. */
-const VERSION = "v12";
+   obliga a reinstalar el worker en el panel ya instalado.
+
+   v13: estilo claro del sitio publico y logo con fondo transparente (docs/multirestaurante.md, seccion 20.14).
+   Los archivos Recursos/logo/northe-logo.png y northe-icono-192/512.png CAMBIAN DE CONTENIDO con el MISMO
+   nombre; este worker guarda lo que se pide bajo /Recursos/ (primero cache), asi que subir la version borra
+   las caches v12 y el panel instalado deja de ver el logo anterior. El sitio publico no registra este worker
+   (solo panel.html lo hace) y vercel.json no pone cache larga a /Recursos: ahi no hay logo viejo pegado. */
+const VERSION = "v13";
 const CACHE_ESTATICO = "panel-estatico-" + VERSION;
 /* Prefijos de las caches de versiones anteriores (se borran al activarse la nueva). */
 const PREFIJOS_VIEJOS = ["taqueiros-panel-", "panel-estatico-"];

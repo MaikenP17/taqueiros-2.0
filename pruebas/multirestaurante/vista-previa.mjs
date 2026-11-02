@@ -181,8 +181,8 @@ async function main() {
     /* REBRAND: en esta base Taqueiros ya tiene su config del SQL 12 (la marca ANTERIOR); la vista previa tiene que leer ESA, no el respaldo
        del codigo (que ahora es la marca nueva y solo completa lo que falta). El respaldo nuevo se prueba en textos-visibles.mjs (2b). */
     const respaldo = JSON.parse(fs.readFileSync(path.join(RAIZ, 'pruebas', 'multirestaurante', 'config-taqueiros-original.json'), 'utf8')).publico;
-    comprobar(pt.status === 200 && titulo(pt.html) === respaldo.textos.titulo_pagina && etiquetaMeta(pt.html, 'property', 'og:image')[0] === `https://${HOST.TAQ}/${respaldo.marca.logo}`
-      && fs.existsSync(path.join(RAIZ, respaldo.marca.logo)) , '1g Taqueiros: su titulo, su descripcion y su logo (el archivo existe en el sitio)', JSON.stringify([titulo(pt.html), etiquetaMeta(pt.html, 'property', 'og:image')]));
+    comprobar(pt.status === 200 && titulo(pt.html) === respaldo.textos.titulo_pagina && etiquetaMeta(pt.html, 'property', 'og:image')[0] === `https://${HOST.TAQ}/${respaldo.marca.icono_512 || respaldo.marca.logo}`
+      && fs.existsSync(path.join(RAIZ, respaldo.marca.icono_512 || respaldo.marca.logo)) , '1g Taqueiros: su titulo, su descripcion y su imagen (icono de 512, o el logo si no lo tiene; el archivo existe en el sitio)', JSON.stringify([titulo(pt.html), etiquetaMeta(pt.html, 'property', 'og:image')]));
 
     // pedido.html: seguimiento
     const pp = await pedir({ host: HOST.A, ruta: '/pedido.html?ref=TAQ-123-abcdef&t=0123456789abcdef0123456789abcdef', ua: wa });
@@ -299,10 +299,10 @@ async function main() {
     const malasImg = casos.filter(([entrada, esperado]) => conLogo(entrada) !== esperado);
     comprobar(malasImg.length === 0, `3f la imagen de la vista previa solo puede ser una ruta propia o https del Storage esperado (${casos.length} casos)`, malasImg.map((c) => c[2] + ' -> ' + conLogo(c[0])).join(' | '));
     const conIconos = (marca) => PUB.datosVistaPrevia({ ...rest0, config: { publico: { marca } } }, 'alfa.test', 'index', { SUPABASE_URL: 'https://abc.supabase.co' }).imagen;
-    comprobar(conIconos({ logo: 'Recursos/l.png', icono_512: 'Recursos/i512.png', icono_192: 'Recursos/i192.png' }) === 'https://alfa.test/Recursos/l.png'
-      && conIconos({ icono_512: 'Recursos/i512.png', icono_192: 'Recursos/i192.png' }) === 'https://alfa.test/Recursos/i512.png'
+    comprobar(conIconos({ logo: 'Recursos/l.png', icono_512: 'Recursos/i512.png', icono_192: 'Recursos/i192.png' }) === 'https://alfa.test/Recursos/i512.png'
+      && conIconos({ logo: 'Recursos/l.png', icono_192: 'Recursos/i192.png' }) === 'https://alfa.test/Recursos/l.png'
       && conIconos({ icono_192: 'Recursos/i192.png' }) === 'https://alfa.test/Recursos/i192.png' && conIconos({}) === null,
-      '3h la imagen es el logo; sin logo, el icono de 512; sin ese, el de 192; sin ninguno, nada', JSON.stringify([conIconos({ logo: 'Recursos/l.png', icono_512: 'Recursos/i512.png' }), conIconos({ icono_512: 'Recursos/i512.png' }), conIconos({})]));
+      '3h la imagen es el icono de 512 (fondo solido: el logo transparente se veria mal sobre el fondo de WhatsApp); sin el, el logo; sin ese, el de 192; sin ninguno, nada', JSON.stringify([conIconos({ logo: 'Recursos/l.png', icono_512: 'Recursos/i512.png' }), conIconos({ logo: 'Recursos/l.png' }), conIconos({})]));
     const conHttp = PUB.datosVistaPrevia({ ...rest0, config: { publico: { marca: { logo: 'http://abc.supabase.co/storage/v1/x.png' } } } }, 'alfa.test', 'index', { SUPABASE_URL: 'http://abc.supabase.co' }).imagen;
     comprobar(conHttp === null, '3i aunque el Supabase del proyecto fuera http, una imagen http no sale (solo https)', conHttp);
     const sinEnv = PUB.datosVistaPrevia({ ...rest0, config: { publico: { marca: { logo: 'https://abc.supabase.co/x.png' } } } }, 'alfa.test', 'index', {}).imagen;

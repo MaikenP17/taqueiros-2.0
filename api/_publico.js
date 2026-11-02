@@ -353,8 +353,9 @@ function datosManifest(restaurante, env) {
      host     el host YA normalizado de la peticion (solo letras, numeros, puntos y guiones)
 
    El titulo y la descripcion de "index" son los mismos que pinta la pagina con JavaScript
-   (titulo_pagina y descripcion_pagina, o el nombre del restaurante). La imagen es el logo del
-   restaurante como URL ABSOLUTA https: una ruta del sitio se completa con el host; una URL del
+   (titulo_pagina y descripcion_pagina, o el nombre del restaurante). La imagen es el icono de
+   512 px del restaurante (fondo solido: un logo transparente se veria mal sobre el fondo de WhatsApp;
+   sin icono, el logo) como URL ABSOLUTA https: una ruta del sitio se completa con el host; una URL del
    Storage esperado se deja tal cual; cualquier otra cosa (http, otros origenes) no sale. */
 function datosVistaPrevia(restaurante, host, pagina, env) {
   const cfg = configEfectiva(restaurante);
@@ -370,7 +371,7 @@ function datosVistaPrevia(restaurante, host, pagina, env) {
     : (textos.descripcion_pagina || ("Pide en línea en " + nombre + "."));
 
   let imagen = null;
-  const candidata = marca.logo || marca.icono_512 || marca.icono_192;
+  const candidata = marca.icono_512 || marca.logo || marca.icono_192;
   if (candidata && typeof host === "string" && host) {
     if (RUTA_RELATIVA.test(candidata)) {
       imagen = "https://" + host + "/" + (candidata.startsWith("/") ? candidata.slice(1) : candidata);
