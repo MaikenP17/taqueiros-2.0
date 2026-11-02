@@ -203,9 +203,73 @@
     animation:latir 2s ease-in-out infinite;
   }
   @keyframes latir{0%,100%{opacity:.35;}50%{opacity:1;}}
+
+  /* =====================================================================================================
+     TEMA CLARO (interruptor TEMA_CLARO, al inicio de <body>; igual al de index.html)
+
+     Mismo estilo claro y minimalista que el menu: fondo crema liso, logo transparente sin caja, tarjetas
+     claras con borde fino y sombra suave. Todo cuelga de body.tema-claro: con TEMA_CLARO = false vuelve el
+     estilo oscuro de arriba. Los colores salen de las variables de la marca.
+  ===================================================================================================== */
+  body.tema-claro{background:var(--crema); background-attachment:scroll; color:var(--carbon);}
+  .tema-claro ::selection{background:var(--rojo); color:var(--crema-suave);}
+  .tema-claro #rp-estado{background:var(--crema); color:var(--carbon);}
+  .tema-claro #rp-estado .rp-spin{border-color:rgba(var(--carbon-rgb),.15); border-top-color:var(--rojo);}
+  .tema-claro #rp-estado h1{color:var(--carbon);}
+  .tema-claro #rp-estado p{color:rgba(var(--carbon-rgb),.78);}
+  .tema-claro :is(a,button):focus-visible{outline:3px solid var(--carbon); outline-offset:3px;}
+
+  .tema-claro .cabecera img{width:min(210px, 56vw); height:auto; max-height:none; background:none; padding:0; border-radius:0; margin-bottom:1rem;}
+  .tema-claro .cabecera h1{color:var(--carbon);}
+  .tema-claro .cabecera .ref{color:rgba(var(--carbon-rgb),.78); background:var(--crema-suave); border-color:rgba(var(--carbon-rgb),.3);}
+
+  .tema-claro .card{background:var(--crema-suave); border:1px solid rgba(var(--carbon-rgb),.14); box-shadow:0 6px 18px rgba(var(--carbon-rgb),.08);}
+  .tema-claro .card h2{color:var(--rojo-oscuro);}
+
+  .tema-claro .paso .globo{background:var(--crema); border-color:rgba(var(--carbon-rgb),.5);}
+  .tema-claro .paso .txt{color:rgba(var(--carbon-rgb),.72);}
+  .tema-claro .paso::before{background:rgba(var(--carbon-rgb),.25);}
+  .tema-claro .paso.hecho .globo{background:var(--verde); border-color:var(--verde);}
+  .tema-claro .paso.hecho .txt{color:#3f5a24;}
+  .tema-claro .paso.hecho::before{background:var(--verde);}
+  .tema-claro .paso.activo .globo{background:var(--rojo); border-color:var(--rojo-oscuro);}
+  .tema-claro .paso.activo .txt{color:var(--carbon);}
+  .tema-claro .estado-frase{color:var(--carbon); border-top-color:rgba(var(--carbon-rgb),.25);}
+  .tema-claro .estado-sub{color:rgba(var(--carbon-rgb),.72);}
+
+  .tema-claro .cancelado{background:rgba(var(--rojo-rgb),.08); border-color:rgba(var(--rojo-rgb),.45);}
+  .tema-claro .cancelado h2{color:var(--rojo-oscuro);}
+  .tema-claro .cancelado p{color:rgba(var(--carbon-rgb),.8);}
+
+  .tema-claro .linea{border-bottom-color:rgba(var(--carbon-rgb),.1);}
+  .tema-claro .linea .cant{color:var(--rojo-oscuro);}
+  .tema-claro .linea .val{color:rgba(var(--carbon-rgb),.78);}
+  .tema-claro .total{color:#3f5a24; border-top-color:rgba(var(--carbon-rgb),.25);}
+  .tema-claro .total span:first-child{color:rgba(var(--carbon-rgb),.72);}
+  .tema-claro .entrega-info{background:var(--crema); border-color:rgba(var(--carbon-rgb),.2); color:rgba(var(--carbon-rgb),.78);}
+  .tema-claro .entrega-info strong{color:var(--carbon);}
+
+  .tema-claro .btn-wsp{min-height:48px;}
+  .tema-claro .btn-menu{min-height:48px; display:flex; align-items:center; justify-content:center; color:var(--carbon); background:transparent; border:2px solid var(--carbon);}
+  .tema-claro .btn-menu:hover{background:rgba(var(--carbon-rgb),.07); color:var(--carbon);}
+
+  .tema-claro .aviso{color:rgba(var(--carbon-rgb),.78);}
+  /* mostrarAviso() pone un color claro EN LINEA (pensado para el fondo oscuro): sobre crema no se leeria */
+  .tema-claro .aviso strong{color:var(--carbon) !important;}
+  .tema-claro .aviso a{color:var(--rojo-oscuro); text-decoration:underline;}
+  .tema-claro .actualizado{color:rgba(var(--carbon-rgb),.72);}
+  .tema-claro .actualizado .punto{background:var(--verde);}
 </style>
 </head>
 <body>
+
+<script>
+/* Interruptor del estilo claro: es el MISMO que el de index.html y tiene que valer lo mismo (una prueba lo exige).
+   true = claro y minimalista; false = el estilo oscuro de antes. Pone la clase "tema-claro" en <body>; todo el CSS
+   claro cuelga de ella. Afecta a todos los restaurantes: ver el comentario de index.html y docs seccion 20.14. */
+const TEMA_CLARO = true;
+if(TEMA_CLARO) document.body.classList.add("tema-claro");
+</script>
 
 <!-- Pantalla de carga. Si el restaurante no llega (dominio desconocido, servidor caído) se convierte en
      un mensaje neutro; si llega, restaurante-publico.js la quita. -->

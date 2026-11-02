@@ -713,9 +713,184 @@
     header{padding:.6rem 1rem;}
     .cat-nav{top:60px;}
   }
+
+  /* =====================================================================================================
+     TEMA CLARO (interruptor TEMA_CLARO, al inicio de <body>)
+
+     Estilo claro y minimalista del sitio publico: fondo crema liso, encabezado con solo el logo
+     transparente, portada sin cajas ni rayas, tarjetas claras con borde fino y sombra suave.
+     TODO lo de este bloque cuelga de la clase body.tema-claro: con TEMA_CLARO = false esa clase no se pone y
+     la pagina vuelve, sin tocar nada mas, al estilo oscuro de arriba. Los colores salen de las variables de
+     la marca (--rojo, --crema, --carbon, --mostaza...), no de colores nuevos. Contraste WCAG AA calculado
+     (pruebas/multirestaurante/tema-claro.mjs).
+     Los textos de las variables --texto-secundario y --texto-tenue son CLAROS (se hicieron para fondo
+     oscuro): aqui solo se usan en el pie, que se queda oscuro como ancla.
+  ===================================================================================================== */
+  body.tema-claro{background:var(--crema); color:var(--carbon);}
+  .tema-claro .noise-bg{display:none;}
+  .tema-claro ::selection{background:var(--rojo); color:var(--crema-suave);}
+
+  /* Pantalla de carga y mensaje neutro, tambien claros (si no, hay un parpadeo oscuro al abrir) */
+  .tema-claro #rp-estado{background:var(--crema); color:var(--carbon);}
+  .tema-claro #rp-estado .rp-spin{border-color:rgba(var(--carbon-rgb),.15); border-top-color:var(--rojo);}
+  .tema-claro #rp-estado h1{color:var(--carbon);}
+  .tema-claro #rp-estado p{color:rgba(var(--carbon-rgb),.78);}
+
+  /* Foco visible (el pie es oscuro: ahi el aro es mostaza) */
+  .tema-claro :is(a,button,input,textarea,select):focus-visible{outline:3px solid var(--carbon); outline-offset:3px;}
+  .tema-claro footer :is(a,button):focus-visible{outline-color:var(--mostaza);}
+
+  /* Encabezado: SOLO el logo (el nombre queda como texto para lectores de pantalla), linea fina y sombra suave */
+  .tema-claro header{
+    background:var(--crema-suave); backdrop-filter:none;
+    border-bottom:1px solid var(--carbon); box-shadow:0 6px 16px rgba(var(--carbon-rgb),.1);
+  }
+  .tema-claro .brand img{height:44px; width:auto; max-width:140px; background:none; padding:0; border-radius:0; object-fit:contain;}
+  /* Sin logo (o con el logo oculto) el nombre en texto SI se ve: solo se esconde cuando hay una imagen */
+  .tema-claro .brand:has(img[src]:not([style*="none"])) .name{
+    position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap;
+  }
+  .tema-claro .brand .name{color:var(--carbon);}
+  .tema-claro .brand .name span{color:var(--rojo);}
+  .tema-claro .cart-btn{min-height:44px;}
+  .tema-claro .cart-btn:hover{background:var(--rojo-oscuro);}
+  .tema-claro .cart-badge{border-color:var(--crema-suave);}
+
+  /* Aviso de abierto / cerrado (solo el aspecto). Abierto: claro, con una linea verde (no compite con la portada).
+     Cerrado: mostaza solido con texto oscuro, porque ese si tiene que verse. Ambos cumplen AA. */
+  .tema-claro .status-banner{border-bottom:1px solid rgba(var(--carbon-rgb),.2);}
+  .tema-claro .status-banner.open{background:var(--crema-suave); color:var(--carbon); border-bottom:3px solid var(--verde);}
+
+  /* Portada: crema liso, sin degradado ni rayas */
+  .tema-claro .hero{background:var(--crema); min-height:0; justify-content:flex-start; padding:4.2rem 1.5rem 3rem; overflow:visible;}
+  .tema-claro .hero::before{display:none;}
+  .tema-claro .hero-eyebrow{
+    color:var(--rojo); font-weight:800; font-size:.8rem; letter-spacing:.4em; padding-left:.4em; margin-bottom:1.6rem;
+  }
+  .tema-claro .hero-logo-frame{background:none; border:0; border-radius:0; padding:0; box-shadow:none;}
+  .tema-claro .hero-logo-frame img{width:min(380px, 78vw); height:auto;}
+  .tema-claro .hero p.tagline{
+    max-width:420px; margin:1.4rem auto 1.8rem; font-size:.85rem; line-height:1.5; font-weight:500;
+    color:rgba(var(--carbon-rgb),.78);
+  }
+  .tema-claro .hero-ctas{flex-direction:column; flex-wrap:nowrap; align-items:stretch; gap:.8rem; width:100%; max-width:360px;}
+  .tema-claro .btn-primary, .tema-claro .btn-secondary{justify-content:center; min-height:52px; width:100%;}
+  .tema-claro .btn-primary{background:var(--rojo); color:var(--crema-suave); box-shadow:0 8px 20px rgba(var(--rojo-rgb),.25);}
+  .tema-claro .btn-primary:hover{background:var(--rojo-oscuro); box-shadow:0 10px 24px rgba(var(--rojo-rgb),.32);}
+  .tema-claro .btn-secondary{background:transparent; color:var(--carbon); border:2px solid var(--carbon);}
+  .tema-claro .btn-secondary:hover{background:rgba(var(--carbon-rgb),.07); border-color:var(--carbon);}
+  .tema-claro .hero-scroll{display:none;}
+  /* "Mi pedido": enlace con lupa, subrayado, a la derecha, sin borde de boton */
+  .tema-claro .hero-mi-pedido{
+    top:.4rem; right:.8rem; background:none; border:0; border-radius:8px; color:var(--carbon);
+    text-decoration:underline; text-underline-offset:.25em; padding:.5rem .7rem;
+  }
+  .tema-claro .hero-mi-pedido:hover{color:var(--rojo-oscuro); transform:none;}
+  @media (min-width:641px){ .tema-claro .hero-mi-pedido{right:1.2rem;} }
+
+  /* Barra de categorias */
+  .tema-claro .cat-nav{background:var(--crema); backdrop-filter:none; border-bottom:1px solid rgba(var(--carbon-rgb),.15);}
+  .tema-claro .cat-nav button{
+    min-height:44px; background:var(--crema-suave); color:var(--carbon);
+    border:1px solid rgba(var(--carbon-rgb),.5);
+  }
+  .tema-claro .cat-nav button.active, .tema-claro .cat-nav button:hover{background:var(--rojo); color:var(--crema-suave); border-color:var(--rojo);}
+
+  /* Menu y tarjetas */
+  .tema-claro .category-head h2{color:var(--carbon);}
+  .tema-claro .category-head .count{color:rgba(var(--carbon-rgb),.7);}
+  .tema-claro .category-head::after{background:linear-gradient(90deg, rgba(var(--rojo-rgb),.55), transparent);}
+  .tema-claro .card, .tema-claro .card-esqueleto{
+    background:var(--crema-suave); border:1px solid rgba(var(--carbon-rgb),.14);
+    box-shadow:0 6px 18px rgba(var(--carbon-rgb),.08);
+  }
+  .tema-claro .card:hover{box-shadow:0 10px 26px rgba(var(--carbon-rgb),.14);}
+  .tema-claro .add-btn{width:44px; height:44px; background:var(--rojo); color:var(--crema-suave);}
+  .tema-claro .add-btn:hover{background:var(--rojo-oscuro);}
+  .tema-claro .qty-control{background:var(--crema); border:1px solid rgba(var(--carbon-rgb),.5); padding:.15rem;}
+  .tema-claro .qty-control button{width:44px; height:44px;}
+  .tema-claro .qty-control .qty-num{color:var(--carbon);}
+  .tema-claro .etiqueta-agotado{background:rgba(var(--carbon-rgb),.06); border-color:rgba(var(--carbon-rgb),.25);}
+  .tema-claro .menu-caido h3{color:var(--carbon);}
+  .tema-claro .menu-caido p{color:rgba(var(--carbon-rgb),.78);}
+  .tema-claro .menu-aviso{background:rgba(var(--mostaza-rgb),.25); border-color:rgba(var(--mostaza-rgb),.7); color:var(--carbon);}
+
+  /* Barra flotante del pedido */
+  .tema-claro .floating-bar{background:var(--crema-suave); border:1px solid var(--carbon); box-shadow:0 10px 28px rgba(var(--carbon-rgb),.22);}
+  .tema-claro .floating-bar .info small{color:rgba(var(--carbon-rgb),.78);}
+  .tema-claro .floating-bar .info strong{color:var(--carbon);}
+  .tema-claro .floating-bar button{min-height:44px;}
+
+  /* Carrito (cajon) */
+  .tema-claro .overlay, .tema-claro .modal-overlay{background:rgba(var(--carbon-rgb),.5);}
+  /* La sombra del cajon solo cuando esta abierto: cerrado queda fuera de la pantalla pero su sombra se asomaria por el borde */
+  .tema-claro .drawer{background:var(--crema-suave); box-shadow:none;}
+  .tema-claro .drawer.open{box-shadow:-12px 0 40px rgba(var(--carbon-rgb),.25);}
+  .tema-claro .drawer-head{background:var(--crema-suave); color:var(--carbon); border-bottom:1px solid var(--carbon);}
+  .tema-claro .drawer-head button{color:var(--carbon); min-width:44px; min-height:44px;}
+  .tema-claro .drawer-item{border-bottom-color:rgba(var(--carbon-rgb),.12);}
+  .tema-claro .drawer-item-icon{background:var(--crema); color:var(--carbon); border:1px solid rgba(var(--carbon-rgb),.2);}
+  .tema-claro .drawer-footer{border-top-color:rgba(var(--carbon-rgb),.15);}
+  .tema-claro .remove-link{min-height:44px; display:inline-flex; align-items:center; padding:0 .3rem;}
+  .tema-claro .note-input, .tema-claro .form-field input, .tema-claro .form-field textarea{border-color:rgba(var(--carbon-rgb),.55);}
+  .tema-claro .pay-btn:hover:not(:disabled){background:var(--rojo-oscuro);}
+  .tema-claro .pay-divider::before, .tema-claro .pay-divider::after{background:rgba(var(--carbon-rgb),.2);}
+
+  /* Modales: producto, datos de entrega, busqueda, confirmacion */
+  .tema-claro .product-modal{background:var(--crema-suave); box-shadow:0 20px 50px rgba(var(--carbon-rgb),.3);}
+  .tema-claro .modal-close{width:44px; height:44px; top:.6rem; right:.6rem; background:rgba(var(--carbon-rgb),.72);}
+  .tema-claro .modal-body h3{color:var(--carbon);}
+  .tema-claro .order-type-option span{border-color:rgba(var(--carbon-rgb),.55);}
+  .tema-claro .order-type-option input:checked + span{background:var(--rojo); border-color:var(--rojo); color:var(--crema-suave);}
+  .tema-claro .order-type-option input:focus-visible + span{outline:3px solid var(--carbon); outline-offset:3px;}
+  .tema-claro .form-submit-btn{background:var(--rojo); color:var(--crema-suave); box-shadow:0 -6px 16px rgba(var(--carbon-rgb),.08);}
+  .tema-claro .form-submit-btn:hover:not(:disabled){background:var(--rojo-oscuro);}
+  .tema-claro .btn-ubicacion, .tema-claro .btn-copiar-link{
+    background:transparent; color:var(--carbon); border:2px solid var(--carbon); min-height:44px;
+  }
+  .tema-claro .btn-ubicacion:hover:not(:disabled){background:rgba(var(--carbon-rgb),.07);}
+  .tema-claro .btn-copiar-link.copiado{background:var(--verde); border-color:var(--verde); color:var(--crema-suave);}
+  .tema-claro .btn-seguir{background:var(--rojo); color:var(--crema-suave);}
+  .tema-claro .btn-seguir:hover{background:var(--rojo-oscuro);}
+  .tema-claro #confirmBackBtn{background:transparent; color:var(--carbon); border:2px solid var(--carbon); box-shadow:none;}
+  .tema-claro #confirmBackBtn:hover:not(:disabled){background:rgba(var(--carbon-rgb),.07);}
+  .tema-claro .btn-corregir{border-color:rgba(var(--carbon-rgb),.45); color:var(--carbon);}
+  .tema-claro .link-btn{min-height:44px; padding:.2rem .4rem;}
+  .tema-claro .link-btn:hover{color:var(--rojo);}
+  .tema-claro .confirm-recibido, .tema-claro .rechazo-tranquilo{color:#3f5a24;}
+  .tema-claro .confirm-summary{border:1px solid rgba(var(--carbon-rgb),.12);}
+  .tema-claro .link-guardar{border-color:rgba(var(--carbon-rgb),.35);}
+  .tema-claro .resultado-pedido{border-color:rgba(var(--carbon-rgb),.3); min-height:44px;}
+  .tema-claro .banner-pedido .cerrar{width:44px; height:44px;}
+
+  /* Pie: se queda oscuro (ancla visual); el logo transparente va sobre un chip crema porque su texto es negro */
+  .tema-claro footer{background:var(--carbon); color:var(--texto-claro); border-top:0;}   /* (el color del <body> es oscuro en este tema: sin esto el nombre y las redes del pie quedarian oscuros sobre oscuro) */
+  .tema-claro .footer-brand img{height:44px; width:auto; max-width:120px; object-fit:contain; border-radius:10px; padding:4px;}
+  .tema-claro .socials a{width:44px; height:44px;}
+  .tema-claro .buscar-pedido-link{min-height:44px; padding:.6rem 0;}
 </style>
 </head>
 <body>
+
+<script>
+/* =========================================================
+   INTERRUPTOR DEL ESTILO CLARO
+
+   true  = estilo claro y minimalista (fondo crema, logo transparente, tarjetas claras). Es el estilo de hoy.
+   false = el estilo oscuro de antes (fondo marron con degradado y rayas, logo en caja crema).
+   Pone la clase "tema-claro" en <body>; TODO el CSS claro de esta pagina cuelga de esa clase, asi que apagarlo
+   es cambiar esta sola palabra. Va al principio del <body>, antes de la pantalla de carga, para que no
+   haya un parpadeo oscuro al abrir.
+
+   OJO: afecta a TODOS los restaurantes que sirve este sitio (el estilo no sale de la base de datos: los
+   COLORES si, pero no el diseno). Hay que decidir si se queda asi, o se hace configurable por restaurante,
+   ANTES de vender a un segundo restaurante (docs/multirestaurante.md, seccion 20.14).
+   pedido.html (el seguimiento) tiene su propio interruptor, igual a este: si se cambia uno, se cambia el otro
+   (una prueba lo exige).
+========================================================= */
+const TEMA_CLARO = true;
+if(TEMA_CLARO) document.body.classList.add("tema-claro");
+</script>
 
 <!-- Pantalla de carga. Si el restaurante no llega (dominio desconocido, servidor caído) se convierte en
      un mensaje neutro; si llega, restaurante-publico.js la quita. -->
