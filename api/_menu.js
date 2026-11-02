@@ -31,7 +31,66 @@ const { consultarTabla } = require("./_supabase.js");
    del otro cuando Supabase falle. */
 const ultimoMenuBuenoPorRestaurante = new Map();   // id -> { categorias, productos, momento }
 
-/* Menu completo del restaurante, ordenado tal como debe pintarse. */
+/* =============================================================
+   OPCIONES DE PRODUCTO (quitar ingredientes / extras con precio)
+
+   Viven en la tabla 'producto_opciones' (SQL 18). Dos usos MUY distintos:
+     * leerOpcionesActivas: lo que se MUESTRA (va en el menu, que se cachea).
+     * leerOpcionesParaCobrar: lo que se COBRA (sin cache, directo de la base).
+   La cache del menu nunca es fuente de precios: el precio de un extra se lee
+   de la base al crear el pedido (ver _precios.js).
+
+   Antes de correr el SQL 18 la tabla no existe: el menu sigue igual (sin
+   opciones) y un pedido sin opciones no se entera. Solo un pedido que PIDE
+   opciones lo nota (ver esTablaDeOpcionesAusente).
+============================================================= */
+
+/* true si el error de PostgREST significa "esa tabla no existe todavia"
+   (404 / PGRST205 en las versiones nuevas, 42P01 en las viejas). */
+function esTablaDeOpcionesAusente(err) {
+  const cuerpo = String((err && err.cuerpo) || "");
+  return !!err && (err.status === 404 || /PGRST205|42P01/.test(cuerpo));
+}
+
+let avisoOpcionesAusentes = false;
+
+/* Opciones ACTIVAS del restaurante, agrupadas por producto: Map(producto_id -> [{id,tipo,nombre,precio,orden}]).
+   Si no se pueden leer (la tabla aun no existe, o un fallo de red) devuelve un Map vacio: el menu SIGUE
+   funcionando, solo sin opciones, y el servidor igual rechaza o acepta cada opcion al cobrar. */
+async function leerOpcionesActivas(rid) {
+  let filas;
+  try {
+    filas = await consultarTabla(rid, "producto_opciones",
+      "select=producto_id,id,tipo,nombre,precio,orden&activa=is.true&order=orden.asc");
+  } catch (err) {
+    if (esTablaDeOpcionesAusente(err)) {
+      if (!avisoOpcionesAusentes) {
+        avisoOpcionesAusentes = true;
+        console.warn("[Menu] La tabla producto_opciones no existe todavia: el menu sale sin opciones. Corre supabase/18-opciones-producto.sql.");
+      }
+    } else {
+      console.error("[Menu] No se pudieron leer las opciones de producto (el menu sale sin ellas):", err.message);
+    }
+    return new Map();
+  }
+
+  const porProducto = new Map();
+  for (const f of Array.isArray(filas) ? filas : []) {
+    if (!f || typeof f.producto_id !== "string") continue;
+    if (!porProducto.has(f.producto_id)) porProducto.set(f.producto_id, []);
+    porProducto.get(f.producto_id).push({
+      id: f.id, tipo: f.tipo, nombre: f.nombre, precio: Number(f.precio), orden: Number(f.orden)
+    });
+  }
+  for (const lista of porProducto.values()) {
+    lista.sort((a, b) => (a.orden - b.orden) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+  return porProducto;
+}
+
+/* Menu completo del restaurante, ordenado tal como debe pintarse.
+   Cada producto que tenga opciones ACTIVAS trae ademas  opciones: [{id, tipo, nombre, precio, orden}]
+   (aditivo: un producto sin opciones queda exactamente como siempre, sin la clave). */
 async function leerMenu(rid) {
   /* Se traen TODAS las categorias, tambien las desactivadas.
      Antes se filtraban aqui (activa=is.true) y eso causaba un fallo
@@ -43,10 +102,15 @@ async function leerMenu(rid) {
      Ahora el catalogo dice lo que las cosas SON y CUESTAN, y quien
      decide que se puede pedir AHORA es /api/disponibilidad, que va
      casi sin cache. */
-  const [categorias, productos] = await Promise.all([
+  const [categorias, filasProductos, opciones] = await Promise.all([
     consultarTabla(rid, "categorias", "select=id,nombre,emoji,orden,activa&order=orden.asc"),
-    consultarTabla(rid, "productos", "select=id,nombre,descripcion,precio,categoria,orden,disponible,imagen&order=orden.asc")
+    consultarTabla(rid, "productos", "select=id,nombre,descripcion,precio,categoria,orden,disponible,imagen&order=orden.asc"),
+    leerOpcionesActivas(rid)
   ]);
+
+  const productos = opciones.size
+    ? filasProductos.map((p) => (opciones.has(p.id) ? Object.assign({}, p, { opciones: opciones.get(p.id) }) : p))
+    : filasProductos;
 
   const menu = {
     categorias,
@@ -127,4 +191,28 @@ async function leerCatalogoParaCobrar(rid) {
   return mapa;
 }
 
-module.exports = { leerMenu, menuDeRespaldo, leerEstadoMenu, leerCatalogoParaCobrar };
+/* Las opciones de los productos que se estan pidiendo, para validarlas y cobrarlas.
+   NO pasa por ningun cache. Devuelve Map(producto_id -> Map(opcion_id -> fila)) con TODAS las opciones de esos
+   productos (tambien las apagadas: quien llama decide, para poder rechazarlas por su nombre).
+   Lanza el error de PostgREST si falla (y si la tabla no existe: ver esTablaDeOpcionesAusente). */
+async function leerOpcionesParaCobrar(rid, productoIds) {
+  const ids = Array.from(new Set((productoIds || []).map(String)));
+  const mapa = new Map();
+  if (!ids.length) return mapa;
+
+  // in.("a","b"): los ids van entre comillas, con \ y " escapados, y todo el valor codificado para la URL
+  const lista = ids.map((id) => '"' + id.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"').join(",");
+  const filas = await consultarTabla(rid, "producto_opciones",
+    "select=producto_id,id,tipo,nombre,precio,orden,activa&producto_id=in.(" + encodeURIComponent(lista) + ")");
+
+  for (const f of filas) {
+    if (!mapa.has(f.producto_id)) mapa.set(f.producto_id, new Map());
+    mapa.get(f.producto_id).set(f.id, f);
+  }
+  return mapa;
+}
+
+module.exports = {
+  leerMenu, menuDeRespaldo, leerEstadoMenu, leerCatalogoParaCobrar,
+  leerOpcionesActivas, leerOpcionesParaCobrar, esTablaDeOpcionesAusente
+};

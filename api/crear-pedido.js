@@ -140,7 +140,8 @@ module.exports = async (req, res) => {
       /* Se devuelven los HECHOS: que productos se agotaron y cuales
          cambiaron de precio, con sus valores nuevos. El mensaje que
          ve el cliente lo arma el navegador despues de aplicarlos. */
-      res.status(409).json({
+      // Las opciones mal formadas o invalidas traen su propio codigo (400 / 503); lo demas sigue siendo 409.
+      res.status(revision.codigo || 409).json({
         error: revision.error || null,
         agotados: revision.agotados || [],
         preciosCambiados: revision.preciosCambiados || [],
