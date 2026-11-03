@@ -3284,7 +3284,7 @@ Comandos nuevos: `node pruebas/multirestaurante/opciones.mjs` (~17 s), `node pru
 ### 22.16 Qué sigue
 
 1. **Revisión de seguridad** de esta parte A (22.15). *Hecha: 22.17.*
-2. **PARTE B** (interfaz del cliente): modal del producto, carrito, mensaje de WhatsApp, ticket impreso, panel, historial y menu-admin (alta/edición/apagado de opciones por el dueño). Incluir ahí además el arreglo del aviso de abierto que hoy termina en "p.m.." con dos puntos.
+2. **PARTE B** (interfaz del cliente): modal del producto, carrito, mensaje de WhatsApp, ticket impreso, panel, historial y menu-admin (alta/edición/apagado de opciones por el dueño). Incluir ahí además el arreglo del aviso de abierto que hoy termina en "p.m.." con dos puntos. *Hecha: 22.18.*
 3. Después, las pruebas reales del rebrand y la verificación del 3A.
 
 ### 22.17 Revisión adversaria de la parte A (independiente)
@@ -3359,3 +3359,136 @@ El nombre de una opción llega a: menú público, modal y carrito (`index.html`)
 Cambian, a propósito: **unitarias 120 → 121** (`opciones-precios.test.js` 19 → 20: la prueba de H1; las demás se reforzaron dentro de pruebas existentes); **`servidor.mjs` 260 → 262** (y por despachador y reescrita: el escenario de H1 y el del webhook con domicilio; con `SQL18_NO=1` sigue en **208**); **contra el falso `probar-servidor-multirestaurante` 247 → 249** (corre los mismos escenarios: **es lo que debe dar en la base real**); **`opciones.mjs` 75 → 77** (D7b y D7c; D1 ahora prueba 22 reglas y D11 cuenta por restaurante). Mutaciones: 102 → **115**. **Sin cambios:** superadmin 50, sql16 48, crear-superadmin-test 13, agrupacion 32, vista-previa 57, front 139, tema-claro 43, panel 360, e2e 180, rls 237, endurecer 426, migrar-fotos 126, datos-restaurante 76, config-publica 52, dominios 35, hallazgos 32, planes 11, sim 34 OK, cargar-secretos-test 25, inspeccion 6, rebrand-northe 78, textos-visibles 10, comparar-tickets 7 de 7 idénticos; contra el falso: probar-compatibilidad 26, probar-opciones 38, probar-superadmin 50, probar-aislamiento 252 de 259 (las 7 de Realtime, que el falso no emula, como siempre).
 
 **Qué correr en la base real (opcional, con la llave cargada como en 22.11):** `node supabase/probar-servidor-multirestaurante.mjs` → **249 PASAN** (el escenario de H1 crea y borra su propia opción con emoji en un restaurante de prueba). No hay SQL que aplicar.
+
+### 22.18 PARTE B: la interfaz de las opciones de producto (cliente, carrito, mensajes, ticket, panel, historial y menu-admin)
+
+**Qué es.** La pantalla de lo que la parte A dejó listo en la base y en el servidor: el cliente **quita** ingredientes (gratis) y **agrega** extras (con precio) en cada producto; eso viaja bien en el pedido, el WhatsApp, el ticket de cocina, el seguimiento, el panel y el historial; y el dueño administra sus opciones desde `menu-admin.html`. **No hay SQL nuevo** (la tabla, los permisos y el cálculo del precio son los de 22.2 a 22.7). **El servidor no cambió de contrato ni de cálculo:** solo se tocó `api/_notificar.js` (las opciones en el mensaje de CallMeBot) y una línea de `api/crear-pedido.js` (el arreglo H4). `/api/crear-pedido` ya devolvía `subtotal` y `total` (los del servidor): **no hizo falta ningún campo nuevo** para avisar de un precio cambiado.
+
+#### 22.18.1 Qué se cambió, archivo por archivo
+
+| Archivo | Qué hace ahora |
+|---|---|
+| `opciones-texto.js` (**nuevo**, `window.OpcionesTexto` y `require()`) | **Una sola copia** de las reglas de texto (S1 a S5) y de las claves de las líneas del carrito: `limpiar`, `paraMensaje`, `etiquetas`/`resumen`/`parentesis`, `claveLinea`/`leerClave` y `motivoNombreInvalido` (la validación del dueño). Lo cargan `index.html`, `pedido.html`, `panel.html`, `historial.html` y `menu-admin.html`. El servidor tiene **su propia copia** de las dos funciones que usa (`api/_notificar.js`: `textoOpcion`, `parentesisOpciones`; no carga archivos de la raíz porque un `require` roto tumbaría el webhook de pagos) y una prueba (`opciones-texto.test.js`, con 3.000 casos al azar) exige que las dos copias den **exactamente lo mismo**. |
+| `index.html` | Modal con dos grupos (**"Quítale algo"** y **"Agrégale extras"**) y el botón *Agregar al carrito — $X* que se actualiza en vivo; carrito por **líneas** (producto + opciones); las opciones bajo cada línea; mensajes de WhatsApp con las opciones; aviso de **precio cambiado** (C2) y manejo del 400 de opciones (C3); la confirmación y el WhatsApp de copia llevan las opciones y el total del servidor (C4); y el arreglo del aviso de abierto ("p.m.."). |
+| `ticket-comanda.js` | Bajo cada item: `SIN: queso, salsa rosa` y un `+ Tocineta extra` por línea, en negrita; el ticket de prueba trae un item con opciones. |
+| `panel.html`, `historial.html`, `pedido.html` | Las opciones bajo cada item, **como texto** (nunca HTML). Un pedido antiguo sin opciones se ve idéntico. |
+| `menu-admin.html` | Hoja **"Opciones de {producto}"**: lista, agregar (quitar/extra, nombre, precio solo para extras), editar nombre y precio, apagar/encender, subir/bajar, eliminar; tope de 12; validación **igual o más estricta que la base**; los rechazos de la base se muestran en español. |
+| `api/_notificar.js` | El mensaje de CallMeBot lleva las opciones en la **misma línea** del item: `2x Big Norte (Sin queso, + Queso extra) — 62.000`. |
+| `api/crear-pedido.js` | **H4:** los datos del cliente se recortan por **caracteres completos** (antes por unidades UTF-16: un emoji en el borde daba 500). Exporta `limpiar` solo para la prueba. |
+| `sw.js` | **v14** (refresca la caché del panel instalado; el HTML y los scripts siguen yendo a la red). |
+
+#### 22.18.2 Cómo lo ve el cliente
+
+* **Producto con opciones** (las activas que trae `/api/menu`): el **"+"** de la tarjeta, o la tarjeta, **abre el modal**; no suma directo. En la tarjeta, una burbuja dice cuántas unidades de ese producto lleva el carrito (de una o varias líneas).
+* **Modal.** Dos `<fieldset>` con su `<legend>` ("Quítale algo", gratis; "Agrégale extras", con `+$2.000`). Cada opción es una **casilla real** (`<input type=checkbox>` dentro de su `<label>`): se marca con el dedo, con el teclado (espacio) y la lee un lector de pantalla ("Queso extra más $2.000"). Cada fila mide **al menos 48 px**; el botón principal y la X, al menos 44 px; el foco del teclado se ve (aro de 3 px). El botón **"Agregar al carrito — $X"** muestra *base + extras marcados* (los "quitar" no suman). Se cierra con la X, con Escape y tocando fuera, y el foco vuelve al botón que lo abrió.
+* **No pierde lo marcado por accidente.** Lo marcado de cada producto queda en **memoria** (`borradorOpciones`) al cerrar el modal con la X, Escape o tocando fuera: al volver a abrir **el mismo producto** sigue marcado. Se borra al agregar al carrito (y al recargar la página).
+* **Producto sin opciones** (las bebidas): todo igual que antes (el "+" suma directo, su control de cantidad, su modal de siempre).
+* El estilo es el de siempre: el modal es crema en los dos temas (claro `TEMA_CLARO` y oscuro); se probó en 360, 390, 768 y 1280 px con el contraste AA medido en el navegador.
+
+#### 22.18.3 El carrito: la clave de las líneas (C1)
+
+El carrito sigue siendo `{ clave: cantidad }`, pero la **clave** ahora es **producto + opciones**:
+
+| Caso | Clave |
+|---|---|
+| producto sin opciones (y **cualquier carrito guardado por la versión anterior**) | `nb-big-norte` (el id, igual que siempre) |
+| con opciones | `nb-big-norte|extra-queso,extra-tocineta,sin-queso` (los ids de opción **ordenados** y sin repetir) |
+
+* Las **mismas opciones marcadas en otro orden dan la misma clave**: se juntan en una línea (cantidad + 1). **Otro conjunto de opciones es otra línea** (también "ninguna": un Big Norte con y otro sin opciones son dos líneas).
+* En el navegador se guardan **solo ids**. Nombres y precios se leen del menú que está en memoria (`lineaDe(clave)`): el precio unitario *para mostrar* es `precio base + extras`, y el subtotal, `unitario × cantidad`.
+* **Un carrito antiguo** (`{"big":2,"lil":1}`) se lee tal cual (sus claves ya son claves válidas). Las claves rotas (mayúsculas, espacios, `big|` vacía, más de 12 opciones) se **descartan** al cargar; un producto que ya no existe se retira con el aviso de siempre.
+* **Una opción que ya no existe o está apagada.** Cuando llega un menú **fresco del servidor**, cada línea cuyas opciones ya no estén en el menú se **quita entera** con un aviso amable ("Quitamos de tu carrito: Big Norte… Agrégalo de nuevo con las opciones de hoy"). **No se le quita solo esa opción**: sería cambiarle el pedido en silencio (un "sin cebolla" que desaparece lo pagaría con cebolla, y eso es un asunto de alergias). Si el menú viene de la copia vieja del navegador no se toca nada (el servidor decide al pagar, ver C3).
+* Al servidor viaja, por línea: `{ id, cantidad, precio: <precio BASE>, opciones: [ids] }`; la clave `opciones` **no se manda** si la línea no tiene (el pedido sin opciones es **idéntico** byte a byte al de antes). Nunca nombres ni precios de opciones.
+
+#### 22.18.4 Precio que cambió (H5, C2) y opciones rechazadas (C3)
+
+`/api/crear-pedido` crea el pedido (pendiente de pago) y responde `{ referencia, total, subtotal, firma, … }` **antes** de abrir Wompi. Qué se hace con eso:
+
+1. **El navegador compara** `total` y `subtotal` del servidor con los del carrito (`subtotal` + el domicilio que mostraba). Si coinciden, abre Wompi como siempre.
+2. Si **no coinciden** (típico: el dueño subió un extra y el menú del cliente tenía hasta 60 s de retraso) **no se abre Wompi en silencio**: sale un aviso (*"El precio subió / bajó"*) con el monto nuevo y **dos botones**:
+   * **Pagar $X:** sigue con **ese mismo pedido** (su referencia y su firma): Wompi recibe el monto del servidor. **No se crea otro pedido.** Si el cliente aceptó un total distinto del que veía, la confirmación muestra el total del servidor y una línea **"Ajuste de precios $N"** para que los renglones cuadren con el total.
+   * **Revisar mi pedido** (o Escape): se abre el carrito con un aviso fijo ("El total confirmado por el restaurante es $X…") y se vuelve a pedir el menú **una sola vez** para que el carrito muestre los precios al día. **No se recarga en bucle** (la copia del menú puede seguir vieja un minuto: el valor bueno es el que devolvió el servidor). Tocar **fuera** del aviso no lo cierra: hay que elegir.
+3. **Lo que queda atrás en "Revisar":** el pedido ya creado se queda **sin pagar** (`pendiente_pago`: nunca llega al panel ni a la cocina; la limpieza lo borra a las 24 h, igual que cuando alguien cierra el widget de Wompi). Si el cliente vuelve a pagar se crea uno nuevo y **solo ese** se paga. Es el costo de no haber cambiado el servidor.
+4. **C3 (opciones rechazadas).** Si una opción se apagó o se borró después de cargar el menú, el servidor responde **400** con el aviso genérico (no dice cuál, a propósito) y no deja pedido. El navegador muestra ese aviso, abre el carrito y vuelve a pedir el menú **una vez**; la revisión de 22.18.3 quita la línea que ya no se puede pedir. El 503 ("no pudimos confirmar las opciones") solo avisa para reintentar.
+
+#### 22.18.5 Formatos de salida
+
+| Dónde | Formato |
+|---|---|
+| Pantalla (carrito, confirmación, panel, historial, seguimiento) | `Sin queso · Sin salsa rosa · + Queso extra · + Tocineta extra` (lo que se quita, como lo escribió el dueño; los extras con `+ `), bajo el nombre del producto. |
+| **WhatsApp del cliente** y de **copia del pedido pagado** (`index.html`) | Una línea por item: `- 2x Big Norte (Sin queso, + Queso extra) - $62.000`. Sin opciones sale **exactamente** como siempre. |
+| **WhatsApp / CallMeBot del restaurante** (`api/_notificar.js`) | `2x Big Norte (Sin queso, + Queso extra) — 62.000`. Sin `$` (CallMeBot lo corrompe), sin `* _ ~` ni comilla invertida (formato de WhatsApp), una sola línea, **máximo 6 etiquetas** y luego `+N más`. |
+| **Ticket impreso de 80 mm** (`ticket-comanda.js`) | Bajo el producto, en negrita: `SIN: queso, salsa rosa` (el "Sin " del nombre se quita) y **una línea `+ Tocineta extra` por cada extra**, con sangría francesa (si el nombre envuelve, la segunda línea queda bajo el texto). El nombre **no se corta a 40**: envuelve (tope de 60 caracteres completos y de 12 opciones). Sin emojis ni invisibles (la impresora los borra y un "Sin 🧅" saldría "Sin"). La hoja de estilos de las opciones **solo se agrega al ticket cuando algún producto trae opciones**: un ticket sin opciones sale **byte a byte igual** (`comparar-tickets`: 7 de 7). |
+| Texto del ticket del panel (el que se copia) | Las opciones en su propia línea, indentada, bajo el producto. |
+
+#### 22.18.6 `menu-admin`: administrar las opciones
+
+En la edición rápida de cada producto (y en el formulario completo) hay un botón **"Opciones: quitar y extras…"** que abre la hoja del producto. **Mismo camino que los productos:** la sesión del dueño y las reglas de la base (RLS); **nunca la llave de servicio**; cada lectura, alta, cambio y borrado lleva `restaurante_id` y `producto_id`; "Guardado" solo aparece cuando la base devolvió la fila. Quien hoy no puede editar productos (el cajero) ve **"Tu usuario no tiene permiso para hacer este cambio."** y no se escribe nada.
+
+* **Agregar:** tipo (*Quitar algo (gratis)* / *Extra con precio*), nombre y, solo para extras, el precio. El id sale del nombre (`sin-queso`); el orden, al final de su grupo (los quitar de 0 a 9, los extras desde 10, como la semilla).
+* **Editar:** nombre y precio (el tipo y el id **no** se cambian: para eso se elimina y se crea otra). **Apagar/encender** (interruptor): una opción apagada no se ofrece ni se acepta. **Subir/bajar** dentro de su grupo (se reasignan los números de orden). **Eliminar** (pregunta antes; los pedidos ya hechos no se tocan).
+* **Reglas del formulario (iguales o más estrictas que la base):** nombre de 1 a 40 caracteres **completos**; sin `<` ni `>`; sin caracteres de control, invisibles ni de dirección (bidi); **sin emojis ni símbolos** (©, ®, flechas, dingbats…) porque la impresora de la cocina no los imprime y la opción saldría mal en el papel; sin repetir un nombre del mismo producto; un "quitar" vale siempre $0; un extra va de **$1 a $50.000** (la base acepta también $0; aquí es más estricto), en **números enteros** (se aceptan `2500`, `2.500` y `$2.500`; `2,5` o `2.5` se rechazan en vez de convertirse en silencio en $25); máximo 12 por producto (cuentan las apagadas).
+* **Los rechazos de la base** (`23514`, con el texto en español que ya escribe el SQL 18: *"El nombre de la opción tiene caracteres no permitidos"*, *"Un producto no puede tener más de 12 opciones"*…) se muestran tal cual; un `42501` dice *"Tu usuario no tiene permiso…"*; un CHECK suelto, con palabras simples.
+* **Seguridad (S1):** todo texto que viene de la base se pinta con `textContent` (la lista) o como atributo escapado (`aria-label`); nunca con `innerHTML`.
+
+#### 22.18.7 Los dos arreglos pequeños
+
+* **Aviso de abierto con dos puntos ("p.m..").** La hora de cierre termina en punto (`10:00 p.m.`) y la plantilla suele poner otro justo después de `{cierre}`. En `renderStatusBanner` (`index.html`): si el cierre ya termina en punto, se quita el que viene pegado; si no (`12:00 a.m. (medianoche)`), el punto de la plantilla se queda. Solo toca ese punto; no se tocó la base ni la lógica del horario. Prueba: escenario 11 de `front.mjs` (con cierre `11:59 p.m.` y con `24:00`).
+* **H4** (`api/crear-pedido.js`, `limpiar`): recorte por caracteres (`Array.from`), igual que `api/_precios.js`. Prueba: `crear-pedido-limpiar.test.js` (falla con el recorte anterior —un `slice(0, n)` deja media pareja suelta—, pasa con el de ahora; además se rompe a propósito en la revisión por mutación).
+
+#### 22.18.8 Cumplimiento de las reglas de salida (S1 a S8) y de carrito (C1 a C4)
+
+| Regla | Dónde se cumple | Prueba que lo demuestra |
+|---|---|---|
+| **S1** texto, nunca HTML | `index.html` (modal y carrito con `textContent`, confirmación con `esc`), `pedido.html`/`panel.html`/`historial.html` (`escapar`), `menu-admin.html` (`textContent`, atributos), `ticket-comanda.js` (`textContent`), `opciones-texto.js` (solo devuelve texto) | front 11 (opción con `<img onerror>` en el menú, el carrito, la confirmación y el seguimiento); panel 16c–16e, 16j (tablero e historial con la copia hostil de un pedido) y 17x–17y (menu-admin); e2e 22 (el ticket escapa el HTML); mutaciones de `innerHTML` / sin `esc` |
+| **S2** una línea | `OpcionesTexto.limpiar` (CR, LF, U+2028/2029 → espacio); `textoOpcion` (servidor); `limpiarTexto` (ticket) | `opciones-texto.test.js`; panel 16c (un salto de línea no fabrica una línea "9x Falso — 90.000"); `notificar`: un solo renglón con forma de producto |
+| **S3** quitar invisibles | `INVISIBLES` (opciones-texto.js y copia del servidor); `SIMBOLOS` del ticket ahora quita también U+2066-2069, U+2065-206F, U+061C, U+00AD, rellenos U+115F/1160/3164/FFA0, U+180E, U+FFF9-FFFB y etiquetas U+E0000-E007F | `opciones-texto.test.js` (uno por uno); `ticket-comanda.test.js`; e2e 22 y los fixtures `09-...` |
+| **S4** largo por caracteres | `Array.from(...).slice(...)` en `limpiar`, `textoOpcion`, `recortarCaracteres` (ticket) y `limpiar` de `crear-pedido.js` (H4); el ticket **envuelve** en vez de cortar | las mismas + `crear-pedido-limpiar.test.js` |
+| **S5** WhatsApp / CallMeBot | `paraMensaje` y `parentesis` (sin `$ * _ ~` ni comilla invertida, máximo 6 etiquetas + `+N más`); la URL se arma solo con `encodeURIComponent` (ya era así) | `opciones-texto.test.js` (incluida la **paridad** servidor/navegador con 3.000 casos); front 11 (WhatsApp con `Salsa *$especial* _x_`) |
+| **S6** menu-admin rechaza lo que el ticket imprime mal | `OpcionesTexto.motivoNombreInvalido` (emojis y símbolos, `<>`, invisibles, 40, vacío, espacio duro) + repetidos + rango y enteros del precio | panel 17o (11 rechazos), 17p (cero escrituras), 17q–17r; `opciones-texto.test.js` |
+| **S7** los "quitar" se imprimen distinto | ticket: `SIN: …` (una línea, negrita) vs. `+ …` (una por extra, negrita, sangría) | `ticket-comanda.test.js`; e2e 22; `comparar-tickets` (fixtures 08–10 contra el HTML esperado) |
+| **S8** los precios salen del servidor | el navegador solo **muestra** precios del menú y manda ids; el ticket, el panel, el historial y los mensajes usan la copia guardada (`precio` final); **no se tocó el cálculo** | front 11 (los totales); `servidor.mjs` (262, sin cambios); `probar-opciones` |
+| **C1** la línea es producto + opciones | `claveLinea` / `leerClave` y `lineaDe`; el servidor recibe el precio **base** | `opciones-texto.test.js`; front 11 (juntar, separar, otro orden, carrito antiguo) |
+| **C2** comparar el total (H5) | `iniciarPagoWompi` + `preguntarPrecioCambiado` | front 11 (aviso con $28.500, dos botones, no abre Wompi, Escape = revisar, no crea otro pedido, tocar fuera no decide) |
+| **C3** el 400 de opciones | rama `400/503` de `iniciarPagoWompi` + `revisarOpcionesDelCarrito` | front 11 (opción apagada: aviso genérico, se lleva al carrito, la línea se quita, no queda pedido) |
+| **C4** lo guardado lleva opciones y el total del servidor | `pedido` guardado en `PENDING_ORDER_KEY` (con `opciones` y `ajuste`) | front 11 (confirmación y WhatsApp de copia) |
+
+#### 22.18.9 Pruebas (números) y revisión por mutación
+
+| Batería | Línea base (22.17) | Ahora | Por qué cambia |
+|---|---|---|---|
+| unitarias (`node --test pruebas/*.test.js`) | 121 | **155** | +17 `opciones-texto.test.js` (nuevo: reglas de texto, claves de línea, validación del dueño, **paridad** servidor/navegador con 3.000 casos y el mensaje de CallMeBot), +5 `crear-pedido-limpiar.test.js` (nuevo: H4), +12 en `ticket-comanda.test.js` (SIN/extras, emojis e invisibles, tope de 12 y de 60 caracteres, hoja de estilos solo con opciones, `pintar` con un documento falso y el ticket de prueba) |
+| `servidor.mjs` (también `--via=despachador` y `--via=reescrita`) | 262 | 262 | igual (con `SQL18_NO=1`: 208, igual). **No se tocó el servidor de cobro.** |
+| `front.mjs` | 139 | **208** | +69: escenario 11 (modal y precio en vivo, accesibilidad, borrador, juntar y separar líneas, carrito antiguo, opción apagada, mensajes de WhatsApp, precio cambiado C2, 400 de opciones C3, nombres hostiles, seguimiento, aviso "p.m.." y 360/390/768/1280 px en claro y oscuro). Ajustado **a propósito**: `<script>` permitidos 6 → 7; los 4 bloques ocultos nuevos se excusan en la comparación de Taqueiros; sw v14 |
+| `panel.mjs` | 360 | **413** | +53: escenario 16 (tablero, texto del ticket e historial con items nuevos, viejos y hostiles) y 17 (menu-admin: alta, edición, apagar, ordenar, eliminar, tope de 12, validaciones, rechazos de la base, escape de HTML, aislamiento entre restaurantes y cajero). Ajustado **a propósito**: el botón nuevo "Opciones: quitar y extras" se excusa en la comparación de Taqueiros; sw v14 |
+| `e2e` de impresión (`pruebas/impresion/e2e.js`) | 180 | **193** | +13: escenario 22 (ticket con opciones: SIN y extras, sin emojis ni invisibles, ticket largo, medido a 80 mm) |
+| `comparar-tickets.mjs` | 7 de 7 | **7 de 7** + 3 nuevos | los 7 tickets de siempre salen **idénticos** (el ticket de prueba solo difiere en el item con opciones que se le agregó a propósito, y eso se resta exacto); los 3 tickets nuevos (con opciones, sin emojis, largo) se comparan con el HTML esperado guardado en `pruebas/impresion/esperado/` |
+| `vista-previa.mjs` | 57 | 57 | la prueba 2d ahora compara el **diff exacto** de `index.html`/`pedido.html` contra el guardado en `pruebas/multirestaurante/esperado/` (antes copiaba los cambios; con tantos, es más fiel) |
+| `opciones.mjs` | 77 | 77 | E1, E2 y F1 ajustadas **a propósito**: las pendientes "parte B" de 22.8 ya están hechas (el carrito suma con el precio unitario con extras; el ticket imprime las opciones) |
+| `tema-claro.mjs`, `rebrand-northe.mjs` | 43 / 78 | 43 / 78 | solo la comprobación de la versión de `sw.js` (v13 → v14) |
+| sin cambio | | | superadmin 50, sql16 48, crear-superadmin-test 13, agrupacion 32, rls 237, endurecer 426, migrar-fotos 126, datos-restaurante 76, config-publica 52, dominios 35, hallazgos 32, planes 11, sim 34 OK, cargar-secretos-test 25, inspeccion 6, textos-visibles 10; contra el falso: probar-compatibilidad 26, probar-servidor-multirestaurante 249, probar-opciones 38, probar-superadmin 50, probar-aislamiento 252 de 259 (las 7 de Realtime fallan localmente con el falso, por diseño) |
+
+**Revisión por mutación** (`node pruebas/multirestaurante/mutaciones-opciones-ui.mjs`, 3 en paralelo; `--validar=1` solo comprueba que cada mutación esté bien escrita): **116 mutaciones** (59 sobre las funciones puras `opciones-texto.js`, `api/_notificar.js`, `api/crear-pedido.js` y `ticket-comanda.js`; 37 sobre `index.html` y `pedido.html` con el navegador; 20 sobre `panel.html`, `historial.html` y `menu-admin.html`). Rompe a propósito: el total del carrito sin extras, el precio del botón del modal, el borrador, juntar líneas, lo que se manda al servidor (sin ids, con objetos, con otro precio), la comparación del total (C2: no compara, "Revisar" que paga, Escape, monto viejo, aviso tapado por el formulario), el 400 de opciones (C3), la retirada de líneas con opciones apagadas, el carrito antiguo, los dos WhatsApp, el arreglo de "p.m..", cada `textContent`→`innerHTML`/sin `escapar`, cada regla de `limpiar`/`paraMensaje`/`motivoNombreInvalido`, cada rango de invisibles, el corte por unidades UTF-16 (modal, servidor, ticket y H4), la hoja de estilos del ticket, cada validación y cada filtro por restaurante de `menu-admin`. **Resultado: 112 detectadas, 4 equivalentes (cada una con su razón), 0 sobrevivientes.**
+La primera pasada dejó **7 sobrevivientes**, que se arreglaron y se volvieron a correr (las 4 siguen siendo equivalentes por su razón): (1) el corte por unidades UTF-16 del nombre en el servidor y en el ticket (faltaban pruebas con un emoji —o una letra de otro plano— justo en el borde); (2) la hoja de estilos del ticket "siempre/nunca" (faltaba probar `pintar` sin navegador); (3) el botón **"Revisar mi pedido"** nunca se pulsaba en las pruebas (solo Escape); (4) una comprobación del nombre vacío que hoy no se alcanza (equivalente: otra la frena antes); (5) las claves rotas del carrito (equivalente: `purgarCarritoHuerfano` las retira con su aviso).
+**Equivalentes:** (a) `index.html`, filtro de nombres vacíos del menú (las opciones apagadas ni llegan en `/api/menu`); (b) C2 comparando solo el subtotal (el total es subtotal + domicilio y el domicilio lo calcula el servidor con la misma regla); (c) `opciones-texto.js`, el chequeo `limpiar(t) === ""` del nombre del dueño (un nombre solo de espacios o solo de invisibles ya lo frena otro chequeo); (d) claves rotas del carrito (las retira `purgarCarritoHuerfano`).
+
+**Lo que las capturas encontraron.** Una captura del aviso de precio cambiado mostró que quedaba **tapado por el formulario de entrega** (mismo `z-index` y el formulario va después en el HTML): ninguna prueba lo veía porque solo miraba la clase `open`. Se le dio `z-index:600` y se agregó una prueba que mide con `elementFromPoint` qué hay bajo el botón "Pagar" (y una mutación que la rompe).
+
+#### 22.18.10 Decisiones donde el encargo no lo definía, y riesgos conocidos
+
+* **El pedido que queda sin pagar en "Revisar mi pedido"** (22.18.4): se dejó así para **no cambiar el servidor**; un pedido `pendiente_pago` nunca llega al panel ni a la cocina y se limpia a las 24 h. Si algún día molesta, la salida es un endpoint que cancele el pendiente (cambio de servidor, aparte).
+* **Una opción apagada quita la línea entera** (no solo la opción): por alergias (22.18.3).
+* **Borrador del modal solo en memoria** (no en `localStorage`): sobrevive a un cierre accidental, no a recargar. Menos estado guardado, menos casos raros.
+* **`opciones-texto.js` es un archivo nuevo que cargan 5 páginas** (`?v=1`): si un navegador se quedara con una página vieja en caché, esa página no tendría `window.OpcionesTexto` y fallaría. Las páginas van siempre por la red y `sw.js` (v14) no guarda scripts, así que no pasa; si se cambia el archivo, subir el `?v=`.
+* **Copia del servidor** de las reglas de texto: dos copias pueden separarse; la prueba de paridad lo vigila.
+* **Los extras con $0** no se pueden crear desde `menu-admin` (aunque la base los acepta): es más estricto a propósito (un extra gratis es un "quitar" al revés).
+* **Las capturas** (`Recursos/NORTHE-NUEVO/capturas/opciones-*.png`, carpeta ignorada por git) se generan con `CAPTURAS=<carpeta>` en `front.mjs` y `panel.mjs`.
+* **Pendientes que siguen** (22.17): H2 (la lista de invisibles de la **base**: la interfaz ya los rechaza y los quita al mostrar, pero la base aún los acepta si alguien escribe por REST), H5 resuelto aquí (C2), R5 (dueño/cajero pueden insertar pedidos por REST), H9 (`wompi_modo` de Taqueiros antes de cobrar en real).
+
+#### 22.18.11 Qué correr (Windows) tras el despliegue
+
+1. Ver el sitio en el celular y en el computador (Ctrl+F5): abrir Big Norte → debe salir el modal con "Quítale algo" y "Agrégale extras".
+2. Pedido de prueba **con opciones** (con el restaurante abierto) y Wompi sandbox: debe llegar al panel con las opciones bajo el producto.
+3. Imprimir el ticket real en la DIG-POS892: revisar que **"SIN:"** y **"+"** salgan claros y que el pie no se corte.
+4. Vista previa de WhatsApp: pegar `…/?v=3` en un chat.
+5. Con la llave cargada (Read-Host): `probar-compatibilidad` (26), `probar-servidor-multirestaurante` (249; también con `$env:VIA = "despachador"`), `probar-opciones` (38) y `probar-aislamiento` (259; si solo fallan las de Realtime con "sin control positivo", repetir una vez). Quitar la llave: `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
