@@ -1277,6 +1277,8 @@ async function escenario(nombre, fn) {
     var els = document.body.querySelectorAll('*');
     for (var i = 0; i < els.length; i++) {
       var e = els[i];
+      /* CAMBIO A PROPOSITO (parte B de las opciones): un boton nuevo "Opciones: quitar y extras" en la edicion rapida de cada producto (oculto hasta abrir el editor). Se excusa SOLO ese boton. */
+      if (e.matches('.btn-mas[data-opciones]')) continue;
       if (e.closest('#rp-estado') || e.closest('#datosBtn') || e.closest('#ayudaMedianoche') || e.closest('label.medianoche') || e.closest('#avisoVigencia') || e.hasAttribute('data-pr-rol') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.tagName === 'IFRAME') continue;
       var cs = getComputedStyle(e);
       var propios = Array.prototype.filter.call(e.childNodes, function(n){return n.nodeType === 3;}).map(function(n){return n.nodeValue.replace(/\\s+/g,' ').trim();}).filter(Boolean).join('|');
@@ -1420,8 +1422,8 @@ async function escenario(nombre, fn) {
     comprobar(!/Taqueiros/i.test(tick) && !/Los Taqueiros/i.test(tick), 'ticket-comanda.js: ni el pie ni nada de Taqueiros (fuera de comentarios)');
     const sw = leer('sw.js');
     const swSinComentarios = sw.replace(/\/\*[\s\S]*?\*\//g, '');
-    comprobar(/const VERSION = "v13"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
-      'sw.js: version v13, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
+    comprobar(/const VERSION = "v14"/.test(sw) && /const CASCARON = \[\]/.test(sw) && (swSinComentarios.match(/taqueiros/gi) || []).length === 1 && /const CACHE_ESTATICO = "panel-estatico-"/.test(sw),
+      'sw.js: version v14, sin precache, cache con nombre neutro; "taqueiros" solo aparece en el prefijo de las caches viejas que se borran');
     comprobar(/pathname === "\/manifest\.json"/.test(sw) && /startsWith\("\/api\/"\)/.test(sw) && /supabase\.co/.test(sw) && /Navegaciones|navigate/.test(sw), 'sw.js: manifest, /api/, Supabase y las paginas van siempre por la red (nada de un restaurante se guarda)');
     // el service worker solo guarda archivos estaticos de /Recursos/ y fuentes, y su cache es por origen
     comprobar(/startsWith\("\/Recursos\/"\)/.test(sw) && !/caches\.open\([^)]*\)\.then\(\(cache\) => cache\.addAll\(\[[^\]]/.test(sw), 'sw.js: solo guarda /Recursos/ y fuentes');
@@ -1796,6 +1798,275 @@ async function escenario(nombre, fn) {
     const h = await ha.eval(`document.getElementById('resultados').textContent`);
     comprobar(h.includes('Taco Alfa') && h.includes('$24.000') && h.includes(`OPC-${sfx}`), '15c. Historial: la busqueda encuentra el pedido con opciones y muestra el mismo producto y total', h.slice(0, 200));
     comprobar(pg.errores.length === 0 && ha.errores.length === 0, '15d. Sin errores de JavaScript con items nuevos', [...pg.errores, ...ha.errores].join(' | '));
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
+  // CAPTURAS=<carpeta>: imagenes de 390 y 1280 px con el prefijo "opciones-" (las de la parte B de las opciones de producto)
+  const capturarOpc = async (pg, nombre) => {
+    if (!process.env.CAPTURAS) return;
+    fs.mkdirSync(process.env.CAPTURAS, { recursive: true });
+    for (const [ancho, alto] of [[390, 844], [1280, 900]]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: ancho, height: alto, deviceScaleFactor: 1, mobile: ancho < 500 }, pg.sid);
+      await sleep(350);
+      const img = await cdp.send('Page.captureScreenshot', { format: 'png' }, pg.sid);
+      fs.writeFileSync(path.join(process.env.CAPTURAS, `opciones-${nombre}-${ancho}.png`), Buffer.from(img.data, 'base64'));
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false }, pg.sid);
+  };
+
+  await escenario('16. Opciones de producto en el panel, el texto del ticket y el historial: se ven bajo cada item como TEXTO, y los pedidos antiguos no cambian', async () => {
+    const ceroCh = String.fromCharCode(0x200b);   // (bidi es la constante del arnes)
+    const itemsOpc = [
+      { id: 'taco', nombre: 'Taco Alfa', cantidad: 2, precio: 12500, precio_base: 10000,
+        opciones: [{ id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }, { id: 'sin-salsa', tipo: 'quitar', nombre: 'Sin salsa rosa', precio: 0 },
+                   { id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2500 }] },
+      { id: 'otro', nombre: 'Gaseosa', cantidad: 1, precio: 4000 }
+    ];
+    const nuevo = await pedido(A, `OPC16-${sfx}`, '3001110161', 29000, { items: itemsOpc, subtotal: 29000 });
+    // Captura limpia (solo el pedido con opciones, sin el hostil de mas abajo): lo que ve la cocina
+    const pgLimpio = await panelDe('16-panel-limpio', 'alfa.localhost', uA);
+    await sleep(500);
+    await pgLimpio.eval(`(function(){var h=document.querySelector('#board .pedido[data-id="${nuevo.id}"]'); if(h) h.scrollIntoView({block:'start'}); return true;})()`);
+    await capturarOpc(pgLimpio, 'panel-con-opciones');
+    // La copia de pedidos.items NO es de fiar (un miembro puede escribirla por REST): HTML, saltos de linea y invisibles en los nombres
+    const hostilOpc = await pedido(A, `HOS16-${sfx}`, '3001110162', 9000, { items: [{ id: 'taco', nombre: 'Taco Alfa', cantidad: 1, precio: 9000, opciones: [
+      { id: 'a', tipo: 'extra', nombre: '<img src=x onerror="window.__pwn=1"> & "comillas"', precio: 1000 },
+      { id: 'b', tipo: 'quitar', nombre: 'Sin sal\n9x Falso — 90.000' + bidi + ceroCh, precio: 0 },
+      { id: 'c', tipo: 'raro', nombre: 'No debe salir' }, null, 'texto suelto'] }], subtotal: 9000 });
+    const pg = await panelDe('16-panel', 'alfa.localhost', uA);
+    await sleep(500);
+    const tarjeta = (id) => pg.eval(`(function(){var a=document.querySelector('#board .pedido[data-id="${id}"]');return a?{opc:Array.from(a.querySelectorAll('.it-opc')).map(function(e){return e.textContent;}),items:a.querySelector('.pedido-items').textContent,total:a.querySelector('.pedido-total').textContent,filas:a.querySelectorAll('.pedido-items .it').length}:null;})()`);
+    const t1 = await tarjeta(nuevo.id), t2 = await tarjeta(pA1.id), t3 = await tarjeta(hostilOpc.id);
+    comprobar(t1 && t1.opc.length === 1 && t1.opc[0] === 'Sin cebolla · Sin salsa rosa · + Queso extra' && t1.filas === 2 && t1.items.includes('$25.000') && t1.items.includes('$4.000') && t1.total.includes('$29.000'),
+      '16a. Tablero: bajo el producto, "Sin cebolla · Sin salsa rosa · + Queso extra" (una sola vez, solo en el que tiene opciones) y el total sigue siendo $29.000', JSON.stringify(t1));
+    comprobar(t2 && t2.opc.length === 0 && t2.items.includes('$9.000') && t2.items.includes('Producto de A1'), '16b. Tablero: un pedido antiguo (sin opciones) se ve exactamente como siempre: ningun renglon de opciones', JSON.stringify(t2));
+    comprobar(t3 && t3.opc.length === 1 && t3.opc[0] === 'Sin sal 9x Falso — 90.000 · + <img src=x onerror="window.__pwn=1"> & "',
+      '16c. Tablero: el nombre hostil de una opcion se ve como TEXTO en UNA linea (el salto de linea no fabrica otra linea con forma de producto) y sin invisibles; el nombre se corta a 40 caracteres como todos', JSON.stringify(t3));
+    comprobar(t3 && !new RegExp('[' + bidi + ceroCh + ']').test(t3.opc[0]) && t3.filas === 1 && /<img src=x/.test(t3.opc[0]), '16d. ... sin marcas de direccion ni ancho cero, y sigue habiendo UN solo renglon de producto', JSON.stringify(t3));
+    comprobar((await pg.eval(`window.__pwn`)) === undefined && (await pg.eval(`document.querySelectorAll('#board img[src="x"]').length`)) === 0 && (await pg.eval(`document.querySelectorAll('#board .it-opc img, #board .it-opc b').length`)) === 0,
+      '16e. Nada del nombre se ejecuto ni se convirtio en etiquetas (<img>) dentro del tablero');
+
+    // El texto plano del ticket que el panel arma (para copiar): las opciones, en su propia linea bajo el producto
+    const texto = await pg.eval(`construirComanda(${JSON.stringify({ id: 9, numero: 9, tipo_pedido: 'llevar', cliente_nombre: 'Ana', cliente_telefono: '3001234567', items: itemsOpc, total: 29000 })})`);
+    const ls = texto.split('\n');
+    const iT = ls.findIndex((l) => /Taco Alfa/.test(l));
+    comprobar(iT > 0 && ls[iT + 1].trim() === 'Sin cebolla · Sin salsa rosa · + Queso extra' && /Gaseosa/.test(ls[iT + 2]) && !/^\s+(Sin|\+)/.test(ls[iT + 3] || ''),
+      '16f. El ticket de texto del panel: las opciones en su propia linea bajo el producto; el que no tiene opciones no agrega nada', JSON.stringify(ls.slice(iT - 1, iT + 4)));
+    const textoViejo = await pg.eval(`construirComanda(${JSON.stringify({ id: 8, tipo_pedido: 'llevar', cliente_nombre: 'Ana', cliente_telefono: '3001234567', items: [{ nombre: 'Taco', cantidad: 2, precio: 9000 }], total: 18000 })})`);
+    comprobar(!/\n {6}\S/.test(textoViejo) && textoViejo.includes(' 2  Taco'), '16g. El ticket de texto de un pedido sin opciones queda igual que antes (ninguna linea de opciones)', textoViejo);
+
+    // Historial (busqueda por referencia): las opciones tambien salen, como texto
+    const ha = await abrir('16-historial', URL_N('alfa.localhost') + '/historial.html'); await iniciarSesion(ha, uAB); await appAbierta(ha);
+    await ha.clic('.pestanas button[data-vista=buscar]');
+    const buscar = async (ref) => {
+      await ha.escribir('#bReferencia', ref); await ha.clic('#btnBuscar');
+      await ha.esperar(`function(){var t=document.getElementById('resultados').innerText; return /pedido/.test(t) && !/Buscando/.test(t) && t.includes(${JSON.stringify(ref)});}`, 8000, 'busqueda ' + ref);
+      return ha.eval(`JSON.stringify({opc:Array.from(document.querySelectorAll('#resultados .it-opc')).map(function(e){return e.textContent;}), filas:document.querySelectorAll('#resultados .items .it .cant').length, texto:document.getElementById('resultados').textContent})`).then(JSON.parse);
+    };
+    const hN = await buscar(`OPC16-${sfx}`);
+    comprobar(hN.opc.length === 1 && hN.opc[0] === 'Sin cebolla · Sin salsa rosa · + Queso extra' && hN.texto.includes('$25.000') && hN.texto.includes('$4.000'),
+      '16h. Historial: el pedido con opciones muestra sus opciones bajo el producto y el mismo total por producto', JSON.stringify(hN).slice(0, 300));
+    await ha.clic('#resultados .pedido .ped-cab'); await sleep(300);   // se abre el pedido para que se vean sus productos y opciones
+    comprobar(await ha.eval(`document.querySelector('#resultados .pedido').classList.contains('abierto') && document.querySelector('#resultados .it-opc').offsetParent !== null`), '16h2. Historial: al abrir el pedido las opciones se VEN bajo el producto (no solo estan en el documento)');
+    await ha.eval(`document.querySelector('#resultados .items').scrollIntoView({block:'center'}); true`);
+    await capturarOpc(ha, 'historial-con-opciones');
+    const hV = await buscar(`A1-${sfx}`);
+    comprobar(hV.opc.length === 0 && hV.texto.includes('$9.000'), '16i. Historial: un pedido antiguo no cambia (sin renglon de opciones)', JSON.stringify(hV).slice(0, 200));
+    const hH = await buscar(`HOS16-${sfx}`);
+    comprobar(hH.opc.length === 1 && /<img src=x/.test(hH.opc[0]) && (await ha.eval(`window.__pwn`)) === undefined && (await ha.eval(`document.querySelectorAll('#resultados img[src="x"]').length`)) === 0 && hH.filas === 1,
+      '16j. Historial: el nombre hostil sale como texto y en una linea, sin ejecutarse', JSON.stringify(hH).slice(0, 300));
+    comprobar(pg.errores.length === 0 && ha.errores.length === 0, '16k. Sin errores de JavaScript en el tablero ni en el historial', [...pg.errores, ...ha.errores].join(' | '));
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
+  await escenario('17. menu-admin: el dueno administra las opciones de un producto (alta, edicion, apagar, ordenar, eliminar, tope de 12, validaciones y rechazos de la base) con el mismo camino que los productos', async () => {
+    const cero = String.fromCharCode(0x200b);
+    const opcionesDe = async (r, pid = 'taco') => (await srv('GET', `producto_opciones?restaurante_id=eq.${r.id}&producto_id=eq.${pid}&select=*&order=orden.asc,id.asc`));
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}`);
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${B.id}`);
+    const ma = await abrir('17-menu-admin (dueno de A)', URL_N('alfa.localhost') + '/menu-admin.html');
+    await iniciarSesion(ma, uA); await appAbierta(ma);
+    await ma.esperar(`function(){return document.querySelector('[data-editar="taco"]');}`, 10000, 'producto taco');
+    const abrirHojaOpciones = async (pg, pid = 'taco') => {
+      if (!(await pg.eval(`document.querySelector('.producto[data-prod="${pid}"]').classList.contains('abierto')`))) await pg.clic(`[data-editar="${pid}"]`);
+      await pg.clic(`[data-opciones="${pid}"]`);
+      await pg.esperar(`function(){return !!document.getElementById('oForm');}`, 8000, 'hoja de opciones');
+      await pg.esperar(`function(){return document.getElementById('oEstado').textContent!=='Cargando las opciones…';}`, 8000, 'lista cargada');
+    };
+    const cerrarOpciones = async (pg) => { await pg.clic('#oCerrar'); await pg.esperar(`function(){return !document.getElementById('hoja').classList.contains('abierta');}`, 5000, 'hoja cerrada'); };
+    const filasLista = (pg) => pg.eval(`JSON.stringify(Array.from(document.querySelectorAll('#oLista .op-fila')).map(function(l){return {n:l.querySelector('.op-nombre').textContent,m:l.querySelector('.op-meta').textContent,apagada:l.classList.contains('apagada')};}))`).then(JSON.parse);
+    const enviar = async (pg, { tipo = 'quitar', nombre, precio }) => {
+      await pg.eval(`(function(){var r=document.querySelector('input[name=oTipo][value=${tipo}]'); if(!r.disabled){r.checked=true; r.dispatchEvent(new Event('change',{bubbles:true}));} return true;})()`);
+      await pg.escribir('#oNombre', nombre);
+      if (precio !== undefined) await pg.escribir('#oPrecio', precio);
+      await pg.eval(`document.getElementById('oForm').requestSubmit(); true`);
+      await sleep(350);
+    };
+    const errorDe = (pg) => pg.eval(`document.getElementById('oError').hidden ? '' : document.getElementById('oError').textContent`);
+    const escrituras = (desde) => peticiones(desde, /^(POST|PATCH|DELETE) .*producto_opciones/);
+
+    await abrirHojaOpciones(ma);
+    comprobar(/Opciones de Taco Alfa/.test(await ma.eval(`document.getElementById('hojaTitulo').textContent`)) && /todav.a no tiene opciones/.test(await ma.eval(`document.getElementById('oEstado').textContent`)), '17a. El boton "Opciones: quitar y extras" abre la hoja del producto: titulo con su nombre y, sin opciones, un aviso claro');
+
+    // ---- alta de un "quitar" y de un extra: restaurante_id y producto_id de ESTE restaurante, orden y activa ----
+    await enviar(ma, { tipo: 'quitar', nombre: 'Sin cebolla' });
+    await esperarDb(async () => (await opcionesDe(A)).length === 1, 'opcion quitar creada');
+    await enviar(ma, { tipo: 'extra', nombre: 'Queso extra', precio: '2.500' });
+    await esperarDb(async () => (await opcionesDe(A)).length === 2, 'opcion extra creada');
+    let filas = await opcionesDe(A);
+    comprobar(filas[0].id === 'sin-cebolla' && filas[0].tipo === 'quitar' && filas[0].precio === 0 && filas[0].orden === 0 && filas[0].activa === true && filas[0].restaurante_id === A.id && filas[0].producto_id === 'taco',
+      '17b. Un "quitar" se guarda con precio 0, orden 0, activa, del restaurante A y del producto taco', JSON.stringify(filas[0]));
+    comprobar(filas[1].id === 'queso-extra' && filas[1].tipo === 'extra' && filas[1].precio === 2500 && filas[1].orden === 10 && filas[1].restaurante_id === A.id, '17c. Un extra de "2.500" se guarda como 2500, con orden 10 (los extras van desde 10)', JSON.stringify(filas[1]));
+    comprobar((await opcionesDe(B)).length === 0, '17d. Las opciones de A no aparecen ni se crean en B (mismo id de producto "taco")');
+    const lista1 = await filasLista(ma);
+    comprobar(lista1.length === 2 && lista1[0].n === 'Sin cebolla' && /Quitar/.test(lista1[0].m) && lista1[1].n === 'Queso extra' && /Extra .*\+\$2\.500/.test(lista1[1].m), '17e. La lista se repinta con lo que la base confirmo: nombre, tipo y precio', JSON.stringify(lista1));
+    comprobar(/Guardado/.test(await ma.eval(`document.getElementById('oAviso').textContent`)) && !(await ma.eval(`document.getElementById('oAviso').hidden`)), '17f. Solo dice "Guardado" cuando la base devolvio la fila');
+    await capturarOpc(ma, 'menu-admin-opciones');
+
+    // ---- editar nombre y precio (el tipo y el id no cambian) ----
+    await ma.clic('#oLista [data-accion="editar"][data-id="queso-extra"]');
+    comprobar((await ma.eval(`document.getElementById('oNombre').value`)) === 'Queso extra' && (await ma.eval(`document.getElementById('oPrecio').value`)) === '2.500' && (await ma.eval(`document.querySelector('input[name=oTipo][value=extra]').disabled && document.querySelector('input[name=oTipo][value=quitar]').disabled`)) && /Guardar cambios/.test(await ma.eval(`document.getElementById('oGuardar').textContent`)),
+      '17g. Editar carga el nombre y el precio (puntos de miles) y deja el tipo fijo');
+    await enviar(ma, { tipo: 'extra', nombre: 'Queso doble', precio: '3000' });
+    await esperarDb(async () => (await opcionesDe(A)).some((o) => o.id === 'queso-extra' && o.nombre === 'Queso doble' && o.precio === 3000), 'opcion editada');
+    comprobar((await opcionesDe(A)).length === 2 && (await opcionesDe(A)).find((o) => o.id === 'queso-extra').tipo === 'extra', '17h. Editar cambia nombre y precio de la MISMA opcion (mismo id y tipo; no crea otra)');
+
+    // ---- apagar / encender ----
+    await ma.clic('#oLista [data-accion="activar"][data-id="queso-extra"]');
+    await esperarDb(async () => (await opcionesDe(A)).find((o) => o.id === 'queso-extra').activa === false, 'opcion apagada');
+    const lista2 = await filasLista(ma);
+    comprobar(lista2[1].apagada && /Apagada/.test(lista2[1].m) && (await ma.eval(`document.querySelector('#oLista [data-accion=activar][data-id=queso-extra]').getAttribute('aria-checked')`)) === 'false', '17i. Apagar una opcion la deja en la base como inactiva y se ve apagada (interruptor con aria-checked)', JSON.stringify(lista2[1]));
+    const menuPublico = await require(path.join(REPO, 'api', '_menu.js')).leerMenu(A.id);
+    comprobar(menuPublico && !JSON.stringify(menuPublico).includes('queso-extra') && JSON.stringify(menuPublico).includes('sin-cebolla'), '17j. El menu publico ya no ofrece la opcion apagada (y sigue ofreciendo la encendida)');
+    await ma.clic('#oLista [data-accion="activar"][data-id="queso-extra"]');
+    await esperarDb(async () => (await opcionesDe(A)).find((o) => o.id === 'queso-extra').activa === true, 'opcion encendida');
+
+    // ---- ordenar: subir / bajar dentro de su grupo ----
+    await enviar(ma, { tipo: 'quitar', nombre: 'Sin tomate' });
+    await esperarDb(async () => (await opcionesDe(A)).length === 3, 'tercera opcion');
+    comprobar((await opcionesDe(A)).map((o) => o.id + ':' + o.orden).join() === 'sin-cebolla:0,sin-tomate:1,queso-extra:10', '17k. La segunda opcion de "quitar" recibe orden 1 y los extras siguen desde 10', (await opcionesDe(A)).map((o) => o.id + ':' + o.orden).join());
+    comprobar((await ma.eval(`document.querySelector('#oLista [data-accion=subir][data-id=sin-cebolla]').disabled`)) === true && (await ma.eval(`document.querySelector('#oLista [data-accion=bajar][data-id=queso-extra]').disabled`)) === true, '17l. "Subir" no se puede en la primera de su grupo ni "bajar" en la ultima');
+    await ma.clic('#oLista [data-accion="subir"][data-id="sin-tomate"]');
+    await esperarDb(async () => (await opcionesDe(A)).map((o) => o.id).join() === 'sin-tomate,sin-cebolla,queso-extra', 'orden cambiado');
+    comprobar((await opcionesDe(A)).map((o) => o.id + ':' + o.orden).join() === 'sin-tomate:0,sin-cebolla:1,queso-extra:10', '17m. Subir una opcion intercambia el orden con la de arriba y NO toca a los extras', (await opcionesDe(A)).map((o) => o.id + ':' + o.orden).join());
+
+    // ---- eliminar ----
+    await ma.clic('#oLista [data-accion="borrar"][data-id="sin-tomate"]');   // (confirm() lo acepta la prueba)
+    await esperarDb(async () => (await opcionesDe(A)).length === 2, 'opcion eliminada');
+    comprobar(!(await opcionesDe(A)).some((o) => o.id === 'sin-tomate') && (await filasLista(ma)).length === 2, '17n. Eliminar borra la opcion de la base (y de la lista) despues de preguntar');
+
+    // ---- validaciones del formulario: igual o mas estrictas que la base. Ninguna escribe nada. ----
+    const t0 = marca();
+    const rechazos = [
+      [{ nombre: 'Sin \u{1F9C5} cebolla' }, /emojis/, 'un emoji'],
+      [{ nombre: 'Sin <b>sal</b>' }, /< ni >/, 'HTML (< >)'],
+      [{ nombre: 'Sin' + bidi + ' sal' }, /invisibles|raros/, 'una marca de direccion (bidi)'],
+      [{ nombre: 'Sin' + cero + 'sal' }, /invisibles|raros/, 'un caracter de ancho cero'],
+      [{ nombre: 'x'.repeat(41) }, /40 caracteres/, '41 caracteres'],
+      [{ nombre: '   ' }, /Escribe el nombre/, 'un nombre vacio'],
+      [{ nombre: 'sin CEBOLLA' }, /ya tiene una opción llamada/, 'un nombre repetido (sin importar mayusculas)'],
+      [{ tipo: 'extra', nombre: 'Extra sin precio', precio: '' }, /precio del extra/, 'un extra sin precio'],
+      [{ tipo: 'extra', nombre: 'Extra gratis', precio: '0' }, /de \$1 a \$50\.000/, 'un extra de $0'],
+      [{ tipo: 'extra', nombre: 'Extra caro', precio: '50001' }, /de \$1 a \$50\.000/, 'un extra de $50.001'],
+      [{ tipo: 'extra', nombre: 'Extra decimal', precio: '2.5' }, /enteros|1 a \$50\.000/, 'un precio con decimales']
+    ];
+    for (const [datos, esperado, que] of rechazos) {
+      await enviar(ma, datos);
+      const e = await errorDe(ma);
+      comprobar(esperado.test(e), '17o. Se rechaza ' + que + ' con un mensaje en espanol: "' + e + '"', e);
+    }
+    comprobar(escrituras(t0).length === 0 && (await opcionesDe(A)).length === 2, '17p. Ninguno de esos rechazos llego a la base (cero escrituras, siguen 2 opciones)', JSON.stringify(escrituras(t0).map((l) => l.metodo + ' ' + l.ruta)));
+    // Un "quitar" nunca lleva precio: aunque el campo tuviera algo, se guarda 0
+    await ma.eval(`document.querySelector('input[name=oTipo][value=quitar]').checked=true; document.querySelector('input[name=oTipo][value=quitar]').dispatchEvent(new Event('change',{bubbles:true})); document.getElementById('oPrecio').value='9.999'; true`);
+    comprobar((await ma.eval(`document.getElementById('oPrecioCampo').hidden`)) === true, '17q. Con el tipo "quitar" el campo de precio ni se muestra');
+    await enviar(ma, { tipo: 'quitar', nombre: 'Sin pepinillo' });
+    await esperarDb(async () => (await opcionesDe(A)).some((o) => o.id === 'sin-pepinillo'), 'quitar con precio escondido');
+    comprobar((await opcionesDe(A)).find((o) => o.id === 'sin-pepinillo').precio === 0, '17r. Un "quitar" se guarda SIEMPRE con precio 0, aunque el campo escondido tuviera un valor');
+
+    // ---- rechazos que devuelve la base (se salta la validacion del formulario a proposito): se muestran en espanol ----
+    await ma.eval(`OT.motivoNombreInvalido = function(){ return null; }; true`);
+    let e = '';
+    await enviar(ma, { tipo: 'quitar', nombre: 'Sin <script>x</script>' });
+    e = await errorDe(ma);
+    comprobar(/caracteres no permitidos/.test(e) && (await opcionesDe(A)).length === 3, '17s. Si algo se le escapa al formulario, la base lo rechaza y la pantalla dice por que, en espanol: "' + e + '"', e);
+    // el tope de 12: se llenan 12 por la llave de servicio y se intenta la 13 saltandose el aviso del formulario
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}&producto_id=eq.taco`);
+    await insertar('producto_opciones', Array.from({ length: 12 }, (_, i) => ({ restaurante_id: A.id, producto_id: 'taco', id: 'tope-' + i, tipo: 'extra', nombre: 'Tope ' + i, precio: 1000, orden: 10 + i, activa: true })));
+    await cerrarOpciones(ma); await abrirHojaOpciones(ma);
+    comprobar((await filasLista(ma)).length === 12, '17t. Con 12 opciones la hoja las lista todas');
+    const t12 = marca();
+    await enviar(ma, { tipo: 'extra', nombre: 'La numero trece', precio: '1000' });
+    e = await errorDe(ma);
+    comprobar(/ya tiene las 12 opciones/.test(e) && (await opcionesDe(A)).length === 12 && escrituras(t12).length === 0, '17u. La opcion 13 se rechaza desde el formulario, sin llegar a la base ("' + e + '")', e);
+    await ma.eval(`op.lista = op.lista.slice(0, 11); true`);   // se le quita al formulario el conocimiento de la 12: ahora decide la base
+    await enviar(ma, { tipo: 'extra', nombre: 'La numero trece', precio: '1000' });
+    e = await errorDe(ma);
+    comprobar(/no puede tener más de 12 opciones/.test(e) && (await opcionesDe(A)).length === 12, '17v. Si el formulario se saltara el tope, la BASE lo rechaza (el candado de 12) y la pantalla dice "' + e + '"', e);
+    comprobar(!(await ma.eval(`document.getElementById('oGuardar').disabled`)) && (await ma.eval(`document.getElementById('oLista').children.length`)) === 12, '17w. Tras un rechazo de la base la pantalla vuelve a leer la lista y el formulario queda usable');
+
+    // ---- nombres con comillas, &, apostrofes: la lista los pinta como TEXTO (S1); se escapa todo ----
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}&producto_id=eq.taco`);
+    await insertar('producto_opciones', [{ restaurante_id: A.id, producto_id: 'taco', id: 'raro', tipo: 'quitar', nombre: `Sin "sal" & 'pimienta' &lt;b&gt;`, precio: 0, orden: 0, activa: true }]);
+    // Para ver un nombre con "<" hay que saltarse la base: se apagan sus CHECK y su trigger solo en esta prueba y se restauran
+    const defs = (await falso.db.query(`select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.producto_opciones'::regclass and contype = 'c'`)).rows;
+    try {
+      for (const d of defs) await falso.db.exec(`alter table public.producto_opciones drop constraint "${d.conname}"`);
+      await falso.db.exec(`alter table public.producto_opciones disable trigger user`);
+      await falso.db.query(`insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio, orden, activa) values ($1, 'taco', 'hostil', 'extra', $2, 500, 11, true)`,
+        [A.id, '<img src=x onerror="window.__pwn=1"> <b>negrita</b>']);
+      await cerrarOpciones(ma); await abrirHojaOpciones(ma);
+      const h = await ma.eval(`JSON.stringify({filas:Array.from(document.querySelectorAll('#oLista .op-nombre')).map(function(e){return e.textContent;}), imgs:document.querySelectorAll('#hoja img, #hoja b').length, labels:Array.from(document.querySelectorAll('#oLista button[aria-label]')).map(function(b){return b.getAttribute('aria-label');}), pwn: typeof window.__pwn})`);
+      const hh = JSON.parse(h);
+      comprobar(hh.filas.includes(`Sin "sal" & 'pimienta' &lt;b&gt;`) && hh.filas.includes('<img src=x onerror="window.__pwn=1"> <b>negrita</b>') && hh.imgs === 0 && hh.pwn === 'undefined',
+        '17x. Los nombres de la base se pintan como TEXTO: ni <img> ni <b> reales en la hoja, nada se ejecuta, y las comillas, & y &lt; se ven tal cual', h.slice(0, 300));
+      comprobar(hh.labels.includes('Editar «<img src=x onerror="window.__pwn=1"> <b>negrita</b>»'), '17y. Los aria-label de los botones llevan el nombre tal cual, como atributo (no rompen el HTML ni se ejecutan)', JSON.stringify(hh.labels).slice(0, 300));
+    } finally {
+      await falso.db.exec(`delete from public.producto_opciones where id = 'hostil'`);
+      await falso.db.exec(`alter table public.producto_opciones enable trigger user`);
+      for (const d of defs) await falso.db.exec(`alter table public.producto_opciones add constraint "${d.conname}" ${d.def}`);
+    }
+    await cerrarOpciones(ma);
+    comprobar(ma.errores.length === 0, '17z. Sin errores de JavaScript en menu-admin con opciones', ma.errores.join(' | '));
+
+    // ---- un usuario dueno de DOS restaurantes, en el dominio de A: cambiar, apagar o borrar una opcion NO toca la del otro con el mismo id ----
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}`);
+    await insertar('producto_opciones', [
+      { restaurante_id: A.id, producto_id: 'taco', id: 'sin-sal', tipo: 'quitar', nombre: 'Sin sal de A', precio: 0, orden: 0, activa: true },
+      { restaurante_id: B.id, producto_id: 'taco', id: 'sin-sal', tipo: 'quitar', nombre: 'Sin sal de B', precio: 0, orden: 0, activa: true }]);
+    const md = await abrir('17-menu-admin (dueno de A y B)', URL_N('alfa.localhost') + '/menu-admin.html');
+    await iniciarSesion(md, uDos); await appAbierta(md);
+    await md.esperar(`function(){return document.querySelector('[data-editar="taco"]');}`, 10000, 'producto taco (dos)');
+    await abrirHojaOpciones(md);
+    comprobar((await filasLista(md)).length === 1 && (await filasLista(md))[0].n === 'Sin sal de A', '17ad. En el dominio de A solo se ven las opciones de A (aunque este usuario tambien es dueno de B)', JSON.stringify(await filasLista(md)));
+    await md.clic('#oLista [data-accion="editar"][data-id="sin-sal"]');
+    await enviar(md, { tipo: 'quitar', nombre: 'Sin sal editada' });
+    await esperarDb(async () => (await opcionesDe(A))[0].nombre === 'Sin sal editada', 'editada en A');
+    await md.clic('#oLista [data-accion="activar"][data-id="sin-sal"]');
+    await esperarDb(async () => (await opcionesDe(A))[0].activa === false, 'apagada en A');
+    comprobar((await opcionesDe(B))[0].nombre === 'Sin sal de B' && (await opcionesDe(B))[0].activa === true, '17ae. Editar y apagar la opcion en A NO cambia la de B (mismo id y mismo producto)', JSON.stringify(await opcionesDe(B)));
+    await md.clic('#oLista [data-accion="borrar"][data-id="sin-sal"]');
+    await esperarDb(async () => (await opcionesDe(A)).length === 0, 'borrada en A');
+    comprobar((await opcionesDe(B)).length === 1, '17af. Eliminarla en A NO elimina la de B');
+    await cerrarOpciones(md);
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}`);
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${B.id}`);
+
+    // ---- quien no es dueno: la base decide (mismo camino que los productos): se ve el rechazo con un mensaje claro y no se escribe nada ----
+    const mc = await abrir('17-menu-admin (cajero de A)', URL_N('alfa.localhost') + '/menu-admin.html');
+    await iniciarSesion(mc, uAB); await appAbierta(mc);
+    await mc.esperar(`function(){return document.querySelector('[data-editar="taco"]');}`, 10000, 'producto taco (cajero)');
+    await abrirHojaOpciones(mc);
+    await enviar(mc, { tipo: 'quitar', nombre: 'Intento del cajero' });
+    const ec = await errorDe(mc);
+    comprobar(/no tiene permiso/.test(ec) && !(await opcionesDe(A)).some((o) => o.nombre === 'Intento del cajero'), '17aa. Un cajero (que solo lee) ve "' + ec + '" y la base no recibe la opcion', ec);
+    // y en el dominio de B no se ve nada de A aunque el producto tenga el mismo id
+    const mb = await abrir('17-menu-admin (B)', URL_N('beta.localhost') + '/menu-admin.html');
+    await iniciarSesion(mb, uB); await appAbierta(mb);
+    await mb.esperar(`function(){return document.querySelector('[data-editar="taco"]');}`, 10000, 'producto taco (B)');
+    await abrirHojaOpciones(mb);
+    comprobar((await filasLista(mb)).length === 0, '17ab. En el dominio de B la lista de opciones del producto "taco" esta vacia (no ve las de A, aunque el id es el mismo)');
+    comprobar(mc.errores.length === 0 && mb.errores.length === 0, '17ac. Sin errores de JavaScript (cajero y B)', [...mc.errores, ...mb.errores].join(' | '));
+    await srv('DELETE', `producto_opciones?restaurante_id=eq.${A.id}`);
   });
 
   // ---------------------------------------------------------------------------------------------------------
