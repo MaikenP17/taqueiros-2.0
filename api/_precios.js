@@ -62,9 +62,12 @@ const CONTROLES = (() => {
   return new RegExp("[" + rangos.map(([a, b]) => u(a) + "-" + u(b)).join("") + "]", "g");
 })();
 
-/* Nombre de opcion para guardar en el pedido: texto plano de una linea, maximo 40 caracteres. */
+/* Nombre de opcion para guardar en el pedido: texto plano de una linea, maximo 40 caracteres.
+   El recorte cuenta CARACTERES (como char_length en la base), no unidades UTF-16: cortar un emoji por la mitad dejaba
+   media pareja suelta, Postgres rechazaba el JSON y el pedido entero fallaba con 500. */
 function nombreSaneado(valor) {
-  return String(valor == null ? "" : valor).replace(CONTROLES, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+  const limpio = String(valor == null ? "" : valor).replace(CONTROLES, " ").replace(/\s+/g, " ").trim();
+  return Array.from(limpio).slice(0, 40).join("");
 }
 
 /* Los ids de opcion que pide UN item, o null si vienen mal formados.

@@ -1427,6 +1427,15 @@ export async function correrEscenarios(opts) {
         const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
         return es(r.status === 200 && r.cuerpo.total === 5200 && p.items[0].opciones.length === 12 && p.items[0].precio === 5200, r.status + ' ' + JSON.stringify(r.cuerpo));
       });
+      await T('un nombre de opcion con emojis que la base acepta (39 caracteres, 43 unidades UTF-16) se cobra y se guarda ENTERO (antes: 500 por un emoji partido)', async () => {
+        const nombre = 'Queso doble cheddar madurado extra ' + String.fromCodePoint(0x1F9C0).repeat(4);
+        await insertar('producto_opciones', [opcionFila(O, 'otro', 'extra-emoji', 'extra', nombre, 1000, 5)]);
+        try {
+          const r = await crearO([{ id: 'otro', cantidad: 1, precio: 7000, opciones: ['extra-emoji'] }]);
+          const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
+          return es(r.status === 200 && r.cuerpo.total === 8000 && p && p.items[0].opciones[0].nombre === nombre, r.status + ' ' + JSON.stringify(r.cuerpo).slice(0, 150));
+        } finally { await srv('DELETE', `producto_opciones?restaurante_id=eq.${O.id}&producto_id=eq.otro&id=eq.extra-emoji`); }
+      });
       await T('el precio mostrado (campo "precio") sigue siendo el BASE: mandar el precio con extras se detecta como cambio (409) y no se cobra', async () => {
         const antes = await contarPedidos(O);
         const r = await crearO([itemO({ precio: 12000, opciones: ['extra-queso'] })]);
@@ -1437,6 +1446,16 @@ export async function correrEscenarios(opts) {
         const p = r.cuerpo && r.cuerpo.referencia ? await guardadoO(r) : null;
         return es(r.status === 200 && r.cuerpo.subtotal === 15000 && r.cuerpo.costoDomicilio === 4500 && r.cuerpo.total === 19500 && p.total === 19500 && p.subtotal === 15000
           && r.cuerpo.firma === sha(`${r.cuerpo.referencia}1950000COP${secretoDe('op', 'integridad-test')}`), JSON.stringify(r.cuerpo));
+      });
+      await T('WEBHOOK con domicilio y extras: pagar solo el subtotal (sin el domicilio) NO aprueba; el total exacto si', async () => {
+        const c = await crearPedidoEn(hO, O, [itemO({ opciones: ['extra-queso'] })], clienteDomicilio(P1));   // 12000 + 4500
+        const corto = await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: c.cuerpo.subtotal * 100, secreto: secretoDe('op', 'eventos-test') }));
+        const p1 = await pedidoDe(O, c.cuerpo.referencia);
+        const bueno = await webhook(evento({ referencia: c.cuerpo.referencia, montoCentavos: c.cuerpo.total * 100, secreto: secretoDe('op', 'eventos-test') }));
+        const p2 = await pedidoDe(O, c.cuerpo.referencia);
+        return es(c.cuerpo.subtotal === 12000 && c.cuerpo.total === 16500 && corto.status === 200 && corto.cuerpo.warning === 'monto no coincide'
+          && p1.estado === 'pendiente_pago' && p1.estado_pago === 'error' && bueno.status === 200 && p2.estado === 'nuevo' && p2.estado_pago === 'aprobado',
+          JSON.stringify([c.cuerpo.subtotal, c.cuerpo.total, corto.cuerpo, p1.estado_pago, p2.estado_pago]));
       });
       await T('el mismo id de opcion en dos restaurantes cobra el precio de SU restaurante (O: 2000, O2: 9000)', async () => {
         const a = await crearO([itemO({ opciones: ['extra-queso'] })]);

@@ -143,6 +143,23 @@ test("el nombre de la opcion se SANEA antes de guardarse (controles, ancho cero 
   assert.equal(r.items[0].opciones[1].nombre, "x".repeat(40));
   assert.equal(precios.nombreSaneado(null), "");
   assert.equal(precios.nombreSaneado(ch(0x2066) + "a" + ch(0x2069)), "a");
+  // Cada rango del saneado, uno por uno (la base ya los rechaza; esto es la segunda capa)
+  for (const c of [0x0007, 0x0085, 0x009f, 0x200b, 0x200f, 0x202a, 0x202e, 0x2060, 0x2064, 0x2066, 0x2069, 0xfeff]) {
+    assert.equal(precios.nombreSaneado("a" + ch(c) + "b"), "a b", "U+" + c.toString(16));
+  }
+});
+
+test("un nombre con emojis que la base acepta (hasta 40 caracteres) se guarda ENTERO: el recorte cuenta caracteres, no mitades de un emoji", async () => {
+  const queso = String.fromCodePoint(0x1f9c0);
+  const nombre = "Queso doble cheddar madurado extra " + queso.repeat(4);   // 39 caracteres, 43 unidades UTF-16
+  const { precios } = cargarPrecios({ catalogo: catalogoBase(), opciones: [fila("taco", "e", "extra", nombre, 1000, 0)] });
+  const r = await precios.validarItems(RID, [{ id: "taco", cantidad: 1, precio: 10000, opciones: ["e"] }]);
+  assert.equal(r.ok, true);
+  assert.equal(r.items[0].opciones[0].nombre, nombre);
+  // Una fila corrupta de mas de 40 se corta en 40 CARACTERES, sin dejar medio emoji (Postgres rechaza ese JSON y el pedido daba 500)
+  const cortado = precios.nombreSaneado("x".repeat(39) + queso.repeat(3));
+  assert.equal(cortado, "x".repeat(39) + queso);
+  assert.doesNotMatch(JSON.stringify(r.items) + JSON.stringify(cortado), /\\ud[89a-f]/i);
 });
 
 test("el orden de la copia es el del menu (orden, luego id), no el que mando el cliente", async () => {
@@ -166,7 +183,8 @@ test("idsDeOpciones: la forma del contrato", () => {
   assert.equal(ids({ opciones: Array.from({ length: 12 }, (_, i) => "o" + i) }).length, 12);
   for (const mal of [
     "a", 5, true, {}, { a: 1 }, [1], [true], [null], [undefined], [[]], [{}], [{ id: "a" }], [""], [" "], ["A"], ["a b"], ["a_b"], ["-a"], ["a/b"],
-    ["a\n"], ["a" + ch(0x200b)], ["a".repeat(61)], ["a", "a"], Array.from({ length: 13 }, (_, i) => "o" + i)
+    ["a\n"], ["a" + ch(0x200b)], ["a".repeat(61)], ["a", "a"], Array.from({ length: 13 }, (_, i) => "o" + i),
+    false, 0, ""
   ]) {
     assert.equal(ids({ opciones: mal }), null, JSON.stringify(mal));
   }
@@ -216,6 +234,12 @@ test("el total no puede desbordar la columna integer de la base: se rechaza con 
   const sin = await precios.validarItems(RID, Array.from({ length: 100 }, () => ({ id: "caro", cantidad: 50, precio: 300000 })));
   assert.equal(sin.ok, true, "sin opciones el maximo de siempre (1.500.000.000) sigue pasando");
   assert.equal(sin.subtotal, 1500000000);
+  // El borde exacto: 2.000.000.000 pasa; un peso mas, o lo que ya no cabe en un integer (2.147.483.648), no
+  const borde = (precio, extra) => cargarPrecios({ catalogo: new Map([["a", producto("A", precio)]]), opciones: [fila("a", "e", "extra", "E", extra, 0)] })
+    .precios.validarItems(RID, [{ id: "a", cantidad: 1, precio, opciones: ["e"] }]);
+  assert.equal((await borde(1999999000, 1000)).subtotal, 2000000000);
+  assert.equal((await borde(1999999000, 1001)).error, "Total inválido");
+  assert.equal((await borde(2147483000, 648)).error, "Total inválido");
 });
 
 /* ---------- api/_menu.js con fetch simulado ---------- */
@@ -243,12 +267,13 @@ const cargarMenu = () => { delete require.cache[require.resolve(path.join(API, "
 test("leerOpcionesParaCobrar: la URL lleva el restaurante y los ids entre comillas, escapados y codificados", async () => {
   const M = cargarMenu();
   await conFetch(() => ({ cuerpo: "[]" }), async (urls) => {
-    await M.leerOpcionesParaCobrar(RID, ["a", 'b"c', "d,e", "f\\g", "a"]);
+    await M.leerOpcionesParaCobrar(RID, ["a", 'b"c', "d,e", "f\\g", "a", "h&restaurante_id=eq.x#i %+"]);
     assert.equal(urls.length, 1);
     const u = new URL(urls[0]);
     assert.equal(u.pathname, "/rest/v1/producto_opciones");
     assert.equal(u.searchParams.get("restaurante_id"), "eq." + RID);
-    assert.equal(u.searchParams.get("producto_id"), 'in.("a","b\\"c","d,e","f\\\\g")');
+    assert.deepEqual(u.searchParams.getAll("restaurante_id"), ["eq." + RID], "un id no puede colar otro filtro");
+    assert.equal(u.searchParams.get("producto_id"), 'in.("a","b\\"c","d,e","f\\\\g","h&restaurante_id=eq.x#i %+")');
     assert.match(u.searchParams.get("select"), /producto_id,id,tipo,nombre,precio,orden,activa/);
   });
   await conFetch(() => ({ cuerpo: "[]" }), async (urls) => {
