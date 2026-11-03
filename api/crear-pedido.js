@@ -48,7 +48,10 @@ const INVISIBLES = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u200B-\u200F\u202A-
 function limpiar(texto, maximo, conSaltos) {
   let t = String(texto == null ? "" : texto).replace(/\r\n?/g, "\n").replace(INVISIBLES, " ");
   t = conSaltos ? t.replace(/\t/g, " ").replace(/\n{3,}/g, "\n\n") : t.replace(/[\t\n]+/g, " ");
-  return t.trim().slice(0, maximo);
+  /* El recorte cuenta CARACTERES completos (como char_length en la base), no unidades UTF-16: cortar un emoji
+     por la mitad deja media pareja suelta, Postgres rechaza ese JSON/texto y el pedido entero fallaba con 500
+     (hallazgo H4 de docs 22.17; el mismo arreglo de H1 en api/_precios.js). */
+  return Array.from(t.trim()).slice(0, maximo).join("");
 }
 
 module.exports = async (req, res) => {
@@ -280,3 +283,6 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: "No se pudo registrar el pedido" });
   }
 };
+
+// Solo para las pruebas (pruebas/crear-pedido-limpiar.test.js): el handler sigue siendo lo que exporta Vercel.
+module.exports.limpiar = limpiar;

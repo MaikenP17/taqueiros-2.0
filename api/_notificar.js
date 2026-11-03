@@ -124,6 +124,57 @@ function formatoPrecio(n) {
   return Number(n).toLocaleString("es-CO");
 }
 
+/* =============================================================
+   OPCIONES DE PRODUCTO EN LA COMANDA (docs/multirestaurante.md, seccion 22, reglas S1 a S5)
+
+   Cada item del pedido puede traer la copia de sus opciones: [{id, tipo, nombre, precio}] (quitar o extra).
+   Salen en la MISMA linea del item, entre parentesis: "2x Big Norte (Sin queso, + Tocineta extra) — 56.000".
+   Un item sin opciones sale EXACTAMENTE igual que antes.
+
+   Es texto que escribio el dueno (y la copia del pedido no es de fiar: puede haberla insertado un miembro del
+   restaurante por REST), asi que se limpia aqui: una sola linea, sin invisibles ni controles, cortado por
+   CARACTERES (no por unidades UTF-16), sin "$" (CallMeBot se lo come junto con el digito siguiente) y sin
+   "*", "_", "~" ni comilla invertida (formato de WhatsApp). Como maximo 6 etiquetas por linea y "+N mas".
+   Es la misma regla de opciones-texto.js (el del navegador); una prueba compara las dos copias.
+============================================================= */
+const MAX_ETIQUETAS_OPCIONES = 6;
+
+const INVISIBLES_OPCION = (() => {
+  const barra = String.fromCharCode(92);
+  const u = (n) => barra + "u{" + n.toString(16) + "}";
+  const rangos = [[0x0000, 0x001f], [0x007f, 0x009f], [0x00ad, 0x00ad], [0x061c, 0x061c], [0x115f, 0x1160],
+                  [0x180e, 0x180e], [0x200b, 0x200f], [0x2028, 0x202e], [0x2060, 0x206f], [0x3164, 0x3164],
+                  [0xfeff, 0xfeff], [0xffa0, 0xffa0], [0xfff9, 0xfffb], [0xe0000, 0xe007f]];
+  return new RegExp("[" + rangos.map(([a, b]) => u(a) + "-" + u(b)).join("") + "]", "gu");
+})();
+
+function textoOpcion(valor) {
+  const sinFormato = String(valor == null ? "" : valor).replace(/[$*_~`]/g, "");
+  const t = sinFormato.replace(INVISIBLES_OPCION, " ").replace(/\s+/g, " ").trim();
+  return Array.from(t).slice(0, 40).join("").trim();
+}
+
+/* " (Sin queso, + Tocineta extra)" o "" si el item no trae opciones usables. */
+function parentesisOpciones(opciones) {
+  const lista = Array.isArray(opciones) ? opciones.slice(0, 12) : [];
+  const quitar = [];
+  const extras = [];
+  lista.forEach((o) => {
+    if (!o || typeof o !== "object") return;
+    const nombre = textoOpcion(o.nombre);
+    if (!nombre) return;
+    if (o.tipo === "quitar") quitar.push(nombre);
+    else if (o.tipo === "extra") extras.push("+ " + nombre);
+  });
+  let etiquetas = quitar.concat(extras);
+  if (etiquetas.length > MAX_ETIQUETAS_OPCIONES) {
+    const resto = etiquetas.length - MAX_ETIQUETAS_OPCIONES;
+    etiquetas = etiquetas.slice(0, MAX_ETIQUETAS_OPCIONES);
+    etiquetas.push("+" + resto + " más");
+  }
+  return etiquetas.length ? " (" + etiquetas.join(", ") + ")" : "";
+}
+
 /* Los textos que escribio el CLIENTE van en una sola linea: un salto de linea
    en el nombre o la direccion fabricaria en la comanda una linea con la forma
    de un producto ("9x Taco - 90.000") que la cocina prepararia sin estar pagada. */
@@ -161,7 +212,7 @@ function construirComanda(pedido, opciones) {
   lineas.push("");
 
   (pedido.items || []).forEach((it) => {
-    lineas.push(`${it.cantidad}x ${it.nombre} \u2014 ${formatoPrecio(it.precio * it.cantidad)}`);
+    lineas.push(`${it.cantidad}x ${it.nombre}${parentesisOpciones(it.opciones)} \u2014 ${formatoPrecio(it.precio * it.cantidad)}`);
   });
 
   if (pedido.tipo_pedido === "domicilio") {
@@ -288,4 +339,4 @@ async function notificarWhatsApp(pedido, opciones, contacto) {
   return { enviado: ok, motivo: detalleError };
 }
 
-module.exports = { notificarWhatsApp, construirComanda };
+module.exports = { notificarWhatsApp, construirComanda, parentesisOpciones, textoOpcion };
