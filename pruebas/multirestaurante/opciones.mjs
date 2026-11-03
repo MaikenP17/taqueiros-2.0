@@ -311,11 +311,13 @@ async function main() {
       ['id vacio', `'', 'extra', 'Algo', 0`, '23514'], ['nombre vacio', `'a7', 'extra', '', 0`, '23514'], ['nombre de 41', `'a8', 'extra', repeat('x', 41), 0`, '23514'],
       ['nombre con salto', `'a9', 'extra', 'a' || chr(10) || 'b', 0`, '23514'], ['nombre con ancho cero', `'b1', 'extra', 'a' || chr(8203) || 'b', 0`, '23514'],
       ['nombre con bidi', `'b2', 'extra', 'a' || chr(8238) || 'b', 0`, '23514'], ['nombre con <', `'b3', 'extra', 'a<b', 0`, '23514'], ['nombre con >', `'b4', 'extra', 'a>b', 0`, '23514'],
-      ['nombre con BOM', `'b5', 'extra', 'a' || chr(65279), 0`, '23514'], ['nombre con control C1', `'b6', 'extra', 'a' || chr(133), 0`, '23514'], ['nombre con DEL', `'b7', 'extra', 'a' || chr(127), 0`, '23514']
+      ['nombre con BOM', `'b5', 'extra', 'a' || chr(65279), 0`, '23514'], ['nombre con control C1', `'b6', 'extra', 'a' || chr(133), 0`, '23514'], ['nombre con DEL', `'b7', 'extra', 'a' || chr(127), 0`, '23514'],
+      ['nombre con U+200F', `'b8', 'extra', 'a' || chr(8207), 0`, '23514'], ['nombre con U+2060', `'b9', 'extra', 'a' || chr(8288), 0`, '23514'], ['nombre con U+2064', `'c1', 'extra', 'a' || chr(8292), 0`, '23514'],
+      ['nombre con aislante bidi U+2066', `'c2', 'extra', 'a' || chr(8294), 0`, '23514'], ['nombre con aislante bidi U+2069', `'c3', 'extra', 'a' || chr(8297), 0`, '23514']
     ];
     let mal = '';
     for (const [n, v, cod] of casos) { const r = await intentar(db, dueno, con(v)); if (r.ok || r.code !== cod) mal += `[${n}: ${r.ok ? 'acepto' : r.code}]`; }
-    prueba('D1 las 17 reglas rechazan con 23514 cuando escribe el DUENO (no solo el administrador)', mal === '', mal);
+    prueba('D1 las 22 reglas rechazan con 23514 cuando escribe el DUENO (no solo el administrador)', mal === '', mal);
     const buenos = [`'ok1', 'extra', 'Queso extra', 2000`, `'ok2', 'quitar', 'Sin cebolla', 0`, `'ok3', 'extra', repeat('ñ', 40), 50000`, `'ok4', 'extra', 'Salsa BBQ 2x1', 0`, `'ok5', 'extra', 'Rúgula', 1`];
     let malb = '';
     for (const v of buenos) { const r = await intentar(db, dueno, con(v)); if (!r.ok) malb += `[${v}: ${r.error}]`; }
@@ -335,6 +337,15 @@ async function main() {
     const baja = await intentar(db, dueno, `delete from public.producto_opciones where producto_id = 'nb-coca-cola' and id = 'c1'`);
     const entra = await intentar(db, dueno, `insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio) values ('${TAQ}', 'nb-coca-cola', 'c13', 'extra', 'C13', 1)`);
     prueba('D7 al borrar una, vuelve a caber otra', baja.ok && entra.ok, JSON.stringify([baja, entra]));
+    const edita = await intentar(db, dueno, `update public.producto_opciones set precio = 7, nombre = 'C3 editada', activa = false where producto_id = 'nb-coca-cola' and id = 'c3'`);
+    prueba('D7b con el producto en 12, el dueno igual puede EDITAR una opcion (precio, nombre, apagarla): el tope solo frena altas', edita.ok && edita.n === 1, JSON.stringify(edita));
+    // el tope es POR restaurante: otro restaurante con un producto del mismo id tiene sus propias 12 (lo escribe el servidor, que ve todas las filas)
+    const R2 = '33333333-3333-4333-8333-333333333333';
+    await db.query(`insert into public.restaurantes (id, slug, nombre, config) values ($1, 'mr18-tope', 'Restaurante tope', '{}')`, [R2]);
+    await db.query(`insert into public.categorias (restaurante_id, id, nombre, emoji, orden, activa) values ($1, 'cat-t', 'Cat', 'x', 0, true)`, [R2]);
+    await db.query(`insert into public.productos (restaurante_id, id, nombre, descripcion, precio, categoria, orden) values ($1, 'nb-coca-cola', 'Coca de R2', 'r2', 3000, 'cat-t', 0)`, [R2]);
+    const otro12 = await intentar(db, null, `insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio) select '${R2}', 'nb-coca-cola', 'r' || g, 'extra', 'R' || g, 1 from generate_series(1, 12) g`, [], { rol: 'service_role' });
+    prueba('D7c el tope de 12 se cuenta por restaurante: otro restaurante con el mismo id de producto (ya lleno en A) carga sus 12', otro12.ok && otro12.n === 12, JSON.stringify(otro12));
     const vol = await intentar(db, dueno, `update public.producto_opciones set tipo = 'quitar' where producto_id = 'nb-coca-cola' and id = 'c2'`);
     prueba('D8 un extra con precio no puede pasar a "quitar" (el CHECK lo impide)', !vol.ok && (vol.code === '23514'), JSON.stringify(vol));
     const noProd = await intentar(db, dueno, `insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio) values ('${TAQ}', 'no-existe', 'x', 'extra', 'X', 1)`);
@@ -345,9 +356,10 @@ async function main() {
     await db.exec(`alter table public.producto_opciones enable trigger producto_opciones_validar`);
     prueba('D10 aun con el trigger apagado, los CHECK frenan quitar con precio, bidi, espacios de borde y precio sobre el tope (defensa en capas)', sinTrigger.every((r) => !r.ok && r.code === '23514'), JSON.stringify(sinTrigger));
     // el producto se borra con sus opciones
-    const antes = (await uno(db, `select count(*)::int n from public.producto_opciones where producto_id = 'nb-coca-cola'`)).n;
+    const antes = (await uno(db, `select count(*)::int n from public.producto_opciones where restaurante_id = '${TAQ}' and producto_id = 'nb-coca-cola'`)).n;
     await db.query(`delete from public.productos where restaurante_id = '${TAQ}' and id = 'nb-coca-cola'`);
-    prueba('D11 borrar el producto borra sus opciones en cascada (no quedan huerfanas)', antes === 12 && (await uno(db, `select count(*)::int n from public.producto_opciones where producto_id = 'nb-coca-cola'`)).n === 0, antes);
+    const otroQueda = (await uno(db, `select count(*)::int n from public.producto_opciones where restaurante_id = '${R2}' and producto_id = 'nb-coca-cola'`)).n;
+    prueba('D11 borrar el producto borra sus opciones en cascada (no quedan huerfanas) y no toca las del mismo id en otro restaurante', antes === 12 && (await uno(db, `select count(*)::int n from public.producto_opciones where restaurante_id = '${TAQ}' and producto_id = 'nb-coca-cola'`)).n === 0 && otroQueda === 12, JSON.stringify([antes, otroQueda]));
   }
 
   // ================= E. ningun lugar suma con el precio base =================

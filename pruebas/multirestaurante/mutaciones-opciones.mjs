@@ -53,7 +53,18 @@ s('el precio de la opcion puede tener decimales', '_precios.js', '!Number.isInte
 s('un "quitar" con precio se acepta', '_precios.js', 'if (tipo === "quitar" && precio !== 0) return null;', '');
 s('el tope del subtotal desaparece (un pedido enorme desborda la columna integer)', '_precios.js', ' || !Number.isSafeInteger(subtotal) || subtotal > TOPE_SUBTOTAL', '');
 s('el nombre de la opcion se guarda tal cual vino de la base (sin sanear)', '_precios.js', 'const nombre = nombreSaneado(fila.nombre);', 'const nombre = String(fila.nombre);');
-s('el nombre no se recorta a 40 caracteres', '_precios.js', ".trim().slice(0, 40);\n}", ".trim();\n}");
+s('el nombre no se recorta a 40 caracteres', '_precios.js', 'return Array.from(limpio).slice(0, 40).join("");', 'return limpio;');
+s('el nombre se recorta por unidades UTF-16 (parte un emoji: Postgres rechaza el JSON y el pedido da 500)', '_precios.js', 'return Array.from(limpio).slice(0, 40).join("");', 'return limpio.slice(0, 40);');
+s('el saneado deja pasar los controles C1', '_precios.js', '[0x007f, 0x009f], ', '');
+s('el saneado deja pasar U+2060-2064', '_precios.js', '[0x2060, 0x2064], ', '');
+s('el saneado deja pasar el BOM', '_precios.js', ', [0xfeff, 0xfeff]', '',
+  { equivalente: 'U+FEFF es espacio para el \\s de JavaScript: el replace(/\\s+/g, " ") que sigue lo vuelve espacio igual' });
+s('el tope del subtotal sube a 2.200.000.000 (ya no cabe en el integer: 500)', '_precios.js', 'const TOPE_SUBTOTAL = 2000000000;', 'const TOPE_SUBTOTAL = 2200000000;');
+s('"opciones": false, 0 o "" valen como "sin opciones" (el contrato deja de ser estricto)', '_precios.js', 'if (crudo === undefined || crudo === null) return [];', 'if (!crudo) return [];');
+s('la lista in.() de productos no se codifica para la URL (un id con & podria colar otro filtro)', '_menu.js', 'encodeURIComponent(lista)', 'lista');
+s('el webhook compara con el SUBTOTAL (se podria pagar sin el domicilio)', 'webhook-wompi.js', 'centavosPagados !== Number(pedido.total) * 100', 'centavosPagados !== Number(pedido.subtotal) * 100');
+s('el id de producto no se recorta al buscar sus opciones', '_precios.js', 'const pid = String(item && item.id ? item.id : "").trim().slice(0, 60);', 'const pid = String(item && item.id ? item.id : "");',
+  { equivalente: 'solo cambia un id con espacios de borde (ningun navegador lo manda): sus opciones no se encuentran y el pedido se RECHAZA (400), nunca se cobra de menos' });
 s('el saneado deja pasar los controles de direccion (bidi)', '_precios.js', '[0x202a, 0x202e],\n', '');
 s('la copia sale en el orden en que llegaron, no en el del menu', '_precios.js', 'elegidas.sort((a, b) => (a.orden - b.orden) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));', '');
 s('una opcion mala se descarta en silencio y se cobra el resto', '_precios.js', 'if (elegidas.length !== idsOpciones.length) { opcionesInvalidas = true; continue; }', 'if (elegidas.length !== idsOpciones.length) { }');
@@ -139,6 +150,10 @@ q('el nombre ya no se recorta', F18, 'new.nombre := btrim(coalesce(new.nombre, \
 q('el tope de opciones sube a 13', F18, 'tope_opciones constant integer := 12;', 'tope_opciones constant integer := 13;');
 q('el tope no cuenta las opciones apagadas', F18, "where o.restaurante_id = new.restaurante_id and o.producto_id = new.producto_id;\n    if v_n", "where o.restaurante_id = new.restaurante_id and o.producto_id = new.producto_id and o.activa;\n    if v_n");
 q('el tope de opciones desaparece', F18, 'if v_n >= tope_opciones then', 'if false then');
+q('el tope de 12 cuenta las opciones de TODOS los restaurantes', F18, 'where o.restaurante_id = new.restaurante_id and o.producto_id = new.producto_id;', 'where o.producto_id = new.producto_id;');
+q('el tope de 12 tambien frena las ediciones (UPDATE)', F18, "if tg_op = 'INSERT' and new.restaurante_id is not null", 'if new.restaurante_id is not null');
+q('el nombre acepta U+2060-2064', F18, "|| chr(8288) || '-' || chr(8292) ", '');
+q('el nombre acepta los aislantes bidi U+2066-2069', F18, "|| chr(8294) || '-' || chr(8297) ", '');
 q('el candado del tope se quita (dos altas a la vez podrian pasar de 12)', F18, '    perform pg_advisory_xact_lock(hashtextextended(new.restaurante_id::text || \'/\' || new.producto_id, 18));\n', '',
   { equivalente: 'PGlite (un solo proceso) no puede provocar dos transacciones simultaneas; el candado se revisa por lectura y con probar-opciones.mjs contra la base real' });
 q('el producto y el id de una opcion se pueden cambiar', F18, "if tg_op = 'UPDATE' and (new.producto_id is distinct from old.producto_id or new.id is distinct from old.id) then", 'if false then');
