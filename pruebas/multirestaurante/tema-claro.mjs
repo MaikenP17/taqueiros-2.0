@@ -223,7 +223,7 @@ prueba('6b ningun boton del tema claro pasa a --rojo-brillo (daria menos de 4.5:
 
 /* ---------------- 7. sw.js y documentacion ---------------- */
 const sw = leer('sw.js');
-prueba('7a sw.js es la v13 y documenta el cambio (mismos archivos de logo con otro contenido: hay que invalidar la cache de /Recursos)', /const VERSION = "v13";/.test(sw) && /v13: estilo claro/.test(sw) && /Recursos\/logo\/northe-logo\.png/.test(sw), '');
+prueba('7a sw.js documenta el cambio de la v13 (hoy va en la v14 de las opciones de producto) (mismos archivos de logo con otro contenido: hay que invalidar la cache de /Recursos)', /const VERSION = "v14";/.test(sw) && /v13: estilo claro/.test(sw) && /Recursos\/logo\/northe-logo\.png/.test(sw), '');
 const vj = fs.readFileSync(path.join(REPO, 'vercel.json'), 'utf8');
 prueba('7b ni vercel.json ni el sitio publico ponen cache larga ni "immutable" a /Recursos (el logo con el mismo nombre no se queda pegado) y el sitio publico no registra el service worker',
   !/Cache-Control|immutable|max-age/i.test(vj) && !/serviceWorker/.test(index + pedido + leer('restaurante-publico.js')), '');

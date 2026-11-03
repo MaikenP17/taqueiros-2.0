@@ -254,8 +254,28 @@ async function main() {
     indexDeAntes = cambiar(indexDeAntes, '<body>\n\n<!-- Pantalla de carga.', '<body>\n\n' + tomar(actualIndex, '<script>\n/* =========================================================\n   INTERRUPTOR DEL ESTILO CLARO', FIN_JS, true) + '<!-- Pantalla de carga.');
     pedidoDeAntes = cambiar(pedidoDeAntes, '</style>', tomar(actualPedido, INI_CSS, '</style>') + '</style>');
     pedidoDeAntes = cambiar(pedidoDeAntes, '<body>\n\n<!-- Pantalla de carga.', '<body>\n\n' + tomar(actualPedido, '<script>\n/* Interruptor del estilo claro', FIN_JS, true) + '<!-- Pantalla de carga.');
-    comprobar(actualIndex === indexDeAntes && actualPedido === pedidoDeAntes,
-      '2d index.html y pedido.html son EXACTAMENTE los de antes, salvo los 4 cambios de index.html del paso 3A, los del rebrand (contraste de textos y botones de redes sin salto; docs 20) y el estilo claro (un bloque de CSS y el interruptor; docs 20.14) (las personas reciben el mismo HTML de siempre)', '');
+    /* PARTE B DE LAS OPCIONES DE PRODUCTO (docs 22): index.html y pedido.html cambiaron a proposito (modal con opciones, carrito por lineas,
+       mensajes, aviso de precio cambiado, el aviso de abierto sin "p.m.." y las opciones en el seguimiento). En vez de copiar esos cambios aqui,
+       el DIFF exacto entre "el archivo de antes + los cambios de arriba" y el actual esta guardado en pruebas/multirestaurante/esperado/ y
+       la prueba exige que sea IDENTICO: cualquier otro cambio en las paginas estaticas (por ejemplo, algo que toque la vista previa) cambia el
+       diff y falla. Se regenera con ACTUALIZAR_ESPERADOS=1 solo cuando el cambio es a proposito. */
+    const diffDe = (viejo, nuevo, nombre) => {
+      const dA = path.join(tmp, 'diff-' + nombre + '-a.html'), dB = path.join(tmp, 'diff-' + nombre + '-b.html');
+      fs.writeFileSync(dA, viejo); fs.writeFileSync(dB, nuevo);
+      let salida = '';
+      try { execFileSync('git', ['diff', '--no-index', '--no-color', '--minimal', '-U1', dA, dB], { maxBuffer: 50 * 1024 * 1024 }); }
+      catch (e) { salida = (e.stdout || '').toString('utf8'); }   // git diff --no-index sale con 1 cuando HAY diferencias
+      return salida.split('\n').filter((l) => !/^(diff --git|index |--- |\+\+\+ )/.test(l)).join('\n');
+    };
+    const dirEsperado = path.join(REPO, 'pruebas', 'multirestaurante', 'esperado');
+    const esperadoDe = (nombre, diff) => {
+      const f = path.join(dirEsperado, 'parte-b-' + nombre + '.diff');
+      if (process.env.ACTUALIZAR_ESPERADOS === '1') { fs.mkdirSync(dirEsperado, { recursive: true }); fs.writeFileSync(f, diff); }
+      return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null;
+    };
+    const diffIndex = diffDe(indexDeAntes, actualIndex, 'index'), diffPedido = diffDe(pedidoDeAntes, actualPedido, 'pedido');
+    comprobar(diffIndex === esperadoDe('index', diffIndex) && diffPedido === esperadoDe('pedido', diffPedido) && diffIndex.length > 1000,
+      '2d index.html y pedido.html son los de antes (con los cambios del paso 3A, del rebrand y del estilo claro) MAS exactamente los cambios de la parte B de las opciones de producto: el diff coincide con el guardado en pruebas/multirestaurante/esperado/ (cualquier otro cambio falla)', '');
     void antes; void extraerAntes;
 
     // una persona que llegue a la funcion directamente es devuelta a la pagina de siempre, sin datos

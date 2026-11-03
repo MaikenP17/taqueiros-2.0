@@ -99,7 +99,11 @@
    nombre; este worker guarda lo que se pide bajo /Recursos/ (primero cache), asi que subir la version borra
    las caches v12 y el panel instalado deja de ver el logo anterior. El sitio publico no registra este worker
    (solo panel.html lo hace) y vercel.json no pone cache larga a /Recursos: ahi no hay logo viejo pegado. */
-const VERSION = "v13";
+/* v14: opciones de producto, parte B (docs/multirestaurante.md, seccion 22): modal con "Quitale algo" / "Agregale extras",
+   carrito por lineas, mensajes y ticket con las opciones, y su administracion en menu-admin.html. Entra un script
+   comun nuevo (opciones-texto.js) que cargan el sitio y los paneles. Mismo criterio: el HTML y los scripts van a la red;
+   subir la version borra las caches viejas y obliga a reinstalar el worker en el panel ya instalado. */
+const VERSION = "v14";
 const CACHE_ESTATICO = "panel-estatico-" + VERSION;
 /* Prefijos de las caches de versiones anteriores (se borran al activarse la nueva). */
 const PREFIJOS_VIEJOS = ["taqueiros-panel-", "panel-estatico-"];

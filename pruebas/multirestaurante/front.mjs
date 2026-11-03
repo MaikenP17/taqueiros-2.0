@@ -50,11 +50,12 @@ const CHROME = process.env.CHROME || [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'
 ].find((p) => fs.existsSync(p));
 
-const PUERTO_WEB = 8097;       // el sitio nuevo
-const PUERTO_ANTIGUO = 8096;   // el sitio como estaba antes (para comparar)
-const PUERTO_SIN_TEMA = 8101;  // el sitio de ahora con el interruptor TEMA_CLARO apagado (debe verse IDENTICO al de antes)
-const PUERTO_CDP = 9334;
-const PUERTO_FALSO = 54340;
+// (los puertos se pueden cambiar con variables de entorno para correr varias copias a la vez: lo usa mutaciones-opciones-ui.mjs)
+const PUERTO_WEB = Number(process.env.PUERTO_WEB) || 8097;       // el sitio nuevo
+const PUERTO_ANTIGUO = Number(process.env.PUERTO_ANTIGUO) || 8096;   // el sitio como estaba antes (para comparar)
+const PUERTO_SIN_TEMA = Number(process.env.PUERTO_SIN_TEMA) || 8101;  // el sitio de ahora con el interruptor TEMA_CLARO apagado (debe verse IDENTICO al de antes)
+const PUERTO_CDP = Number(process.env.PUERTO_CDP) || 9334;
+const PUERTO_FALSO = Number(process.env.PUERTO_FALSO) || 54340;
 const COMMIT_ANTERIOR = 'debc1c5';
 const HOST_TAQUEIROS = 'taqueiros-2-0.vercel.app';
 const TAQUEIROS_ID = '00000000-0000-4000-8000-000000000001';
@@ -389,7 +390,8 @@ async function escenario(nombre, fn) {
   /* El estilo claro (docs 20.14) cambia TODOS los colores a proposito. Para seguir comprobando que Taqueiros no cambio en nada mas, esta
      copia de las paginas trae el interruptor TEMA_CLARO apagado: con el, el sitio tiene que verse exactamente como el de antes. */
   const raizSinTema = fs.mkdtempSync(path.join(os.tmpdir(), 'taq-sintema-'));
-  for (const f of ['index.html', 'pedido.html', 'restaurante-publico.js']) {
+  // (+ opciones-texto.js: las paginas lo cargan como script comun desde la parte B de las opciones de producto)
+  for (const f of ['index.html', 'pedido.html', 'restaurante-publico.js', 'opciones-texto.js']) {
     const t = fs.readFileSync(path.join(RAIZ_NUEVA, f), 'utf8');
     fs.writeFileSync(path.join(raizSinTema, f), f.endsWith('.html') ? t.replace('const TEMA_CLARO = true;', 'const TEMA_CLARO = false;') : t);
   }
@@ -451,6 +453,38 @@ async function escenario(nombre, fn) {
       var cs=getComputedStyle(e); if(cs.display==='none'||cs.visibility==='hidden')continue; var s=n.nodeValue.replace(/\\s+/g,' ').trim(); if(s)t.push(s);} return t.join(' | ');})()`);
   const variable = (pg, nombre) => pg.eval(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(nombre)}).trim()`);
   const incluyeAlguno = (t, lista) => lista.filter((x) => t.includes(x));
+
+  /* Capturas de pantalla (solo con CAPTURAS=<carpeta>): las usa el escenario 11 para guardar lo que ve la persona. */
+  const CAPTURAS = process.env.CAPTURAS ? path.resolve(process.env.CAPTURAS) : null;
+  async function captura(pg, nombre) {
+    if (!CAPTURAS) return;
+    fs.mkdirSync(CAPTURAS, { recursive: true });
+    const r = await cdp.send('Page.captureScreenshot', { format: 'png' }, pg.sid);
+    fs.writeFileSync(path.join(CAPTURAS, 'opciones-' + nombre + '.png'), Buffer.from(r.data, 'base64'));
+  }
+  /* Las dos medidas de la pagina (390 y 1280 px de ancho) de lo que esta abierto en ese momento: "<nombre>-390.png" y "<nombre>-1280.png". */
+  async function capturaDoble(pg, nombre) {
+    if (!CAPTURAS) return;
+    for (const [ancho, alto] of [[390, 844], [1280, 900]]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride', { width: ancho, height: alto, deviceScaleFactor: 1, mobile: ancho < 500 }, pg.sid);
+      await sleep(500);
+      await captura(pg, nombre + '-' + ancho);
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false }, pg.sid);
+  }
+
+  /* Contraste de verdad, en el navegador: color del texto y fondo EFECTIVO (los fondos translucidos se mezclan con lo que hay debajo). */
+  const CONTRASTE = `(function(lista){
+    function parse(c){var m=c.match(/rgba?\\(([^)]+)\\)/); var p=m[1].split(',').map(function(x){return parseFloat(x);}); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1};}
+    function sobre(f,b){return {r:f.r*f.a+b.r*(1-f.a),g:f.g*f.a+b.g*(1-f.a),b:f.b*f.a+b.b*(1-f.a),a:1};}
+    function fondo(e){var capas=[]; for(var n=e;n;n=n.parentElement){var c=parse(getComputedStyle(n).backgroundColor); if(c.a>0)capas.push(c); if(c.a>=1)break;}
+      var b={r:255,g:255,b:255,a:1}; for(var i=capas.length-1;i>=0;i--)b=sobre(capas[i],b); return b;}
+    function lum(c){function f(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);} return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);}
+    return lista.map(function(sel){var e=document.querySelector(sel); if(!e)return sel+': NO EXISTE';
+      var cs=getComputedStyle(e); var b=fondo(e); var t=sobre(parse(cs.color),b); var l1=lum(t),l2=lum(b); var r=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
+      return r>=4.5?null:sel+': '+r.toFixed(2)+' (texto '+cs.color+' sobre rgb('+Math.round(b.r)+','+Math.round(b.g)+','+Math.round(b.b)+'))';}).filter(Boolean);
+  })`;
+  const medidas = (pg, sel) => pg.eval(`(function(){return Array.prototype.map.call(document.querySelectorAll(${JSON.stringify(sel)}),function(e){var r=e.getBoundingClientRect();return {sel:${JSON.stringify(sel)},w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10};});})()`);
 
   // ---------------------------------------------------------------------------------------------------------
   await escenario('1. Dos restaurantes: cada uno con SU marca, textos, menu, tarifas y numero', async () => {
@@ -593,7 +627,7 @@ async function escenario(nombre, fn) {
     };})()`);
     comprobar(r.pwn === 'undefined', 'ningun codigo de la configuracion se ejecuto (window.__pwn sin definir)', r.pwn);
     comprobar(r.imgs === 0 && r.onerror === 0 && r.svg === 0, 'no aparecio ningun <img src=x>, <svg> ni atributo on* inyectado', JSON.stringify(r));
-    comprobar(r.scripts === await pg.eval(`document.querySelectorAll('script').length`) && r.scripts <= 6, 'no se agrego ningun <script>', r.scripts);
+    comprobar(r.scripts === await pg.eval(`document.querySelectorAll('script').length`) && r.scripts <= 7, 'no se agrego ningun <script> (7: los de siempre + opciones-texto.js, de la parte B de las opciones)', r.scripts);
     comprobar(r.rojo === '#3B5B8C' && r.carbon === '#16181D' && r.claro === '#F2F2F2' && r.mostaza === '#D4A72C', 'los colores invalidos se descartan: quedan los neutros (ninguna cadena de CSS se aplico)', JSON.stringify([r.rojo, r.carbon, r.claro, r.mostaza]));
     comprobar(!/evil|url\(|expression/i.test(String(r.styleAttr)), 'el estilo de la pagina no trae nada del CSS hostil', r.styleAttr);
     comprobar(r.logoDisplay === 'none' && !String(r.icono || '').includes('javascript') && !/javascript|data:/.test(String(r.icono)), 'el logo javascript:/data: no se usa (no hay imagen ni icono peligroso)', JSON.stringify([r.logoSrc, r.logoDisplay, r.icono]));
@@ -758,6 +792,10 @@ async function escenario(nombre, fn) {
     for (var i = 0; i < els.length; i++) {
       var e = els[i];
       if (e.closest('#rp-estado') || e.tagName === 'SCRIPT' || e.tagName === 'STYLE' || e.closest('#mapaDomicilio') || e.closest('#mapaConfirmacion')) continue;
+      /* CAMBIO A PROPOSITO (parte B de las opciones): 4 bloques nuevos, TODOS ocultos y vacios hasta que un producto tenga opciones o el servidor
+         cobre otro total: el contenedor de opciones y el boton "Agregar al carrito" del modal, el aviso del carrito y el aviso de precio cambiado.
+         Se excusan solo esos; todo lo demas (incluidos los estilos calculados de lo que ya existia) se sigue comparando uno por uno. */
+      if (e.closest('#modalOpciones, #modalAgregarBtn, #drawerAviso, #precioCambioOverlay')) continue;
       var cs = getComputedStyle(e);
       var propios = Array.prototype.filter.call(e.childNodes, function(n){return n.nodeType === 3;}).map(function(n){return n.nodeValue.replace(/\\s+/g,' ').trim();}).filter(Boolean).join('|');
       var attrs = [];
@@ -883,7 +921,7 @@ async function escenario(nombre, fn) {
     comprobar(!fs.existsSync(path.join(REPO, 'manifest.json')), 'ya no existe manifest.json estatico (lo sirve /api/manifest por restaurante)');
     const rutaManifest = EMULADOR.resolver({ ruta: '/manifest.json' });
     comprobar(rutaManifest.tipo === 'funcion' && rutaManifest.archivo === 'api/publico.js' && /_ruta=manifest/.test(rutaManifest.urlReescrita), 'vercel.json lleva /manifest.json a la funcion agrupada (modulo manifest)');
-    comprobar(/const VERSION = "v13"/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v13 (estilo claro), sin precache y el manifest siempre por la red');
+    comprobar(/const VERSION = "v14"/.test(sw) && /v13: estilo claro/.test(sw) && /const CASCARON = \[\]/.test(sw) && /pathname === "\/manifest\.json"/.test(sw) && !/manifest\.json"\s*\n?\s*\]/.test(sw), 'sw.js: version v14 (opciones de producto, parte B; la v13 sigue documentada), sin precache y el manifest siempre por la red');
     comprobar(/startsWith\("\/api\/"\)/.test(sw), 'sw.js: /api/ (incluido /api/restaurante) y el menu siempre por la red');
   });
 
@@ -898,18 +936,6 @@ async function escenario(nombre, fn) {
     await restaurante('nortesl', { nombre: 'Norte Sin Logo', config: sinLogo, menu: menuN });
     R.invalidarCache();
 
-    /* Contraste de verdad, en el navegador: color del texto y fondo EFECTIVO (los fondos translucidos se mezclan con lo que hay debajo). */
-    const CONTRASTE = `(function(lista){
-      function parse(c){var m=c.match(/rgba?\\(([^)]+)\\)/); var p=m[1].split(',').map(function(x){return parseFloat(x);}); return {r:p[0],g:p[1],b:p[2],a:p.length>3?p[3]:1};}
-      function sobre(f,b){return {r:f.r*f.a+b.r*(1-f.a),g:f.g*f.a+b.g*(1-f.a),b:f.b*f.a+b.b*(1-f.a),a:1};}
-      function fondo(e){var capas=[]; for(var n=e;n;n=n.parentElement){var c=parse(getComputedStyle(n).backgroundColor); if(c.a>0)capas.push(c); if(c.a>=1)break;}
-        var b={r:255,g:255,b:255,a:1}; for(var i=capas.length-1;i>=0;i--)b=sobre(capas[i],b); return b;}
-      function lum(c){function f(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);} return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);}
-      return lista.map(function(sel){var e=document.querySelector(sel); if(!e)return sel+': NO EXISTE';
-        var cs=getComputedStyle(e); var b=fondo(e); var t=sobre(parse(cs.color),b); var l1=lum(t),l2=lum(b); var r=(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05);
-        return r>=4.5?null:sel+': '+r.toFixed(2)+' (texto '+cs.color+' sobre rgb('+Math.round(b.r)+','+Math.round(b.g)+','+Math.round(b.b)+'))';}).filter(Boolean);
-    })`;
-    const medidas = (pg, sel) => pg.eval(`(function(){return Array.prototype.map.call(document.querySelectorAll(${JSON.stringify(sel)}),function(e){var r=e.getBoundingClientRect();return {sel:${JSON.stringify(sel)},w:Math.round(r.width*10)/10,h:Math.round(r.height*10)/10};});})()`);
     const abiertoClaro = async (nombre, ancho, alto) => abrir(nombre, URL_N('norte.localhost') + '/', { ancho, alto });
 
     // ---- portada en 390 px: lo que pide el diseno ----
@@ -1059,6 +1085,374 @@ async function escenario(nombre, fn) {
     malos = await sinPedido.eval(`${CONTRASTE}(['.aviso strong','.aviso','.aviso a'])`);
     comprobar(malos.length === 0 && (await sinPedido.eval(`getComputedStyle(document.querySelector('.aviso strong')).color`)) === rgb(col.oscuro), 'el aviso "No encontramos ese pedido" se lee sobre el crema (el color claro en linea se pisa)', malos.join(' | '));
     comprobar(sg.errores.length === 0 && sinPedido.errores.length === 0, 'sin errores de JavaScript en el seguimiento', sg.errores.concat(sinPedido.errores).join('|'));
+  });
+
+  // ---------------------------------------------------------------------------------------------------------
+  await escenario('11. Opciones de producto, parte B (docs 22): modal, carrito por lineas, mensajes, precio cambiado, opcion apagada y aviso de abierto', async () => {
+    const { CONFIG_TAQUEIROS } = require(path.join(REPO, 'api', '_respaldo-taqueiros.js'));
+    const O = await restaurante('opc', { nombre: 'Opciones Burgers', config: JSON.parse(JSON.stringify(CONFIG_TAQUEIROS)),
+      menu: { categoria: 'Hamburguesas', emoji: '🍔', productos: [['big', 'Big Norte', 26000, 'Triple carne smash, queso derretido y salsa rosa.'], ['lil', 'Lil Norte', 18000, 'Carne smash sencilla.']] }, tarifas: [[3, 3000], [8, 6000]] });
+    const op = (id, tipo, nombre, precio, orden, extra) => Object.assign({ restaurante_id: O.id, producto_id: 'big', id, tipo, nombre, precio, orden, activa: true }, extra || {});
+    await insertar('producto_opciones', [
+      op('sin-queso', 'quitar', 'Sin queso', 0, 0), op('sin-salsa-rosa', 'quitar', 'Sin salsa rosa', 0, 1),
+      op('extra-queso', 'extra', 'Queso extra', 2000, 10), op('extra-tocineta', 'extra', 'Tocineta extra', 3000, 11),
+      op('extra-oculta', 'extra', 'Extra apagado', 1000, 12, { activa: false })
+    ]);
+    R.invalidarCache();
+    const URL_O = URL_N('opc.localhost');
+    const sobreCarrito = (pg) => pg.eval(`JSON.stringify((JSON.parse(localStorage.getItem('carrito-v2')||'null')||{}).v||null)`);
+    const marcar = (pg, ...ids) => pg.eval(`(function(){ ${JSON.stringify(ids)}.forEach(function(id){ document.querySelector('#modalOpciones input[value="'+id+'"]').click(); }); return true; })()`);
+    const abrirModalBig = async (pg) => { await pg.clic('#menu .card[data-id=big] .add-btn'); await pg.esperar(`function(){return document.getElementById('modalOverlay').classList.contains('open');}`, 4000, 'modal'); await sleep(400); };
+    const cerrarModal = async (pg) => { await pg.clic('#modalCloseBtn'); await sleep(350); };
+    const botonModal = (pg) => pg.eval(`document.getElementById('modalAgregarBtn').textContent`);
+
+    // ---- el menu publico trae las opciones ACTIVAS; el "+" de un producto con opciones abre el modal (no suma) ----
+    const m = await abrir('opc-390', URL_O + '/', { ancho: 390, alto: 844 });
+    await m.eval(`document.querySelectorAll('#menu .card').forEach(function(c){c.classList.add('in-view')}); true`);
+    comprobar(await m.eval(`CATEGORIES[0].products.map(function(p){return p.id+':'+p.opciones.length;}).join(',')`) === 'big:4,lil:0', 'el menu trae las 4 opciones ACTIVAS de Big Norte (la apagada no) y ninguna de Lil Norte');
+    await abrirModalBig(m);
+    comprobar((await sobreCarrito(m)) === 'null' && (await m.eval(`document.getElementById('cartBadge').hidden`)) === true, 'tocar el "+" de un producto con opciones abre el modal y NO lo agrega al carrito');
+    const grupos = await m.eval(`Array.from(document.querySelectorAll('#modalOpciones fieldset')).map(function(f){return f.querySelector('legend').textContent+': '+Array.from(f.querySelectorAll('label.opc')).map(function(l){return l.textContent.replace(/\\s+/g,' ').trim();}).join(' / ');}).join(' || ')`);
+    comprobar(grupos === 'Quítale algo: Sin queso / Sin salsa rosa || Agrégale extras: Queso extra +$2.000 / Tocineta extra +$3.000', 'el modal tiene dos grupos rotulados: "Quítale algo" (gratis) y "Agrégale extras" (con precio); la opcion apagada no aparece', grupos);
+    comprobar((await botonModal(m)) === 'Agregar al carrito — $26.000', 'el boton principal arranca con el precio base', await botonModal(m));
+    await marcar(m, 'extra-queso', 'extra-tocineta');
+    comprobar((await botonModal(m)) === 'Agregar al carrito — $31.000', 'el precio del boton se actualiza en vivo: base + extras marcados (26.000 + 2.000 + 3.000)', await botonModal(m));
+    await marcar(m, 'sin-queso');
+    comprobar((await botonModal(m)) === 'Agregar al carrito — $31.000', 'marcar algo para QUITAR no cambia el precio', await botonModal(m));
+    await marcar(m, 'extra-tocineta');
+    comprobar((await botonModal(m)) === 'Agregar al carrito — $28.000', 'desmarcar un extra baja el precio del boton', await botonModal(m));
+    await marcar(m, 'extra-tocineta');
+
+    // ---- accesibilidad: casillas reales con su etiqueta, tamano tactil, foco visible ----
+    const acc = await m.eval(`(function(){
+      var ins=Array.from(document.querySelectorAll('#modalOpciones input')), labs=Array.from(document.querySelectorAll('#modalOpciones label.opc'));
+      var chicos=labs.map(function(l){return Math.round(l.getBoundingClientRect().height);}).filter(function(h){return h<48;});
+      var cerrar=document.getElementById('modalCloseBtn').getBoundingClientRect(), agregar=document.getElementById('modalAgregarBtn').getBoundingClientRect();
+      ins[0].focus();
+      return {tipos: ins.map(function(i){return i.type;}).join(','), conEtiqueta: ins.every(function(i){return i.labels && i.labels.length===1;}), chicos: chicos.length,
+              cerrarW: Math.round(cerrar.width), cerrarH: Math.round(cerrar.height), agregarH: Math.round(agregar.height),
+              foco: getComputedStyle(ins[0]).outlineStyle+' '+getComputedStyle(ins[0]).outlineWidth, enfocado: document.activeElement===ins[0],
+              grupos: document.querySelectorAll('#modalOpciones fieldset > legend').length, desborde: document.documentElement.scrollWidth<=innerWidth};})()`);
+    comprobar(acc.tipos === 'checkbox,checkbox,checkbox,checkbox' && acc.conEtiqueta && acc.grupos === 2, 'las opciones son casillas reales (checkbox), cada una con SU etiqueta, en dos <fieldset> con <legend>', JSON.stringify(acc));
+    comprobar(acc.chicos === 0 && acc.cerrarW >= 44 && acc.cerrarH >= 44 && acc.agregarH >= 44, 'cada fila de opcion, el boton de cerrar y el de agregar miden al menos 44 px (celular de 390 px)', JSON.stringify(acc));
+    comprobar(/^auto|solid/.test(acc.foco) && acc.enfocado, 'la casilla enfocada con el teclado muestra su aro de foco', JSON.stringify(acc));
+    comprobar(acc.desborde, 'sin desborde horizontal con el modal abierto (390 px)');
+    await captura(m, 'modal-con-opciones-390');
+
+    // ---- cerrar sin querer no pierde lo marcado: X, Escape y tocar fuera ----
+    await cerrarModal(m);
+    await abrirModalBig(m);
+    const marcadas = () => m.eval(`Array.from(document.querySelectorAll('#modalOpciones input:checked')).map(function(i){return i.value;}).join(',')`);
+    comprobar(await marcadas() === 'sin-queso,extra-queso,extra-tocineta' && (await botonModal(m)) === 'Agregar al carrito — $31.000', 'cerrar con la X y volver a abrir: lo marcado sigue marcado (y el precio del boton)', await marcadas());
+    await m.eval(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); true`); await sleep(350);
+    comprobar((await m.eval(`document.getElementById('modalOverlay').classList.contains('open')`)) === false, 'Escape cierra el modal');
+    await abrirModalBig(m);
+    await m.eval(`document.getElementById('modalOverlay').click(); true`); await sleep(350);
+    comprobar((await m.eval(`document.getElementById('modalOverlay').classList.contains('open')`)) === false, 'tocar fuera del modal lo cierra');
+    await abrirModalBig(m);
+    comprobar(await marcadas() === 'sin-queso,extra-queso,extra-tocineta', 'tras Escape y tocar fuera, lo marcado tampoco se perdio', await marcadas());
+
+    // ---- agregar: la linea del carrito es producto + opciones (clave con los ids ordenados); dos iguales se juntan ----
+    await m.clic('#modalAgregarBtn'); await sleep(400);
+    comprobar((await m.eval(`document.getElementById('modalOverlay').classList.contains('open')`)) === false && (await sobreCarrito(m)) === '{"big|extra-queso,extra-tocineta,sin-queso":1}',
+      'agregar guarda UNA linea con la clave "producto|ids de opciones ordenados" y cierra el modal', await sobreCarrito(m));
+    await abrirModalBig(m);
+    comprobar(await marcadas() === '', 'tras agregar, el borrador se borra: el modal vuelve a abrir sin nada marcado', await marcadas());
+    await marcar(m, 'extra-tocineta', 'extra-queso', 'sin-queso');   // las MISMAS opciones, marcadas en otro orden
+    await m.clic('#modalAgregarBtn'); await sleep(400);
+    comprobar((await sobreCarrito(m)) === '{"big|extra-queso,extra-tocineta,sin-queso":2}', 'las mismas opciones (en otro orden) se juntan en la misma linea: cantidad 2', await sobreCarrito(m));
+    await abrirModalBig(m);
+    await m.clic('#modalAgregarBtn'); await sleep(400);   // sin nada marcado
+    comprobar((await sobreCarrito(m)) === '{"big|extra-queso,extra-tocineta,sin-queso":2,"big":1}', 'otro conjunto de opciones (ninguna) es OTRA linea', await sobreCarrito(m));
+    // Lil Norte no tiene opciones: el "+" suma directo, como siempre, y su modal no trae grupos
+    await m.clic('#menu .card[data-id=lil] .add-btn'); await sleep(300);
+    comprobar((await sobreCarrito(m)) === '{"big|extra-queso,extra-tocineta,sin-queso":2,"big":1,"lil":1}' && (await m.eval(`document.querySelector('#menu .card[data-id=lil] .qty-control') !== null`)), 'un producto SIN opciones suma directo con su control de cantidad, exactamente como hoy', await sobreCarrito(m));
+    await m.clic('#menu .card[data-id=lil]'); await sleep(500);
+    comprobar((await m.eval(`document.getElementById('modalOpciones').hidden`)) === true && (await m.eval(`document.getElementById('modalAgregarBtn').hidden`)) === true && (await m.eval(`document.getElementById('modalFoot').className`)) === 'modal-foot' && (await m.eval(`document.getElementById('modalPrice').textContent`)) === '$18.000',
+      'el modal de un producto sin opciones es el de siempre (sin grupos, sin boton nuevo, con su precio y su cantidad)');
+    await cerrarModal(m);
+
+    // ---- la tarjeta del menu muestra cuantas unidades de Big Norte lleva el carrito ----
+    comprobar((await m.eval(`document.querySelector('#menu .card[data-id=big] .qty-chip').textContent`)) === '3', 'la tarjeta de un producto con opciones muestra una burbuja con sus unidades en el carrito (2 + 1 = 3)');
+
+    // ---- el carrito: opciones bajo cada linea y subtotal con extras ----
+    await m.clic('#openCartBtn'); await sleep(700);
+    const filas = await m.eval(`Array.from(document.querySelectorAll('#drawerItems .drawer-item')).map(function(r){return [r.querySelector('h4').textContent, (r.querySelector('.opciones-linea')||{}).textContent||'', r.querySelector('.unit').textContent, r.querySelector('.subtotal').textContent, r.querySelector('.qty-num').textContent].join(' ~ ');}).join(' || ')`);
+    comprobar(filas === 'Big Norte ~ Sin queso · + Queso extra · + Tocineta extra ~ $31.000 c/u ~ $62.000 ~ 2 || Big Norte ~  ~ $26.000 c/u ~ $26.000 ~ 1 || Lil Norte ~  ~ $18.000 c/u ~ $18.000 ~ 1',
+      'el carrito muestra bajo cada linea sus opciones ("Sin queso · + Queso extra · + Tocineta extra"), el precio con extras y el subtotal; la linea sin opciones no muestra nada', filas);
+    comprobar((await m.eval(`document.getElementById('drawerTotal').textContent`)) === '$106.000' && (await m.eval(`document.getElementById('floatingTotal').textContent`)) === '$106.000', 'el total del carrito usa el precio con extras (62.000 + 26.000 + 18.000 = 106.000)', await m.eval(`document.getElementById('drawerTotal').textContent`));
+    await captura(m, 'carrito-con-opciones-390');
+    // +/- de una linea con opciones solo toca ESA linea
+    await m.eval(`document.querySelectorAll('#drawerItems .drawer-item')[0].querySelector('.minus').click(); true`); await sleep(200);
+    comprobar((await sobreCarrito(m)) === '{"big|extra-queso,extra-tocineta,sin-queso":1,"big":1,"lil":1}', 'el "-" de una linea con opciones baja solo esa linea', await sobreCarrito(m));
+    await m.eval(`document.querySelectorAll('#drawerItems .drawer-item')[0].querySelector('.plus').click(); true`); await sleep(200);
+
+    // ---- WhatsApp del cliente: una linea por item, con sus opciones; sin opciones sale como siempre ----
+    await m.eval(`window.__aperturas=[]; window.open=function(u){window.__aperturas.push(u);}; true`);
+    await m.eval(`document.getElementById('orderNote').value='Sin servilletas'; true`);
+    await m.clic('#whatsappBtn');
+    const wa = decodeURIComponent((await m.eval('window.__aperturas[0]')).split('?text=')[1]);
+    comprobar(wa === 'Pedido Opciones Burgers:\n\n- 2x Big Norte (Sin queso, + Queso extra, + Tocineta extra) - $62.000\n- 1x Big Norte - $26.000\n- 1x Lil Norte - $18.000\n\nNota: Sin servilletas\n\nTotal: $106.000\n\nQuiero hacer este pedido, gracias.',
+      'el mensaje de WhatsApp del cliente: una linea por item con sus opciones entre parentesis, el total con extras; la linea sin opciones es la de siempre', JSON.stringify(wa));
+
+    // ---- carrito antiguo (lineas sin opciones, como lo guardaba la version anterior) y claves rotas ----
+    const viejo = await pagina('opc-viejo', { ancho: 390, alto: 844 });
+    await viejo.ir(URL_O + '/robots-inexistente');
+    await viejo.eval(`localStorage.setItem('carrito-v2', JSON.stringify({rid:'${O.id}', v:{big:2, 'big|':3, 'fantasma|sin-queso':1, 'Big|x y':2, lil:1}})); true`);
+    await viejo.ir(URL_O + '/');
+    await viejo.esperar(`function(){return document.documentElement.classList.contains('rp-listo') && document.querySelectorAll('#menu .card').length>0;}`, 12000, 'pagina con carrito antiguo');
+    await sleep(600);
+    const antiguo = await viejo.eval(`JSON.stringify({guardado: (JSON.parse(localStorage.getItem('carrito-v2'))||{}).v, total: document.getElementById('floatingTotal').textContent, cuenta: document.getElementById('cartBadge').textContent})`);
+    const ca = JSON.parse(antiguo);
+    comprobar(ca.total === '$70.000' && ca.cuenta === '3', 'un carrito antiguo (lineas sin opciones: "big":2, "lil":1) sigue funcionando: 2 x 26.000 + 18.000 = 70.000; las claves rotas (mayusculas, espacios, "big|" vacia) se descartan', antiguo);
+    comprobar(viejo.errores.length === 0, 'sin errores de JavaScript con un carrito antiguo o con claves rotas', viejo.errores.join('|'));
+    // una linea con una opcion que ya no existe en el menu (producto fantasma) se retira con aviso
+    comprobar(viejo.dialogos.some((d) => /Algún producto de tu carrito ya no está en el menú/.test(d)), 'una linea de un producto que ya no existe se retira con aviso (como antes)', viejo.dialogos.join(' ; '));
+
+    // ---- una opcion de la linea ya no esta en el menu (apagada/borrada): la linea se quita con aviso, sin romper el flujo ----
+    const viejo2 = await pagina('opc-apagada', { ancho: 390, alto: 844 });
+    await viejo2.ir(URL_O + '/robots-inexistente');
+    await viejo2.eval(`localStorage.setItem('carrito-v2', JSON.stringify({rid:'${O.id}', v:{'big|extra-oculta,extra-queso':1, 'big|extra-queso':1, lil:2}})); true`);
+    await viejo2.ir(URL_O + '/');
+    await viejo2.esperar(`function(){return document.documentElement.classList.contains('rp-listo') && document.querySelectorAll('#menu .card').length>0;}`, 12000, 'pagina con opcion apagada');
+    await sleep(900);
+    const quedo = await sobreCarrito(viejo2);
+    comprobar(quedo === '{"big|extra-queso":1,"lil":2}' && viejo2.dialogos.some((d) => /Quitamos de tu carrito: Big Norte/.test(d) && /Agrégalo de nuevo/.test(d)), 'una linea con una opcion que ya no esta en el menu (apagada) se QUITA entera con un aviso amable; el resto del carrito sigue igual', quedo + ' | ' + viejo2.dialogos.join(' ; '));
+    comprobar(viejo2.errores.length === 0, 'sin errores de JavaScript con una opcion apagada en el carrito', viejo2.errores.join('|'));
+
+    // ---- formulario de entrega y pedido: al servidor viajan SOLO ids de opcion ----
+    await m.clic('#closeCartBtn'); await sleep(300);
+    await m.clic('#openCartBtn'); await m.clic('#payOnlineBtn');
+    await m.esperar(`function(){return document.getElementById('paymentFormOverlay').classList.contains('open');}`, 5000, 'formulario');
+    await m.escribir('#pf-nombre', 'Cliente de Prueba'); await m.escribir('#pf-telefono', '3001234567'); await m.escribir('#pf-email', 'prueba@example.com');
+    await m.eval(`(function(){var r=document.querySelector('input[name=tipoPedido][value=llevar]');r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
+    await m.esperar(`function(){return !document.getElementById('paymentFormSubmitBtn').disabled;}`, 5000, 'boton habilitado');
+    comprobar((await m.eval(`document.querySelector('#desglosePago .fila.total span:last-child').textContent`)) === '$106.000', 'el resumen del formulario de entrega suma con los extras ($106.000)', await m.eval(`document.getElementById('desglosePago').textContent`));
+    await capturaDoble(m, 'formulario-entrega');
+    await m.clic('#paymentFormSubmitBtn');
+    await m.esperar(`function(){return window.__wompi && window.__wompi.length===1;}`, 8000, 'widget de Wompi');
+    const enviado = estadoServidor.ultimoPedido;
+    comprobar(JSON.stringify(enviado.items) === JSON.stringify([
+      { id: 'big', cantidad: 2, precio: 26000, opciones: ['extra-queso', 'extra-tocineta', 'sin-queso'] },
+      { id: 'big', cantidad: 1, precio: 26000 },
+      { id: 'lil', cantidad: 1, precio: 18000 }]), 'al servidor viajan SOLO ids de opcion (ordenados), el precio BASE y la cantidad: nunca nombres ni precios de opciones; la linea sin opciones no lleva la clave "opciones"', JSON.stringify(enviado.items));
+    const pedidoCreado = (await srv('GET', `pedidos?restaurante_id=eq.${O.id}&select=*&order=id.desc&limit=1`))[0];
+    const it0 = pedidoCreado.items[0];
+    comprobar(pedidoCreado.total === 106000 && pedidoCreado.subtotal === 106000 && it0.precio === 31000 && it0.precio_base === 26000 && it0.opciones.map((o) => o.id).join() === 'sin-queso,extra-queso,extra-tocineta' && Object.keys(pedidoCreado.items[1]).sort().join() === 'cantidad,id,nombre,precio',
+      'el servidor guardo el pedido con precio final (31.000), precio_base y las opciones; la linea sin opciones se guardo con sus 4 claves de siempre', JSON.stringify(pedidoCreado.items));
+    const w = JSON.parse(await m.eval('JSON.stringify(window.__wompi[0])'));
+    comprobar(w.amountInCents === 10600000, 'Wompi recibe el monto del servidor (106.000 pesos = 10.600.000 centavos)', String(w.amountInCents));
+
+    // ---- confirmacion (C4): lleva las opciones y el total del servidor; el WhatsApp de copia tambien ----
+    await m.eval(`window.__wompiCb({ transaction: { status: 'APPROVED', id: 'tx-1' } }); true`);
+    await m.esperar(`function(){return document.getElementById('confirmOverlay').classList.contains('open');}`, 5000, 'confirmacion');
+    const resumen = await m.eval(`Array.from(document.querySelectorAll('#confirmSummary .line')).map(function(l){return l.textContent.replace(/\\s+/g,' ').trim();}).join(' || ')`);
+    comprobar(resumen === '2x Big NorteSin queso · + Queso extra · + Tocineta extra$62.000 || 1x Big Norte$26.000 || 1x Lil Norte$18.000' && (await m.eval(`document.getElementById('confirmTotal').textContent`)) === '$106.000',
+      'la confirmacion muestra las opciones bajo cada producto y el total del servidor', resumen);
+    await capturaDoble(m, 'confirmacion');
+    await m.eval(`window.__aperturas=[]; window.open=function(u){window.__aperturas.push(u);}; true`);
+    await m.clic('#confirmWhatsappBtn');
+    const wa2 = decodeURIComponent((await m.eval('window.__aperturas[0]')).split('?text=')[1]);
+    comprobar(wa2.includes('✅ 2x Big Norte (Sin queso, + Queso extra, + Tocineta extra) — $62.000\n✅ 1x Big Norte — $26.000\n✅ 1x Lil Norte — $18.000') && wa2.includes('*Total pagado: $106.000*'), 'el WhatsApp de la copia del pedido pagado lleva las opciones en la linea de cada producto', JSON.stringify(wa2));
+    comprobar(m.errores.length === 0, 'sin errores de JavaScript en todo el flujo con opciones', m.errores.join('|'));
+
+    // ---- C2 (H5): el servidor cobra otro total que el del carrito -> aviso con dos botones, sin abrir Wompi en silencio ----
+    const abrirParaPagar = async (nombre, carrito) => {
+      const pg = await pagina(nombre, { ancho: 390, alto: 844 });
+      await pg.ir(URL_O + '/robots-inexistente');
+      await pg.eval(`localStorage.setItem('carrito-v2', JSON.stringify({rid:'${O.id}', v:${JSON.stringify(carrito)}})); true`);
+      await pg.ir(URL_O + '/');
+      await pg.esperar(`function(){return document.documentElement.classList.contains('rp-listo') && document.querySelectorAll('#menu .card').length>0 && document.getElementById('statusBanner').textContent.length>0;}`, 12000, 'pagina ' + nombre);
+      await sleep(500);
+      return pg;
+    };
+    const llenarYPagar = async (pg) => {
+      await pg.clic('#openCartBtn'); await pg.clic('#payOnlineBtn');
+      await pg.esperar(`function(){return document.getElementById('paymentFormOverlay').classList.contains('open');}`, 5000, 'formulario');
+      await pg.escribir('#pf-nombre', 'Cliente de Prueba'); await pg.escribir('#pf-telefono', '3001234567'); await pg.escribir('#pf-email', 'prueba@example.com');
+      await pg.eval(`(function(){var r=document.querySelector('input[name=tipoPedido][value=llevar]');r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
+      await pg.esperar(`function(){return !document.getElementById('paymentFormSubmitBtn').disabled;}`, 5000, 'boton habilitado');
+      await pg.clic('#paymentFormSubmitBtn');
+    };
+    const contarPedidos = async () => (await srv('GET', `pedidos?restaurante_id=eq.${O.id}&select=id`)).length;
+
+    const c2 = await abrirParaPagar('opc-precio', { 'big|extra-queso': 1 });
+    comprobar((await c2.eval(`document.getElementById('floatingTotal').textContent`)) === '$28.000', 'el carrito de la prueba muestra $28.000 (26.000 + queso extra 2.000)');
+    await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.big&id=eq.extra-queso`, { precio: 2500 });   // el dueno sube el extra: el menu que el cliente tiene en pantalla sigue viejo
+    const antesC2 = await contarPedidos();
+    await llenarYPagar(c2);
+    await c2.esperar(`function(){return document.getElementById('precioCambioOverlay').classList.contains('open');}`, 8000, 'aviso de precio cambiado');
+    const aviso = await c2.eval(`JSON.stringify({titulo: document.getElementById('precioCambioTitulo').textContent, texto: document.getElementById('precioCambioTexto').textContent, pagar: document.getElementById('precioCambioPagar').textContent, revisar: document.getElementById('precioCambioRevisar').textContent, wompi: window.__wompi.length})`);
+    const av = JSON.parse(aviso);
+    comprobar(av.titulo === 'El precio subió' && av.texto.includes('$28.500') && av.texto.includes('antes $28.000') && av.pagar === 'Pagar $28.500' && av.revisar === 'Revisar mi pedido' && av.wompi === 0,
+      'si el servidor cobra otro total, NO se abre Wompi en silencio: aviso con el monto nuevo ($28.500) y dos botones (Pagar $28.500 / Revisar mi pedido)', aviso);
+    // El aviso tiene que VERSE: aunque el formulario de entrega sigue abierto detras, lo que esta en el centro del boton "Pagar" es el aviso (no el formulario)
+    await sleep(700);   // (que termine la transicion de entrada del aviso: mientras sube, el boton esta fuera de la pantalla)
+    const visto = await c2.eval(`(function(){var b=document.getElementById('precioCambioPagar').getBoundingClientRect(); var e=document.elementFromPoint(b.left+b.width/2, b.top+b.height/2); var f=document.getElementById('paymentFormOverlay');
+      return JSON.stringify({enAviso: !!(e && e.closest('#precioCambioOverlay')), formularioAbierto: f.classList.contains('open')});})()`);
+    comprobar(visto === '{"enAviso":true,"formularioAbierto":true}', 'el aviso de precio cambiado se VE encima del formulario de entrega (medido con elementFromPoint: lo que hay bajo el boton "Pagar" es el aviso)', visto);
+    comprobar((await contarPedidos()) === antesC2 + 1, 'hasta aqui se creo UN solo pedido (pendiente de pago)');
+    await sleep(600);   // (que termine la transicion del aviso para la captura)
+    await capturaDoble(c2, 'aviso-precio-cambiado');
+    // tocar fuera NO decide por el cliente; el boton "Revisar mi pedido" (y Escape, mas abajo) = revisar
+    await c2.eval(`document.getElementById('precioCambioOverlay').click(); true`); await sleep(300);
+    comprobar((await c2.eval(`document.getElementById('precioCambioOverlay').classList.contains('open')`)) === true, 'tocar fuera del aviso no lo cierra: hay que elegir');
+    await c2.clic('#precioCambioRevisar'); await sleep(500);
+    comprobar((await c2.eval(`JSON.stringify([window.__wompi.length, document.getElementById('drawer').classList.contains('open'), document.getElementById('drawerAviso').hidden, document.getElementById('drawerAviso').textContent])`)).startsWith('[0,true,false,"El total confirmado por el restaurante es $28.500.'),
+      'el boton "Revisar mi pedido": Wompi no se abre, el carrito queda abierto con un aviso del total confirmado y el cliente puede seguir', await c2.eval(`document.getElementById('drawerAviso').textContent`));
+    comprobar((await c2.eval(`document.getElementById('floatingTotal').textContent`)) === '$28.500', 'tras revisar, el carrito se vuelve a pintar con los precios al dia ($28.500): el menu se pidio de nuevo UNA vez', await c2.eval(`document.getElementById('floatingTotal').textContent`));
+    comprobar((await contarPedidos()) === antesC2 + 1, 'revisar NO crea otro pedido (el pendiente se queda sin pagar y se limpia solo)');
+    // pagar de nuevo: ahora coincide, sin aviso
+    await c2.clic('#closeCartBtn'); await sleep(300);
+    await llenarYPagar(c2);
+    await c2.esperar(`function(){return window.__wompi && window.__wompi.length===1;}`, 8000, 'widget de Wompi tras revisar');
+    comprobar((await c2.eval(`document.getElementById('precioCambioOverlay').classList.contains('open')`)) === false && JSON.parse(await c2.eval('JSON.stringify(window.__wompi[0])')).amountInCents === 2850000, 'con el carrito ya al dia, el total coincide: sin aviso y Wompi recibe 28.500', '');
+
+    // "Pagar $X": sigue con ESE mismo pedido (misma referencia y firma), sin crear otro
+    const c3 = await abrirParaPagar('opc-precio-2', { 'big|extra-queso': 1 });
+    await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.big&id=eq.extra-queso`, { precio: 3000 });
+    const antesC3 = await contarPedidos();
+    await llenarYPagar(c3);
+    await c3.esperar(`function(){return document.getElementById('precioCambioOverlay').classList.contains('open');}`, 8000, 'aviso de precio cambiado (2)');
+    await c3.clic('#precioCambioPagar');
+    await c3.esperar(`function(){return window.__wompi && window.__wompi.length===1;}`, 8000, 'widget de Wompi tras aceptar');
+    const opW = JSON.parse(await c3.eval('JSON.stringify(window.__wompi[0])'));
+    const filaC3 = (await srv('GET', `pedidos?referencia=eq.${opW.reference}&select=*`))[0];
+    comprobar(opW.amountInCents === 2900000 && filaC3 && filaC3.total === 29000 && (await contarPedidos()) === antesC3 + 1, '"Pagar $29.000": Wompi se abre con el monto del servidor y la referencia del MISMO pedido; no se crea otro', JSON.stringify([opW.amountInCents, filaC3 && filaC3.total]));
+    await c3.eval(`window.__wompiCb({ transaction: { status: 'APPROVED', id: 'tx-2' } }); true`);
+    await c3.esperar(`function(){return document.getElementById('confirmOverlay').classList.contains('open');}`, 5000, 'confirmacion con ajuste');
+    comprobar((await c3.eval(`document.getElementById('confirmTotal').textContent`)) === '$29.000' && /Ajustedeprecios\$500/.test(await c3.eval(`document.getElementById('confirmSummary').textContent.replace(/\\s+/g,'')`)),
+      'la confirmacion muestra el TOTAL DEL SERVIDOR ($29.000) y deja a la vista la diferencia con lo que se veia: "Ajuste de precios $500" (veia $28.500)', await c3.eval(`document.getElementById('confirmSummary').textContent`));
+
+    // Escape equivale a "Revisar mi pedido": no abre Wompi y deja el carrito abierto con el aviso
+    const c5 = await abrirParaPagar('opc-precio-3', { 'big|extra-queso': 1 });
+    await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.big&id=eq.extra-queso`, { precio: 3500 });
+    await llenarYPagar(c5);
+    await c5.esperar(`function(){return document.getElementById('precioCambioOverlay').classList.contains('open');}`, 8000, 'aviso de precio cambiado (3)');
+    await c5.eval(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); true`); await sleep(500);
+    comprobar((await c5.eval(`JSON.stringify([window.__wompi.length, document.getElementById('precioCambioOverlay').classList.contains('open'), document.getElementById('drawer').classList.contains('open'), document.getElementById('drawerAviso').textContent.includes('$29.500')])`)) === '[0,false,true,true]',
+      'Escape equivale a "Revisar mi pedido": el aviso se cierra, no se abre Wompi y el carrito muestra el total confirmado ($29.500)', await c5.eval(`document.getElementById('drawerAviso').textContent`));
+
+    // ---- C3: una opcion apagada despues de cargar el menu -> el servidor rechaza (400), se vuelve a pedir el menu y se lleva al carrito ----
+    const c4 = await abrirParaPagar('opc-400', { 'big|extra-tocineta,sin-queso': 1, lil: 1 });
+    await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.big&id=eq.extra-tocineta`, { activa: false });
+    const antesC4 = await contarPedidos();
+    await llenarYPagar(c4);
+    await c4.esperar(`function(){return document.getElementById('drawer').classList.contains('open');}`, 8000, 'carrito tras el 400');
+    await sleep(1200);
+    comprobar(c4.dialogos.some((d) => /Alguna de las opciones elegidas no es válida o ya no está disponible/.test(d) && /Revisa tu carrito/.test(d)), 'una opcion apagada: el cliente ve el aviso generico del servidor y se le lleva al carrito', c4.dialogos.join(' ; '));
+    comprobar((await sobreCarrito(c4)) === '{"lil":1}' && c4.dialogos.some((d) => /Quitamos de tu carrito: Big Norte/.test(d)) && (await c4.eval('window.__wompi.length')) === 0, 'tras volver a pedir el menu (una vez) la linea con la opcion apagada se quito con aviso; el resto queda y no se abrio Wompi', (await sobreCarrito(c4)) + ' | ' + c4.dialogos.join(' ; '));
+    comprobar((await contarPedidos()) === antesC4, 'el 400 no dejo ningun pedido');
+    await parchear('producto_opciones', `restaurante_id=eq.${O.id}&producto_id=eq.big&id=eq.extra-tocineta`, { activa: true });
+    comprobar(c2.errores.length === 0 && c3.errores.length === 0 && c4.errores.length === 0, 'sin errores de JavaScript en los avisos de precio y de opcion apagada', c2.errores.concat(c3.errores, c4.errores).join('|'));
+
+    // ---- el aviso de abierto: "p.m.." (dos puntos) ----
+    await parchear('configuracion', `restaurante_id=eq.${O.id}`, { horarios: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((dia) => ({ dia, abre: '00:00', cierra: '23:59', activo: true })) });
+    R.invalidarCache();
+    const ab = await abrir('opc-aviso', URL_O + '/', { ancho: 390, alto: 844 });
+    const banner = await ab.eval(`document.getElementById('statusBanner').textContent.replace(/\\s+/g,' ').trim()`);
+    comprobar(/hasta las 11:59 p\.m\. ¡Antójate y pide ya!/.test(banner) && !/\.\./.test(banner), 'el aviso de abierto ya no termina en "p.m.." (dos puntos): un solo punto', banner);
+    // sin punto en la hora ("12:00 a.m. (medianoche)"), el punto de la plantilla se queda
+    await parchear('configuracion', `restaurante_id=eq.${O.id}`, { horarios: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'].map((dia) => ({ dia, abre: '00:00', cierra: '24:00', activo: true })) });
+    R.invalidarCache();
+    const ab2 = await abrir('opc-aviso-2', URL_O + '/', { ancho: 390, alto: 844 });
+    const banner2 = await ab2.eval(`document.getElementById('statusBanner').textContent.replace(/\\s+/g,' ').trim()`);
+    comprobar(/\(medianoche\)\. ¡Antójate y pide ya!/.test(banner2), 'si la hora no termina en punto ("(medianoche)"), el punto de la plantilla se conserva', banner2);
+
+    // ---- estilo oscuro (TEMA_CLARO apagado) y otros anchos: el modal se ve bien y no desborda ----
+    for (const [ancho, alto, sitio, etiqueta] of [[360, 740, PUERTO_WEB, 'claro'], [768, 1024, PUERTO_WEB, 'claro'], [1280, 800, PUERTO_WEB, 'claro'], [390, 844, PUERTO_SIN_TEMA, 'oscuro']]) {
+      const g = await abrir(`opc-${etiqueta}-${ancho}`, `http://opc.localhost:${sitio}/`, { ancho, alto });
+      await g.eval(`document.querySelectorAll('#menu .card').forEach(function(c){c.classList.add('in-view')}); true`);
+      await abrirModalBig(g);
+      await marcar(g, 'extra-queso');
+      const v = await g.eval(`(function(){
+        var labs=Array.from(document.querySelectorAll('#modalOpciones label.opc')), caja=document.getElementById('productModal').getBoundingClientRect();
+        var fuera=labs.filter(function(l){var r=l.getBoundingClientRect(); return r.left<caja.left-1||r.right>caja.right+1;}).length;
+        return {h: Math.min.apply(null,labs.map(function(l){return Math.round(l.getBoundingClientRect().height);})), fuera:fuera, ancho: document.documentElement.scrollWidth<=innerWidth, claro: document.body.classList.contains('tema-claro'),
+                boton: Math.round(document.getElementById('modalAgregarBtn').getBoundingClientRect().height), bottom: Math.round(document.getElementById('modalAgregarBtn').getBoundingClientRect().bottom)<=innerHeight};})()`);
+      const malosOpc = await g.eval(`${CONTRASTE}(['#modalOpciones legend','#modalOpciones .opc-nombre','#modalOpciones .opc-precio','#modalAgregarBtn'])`);
+      comprobar(v.h >= 44 && v.fuera === 0 && v.ancho && v.boton >= 44 && v.bottom && v.claro === (etiqueta === 'claro') && malosOpc.length === 0,
+        `modal con opciones a ${ancho} px (${etiqueta}): filas >= 44 px, dentro de la ventana, sin desborde, boton alcanzable y contraste AA`, JSON.stringify(v) + ' ' + malosOpc.join(' | '));
+      if (ancho === 1280) await captura(g, 'modal-con-opciones-1280');
+      if (etiqueta === 'oscuro') await captura(g, 'modal-con-opciones-oscuro-390');
+      if (ancho === 1280) {
+        await g.clic('#modalAgregarBtn'); await sleep(300);
+        await g.clic('#openCartBtn'); await sleep(700);
+        await captura(g, 'carrito-con-opciones-1280');
+      }
+    }
+
+    // ---- S1 y S5: nombres con HTML, "$" y "*" que lleguen en el menu (la base los frena, pero la pagina no se fia): todo se pinta como TEXTO y el WhatsApp los limpia ----
+    const defsOpc = (await falso.db.query(`select conname, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.producto_opciones'::regclass and contype = 'c'`)).rows;
+    try {
+      // (solo en esta prueba y se restauran al terminar) se apagan los CHECK y los triggers de la tabla para poder guardar lo que la base normalmente rechaza
+      for (const d of defsOpc) await falso.db.exec(`alter table public.producto_opciones drop constraint "${d.conname}"`);
+      await falso.db.exec(`alter table public.producto_opciones disable trigger user`);
+      await falso.db.exec(`delete from public.producto_opciones where restaurante_id = '${O.id}' and producto_id = 'big'`);
+      await insertar('producto_opciones', [
+        op('h-sin', 'quitar', 'Sin' + String.fromCharCode(0x2028) + '<b>sal</b>', 0, 5), op('h-html', 'extra', '<img src=x onerror="window.__pwn=1">', 1000, 20), op('h-fmt', 'extra', 'Salsa *$especial* _x_ ~y~', 1500, 21)
+      ]);
+      R.invalidarCache();
+      const h = await abrir('opc-hostil', URL_O + '/', { ancho: 390, alto: 844 });
+      await h.eval(`document.querySelectorAll('#menu .card').forEach(function(c){c.classList.add('in-view')}); true`);
+      await abrirModalBig(h);
+      const modalH = JSON.parse(await h.eval(`JSON.stringify({labels: Array.from(document.querySelectorAll('#modalOpciones .opc-nombre')).map(function(e){return e.textContent;}), imgs: document.querySelectorAll('#productModal img[src="x"], #modalOpciones b, #modalOpciones img').length, pwn: typeof window.__pwn})`));
+      comprobar(modalH.labels.join('|') === 'Sin <b>sal</b>|<img src=x onerror="window.__pwn=1">|Salsa *$especial* _x_ ~y~' && modalH.imgs === 0 && modalH.pwn === 'undefined',
+        'S1: un nombre de opcion con HTML se ve como TEXTO en el modal (ni <img> ni <b> reales, nada se ejecuta; el salto de linea U+2028 pasa a espacio)', JSON.stringify(modalH));
+      await marcar(h, 'h-sin', 'h-html', 'h-fmt');
+      await h.clic('#modalAgregarBtn'); await sleep(400);
+      await h.clic('#openCartBtn'); await sleep(700);
+      const carH = JSON.parse(await h.eval(`JSON.stringify({opc: (document.querySelector('#drawerItems .opciones-linea')||{}).textContent, imgs: document.querySelectorAll('#drawerItems img[src="x"], #drawerItems .opciones-linea b, #drawerItems .opciones-linea img').length, pwn: typeof window.__pwn})`));
+      comprobar(carH.opc === 'Sin <b>sal</b> · + <img src=x onerror="window.__pwn=1"> · + Salsa *$especial* _x_ ~y~' && carH.imgs === 0 && carH.pwn === 'undefined', 'S1: el carrito pinta las opciones como TEXTO (en una sola linea)', JSON.stringify(carH));
+      await h.eval(`window.__aperturas=[]; window.open=function(u){window.__aperturas.push(u);}; true`);
+      await h.clic('#whatsappBtn');
+      const waH = decodeURIComponent((await h.eval('window.__aperturas[0]')).split('?text=')[1]).split('\n')[2];
+      comprobar(waH === '- 1x Big Norte (Sin <b>sal</b>, + <img src=x onerror="window.pwn=1">, + Salsa especial x y) - $28.500', 'S5: en el WhatsApp del cliente el nombre se limpia de $ * _ ~ (formato de WhatsApp y el $ que CallMeBot corrompe; por eso "__pwn" sale "pwn"), en una linea', JSON.stringify(waH));
+      // la confirmacion guardada en el navegador (de otro dia o de una redireccion de PSE) tampoco se fia: texto, nunca HTML
+      await h.eval(`mostrarConfirmacion({referencia:'PED-X', total:1000, subtotal:1000, costoDomicilio:0, items:[{id:'x', nombre:'<img src=x onerror="window.__pwn=2">', cantidad:1, precio:1000, opciones:[{id:'o', tipo:'extra', nombre:'<img src=x onerror="window.__pwn=3">', precio:500}]}]}); true`);
+      const confH = JSON.parse(await h.eval(`JSON.stringify({imgs: document.querySelectorAll('#confirmSummary img').length, texto: document.getElementById('confirmSummary').textContent, pwn: typeof window.__pwn})`));
+      comprobar(confH.imgs === 0 && confH.pwn === 'undefined' && confH.texto.includes('<img src=x onerror="window.__pwn=3">'), 'S1: la confirmacion muestra las opciones guardadas como TEXTO escapado (aunque vengan hostiles)', JSON.stringify(confH).slice(0, 200));
+      comprobar(h.errores.length === 0, 'sin errores de JavaScript con nombres hostiles', h.errores.join('|'));
+    } finally {
+      await falso.db.exec(`delete from public.producto_opciones where id in ('h-sin', 'h-html', 'h-fmt')`);
+      await falso.db.exec(`alter table public.producto_opciones enable trigger user`);
+      for (const d of defsOpc) await falso.db.exec(`alter table public.producto_opciones add constraint "${d.conname}" ${d.def}`);
+    }
+
+    // ---- seguimiento (pedido.html) de un pedido con opciones: las opciones salen bajo el producto, como TEXTO (S1), y un pedido antiguo no cambia ----
+    const itemsSeg = [
+      { id: 'big', nombre: 'Big Norte', cantidad: 2, precio: 31000, precio_base: 26000, opciones: [
+        { id: 'sin-queso', tipo: 'quitar', nombre: 'Sin queso', precio: 0 }, { id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 },
+        { id: 'h', tipo: 'extra', nombre: '<img src=x onerror="window.__pwn=1">', precio: 1000 }] },
+      { id: 'lil', nombre: 'Lil Norte', cantidad: 1, precio: 18000 }];
+    const pedSeg = await insertar('pedidos', { restaurante_id: O.id, referencia: 'PED-SEG11-' + sfx, estado: 'nuevo', cliente_nombre: 'Cliente', cliente_telefono: '3001234569', cliente_email: 'a@b.co', tipo_pedido: 'llevar',
+      items: itemsSeg, subtotal: 80000, costo_domicilio: 0, total: 80000, estado_pago: 'aprobado', pagado_en: new Date().toISOString() });
+    const tokenSeg = (await srv('GET', `pedidos?id=eq.${pedSeg.id}&select=token_seguimiento`))[0].token_seguimiento;
+    // Un pedido normal (sin nada hostil) para las capturas: lo que ve el cliente
+    const pedBonito = await insertar('pedidos', { restaurante_id: O.id, referencia: 'PED-SEG12-' + sfx, estado: 'nuevo', cliente_nombre: 'Cliente', cliente_telefono: '3001234570', cliente_email: 'a@b.co', tipo_pedido: 'llevar',
+      items: [{ id: 'big', nombre: 'Big Norte', cantidad: 2, precio: 31000, precio_base: 26000, opciones: [
+        { id: 'sin-queso', tipo: 'quitar', nombre: 'Sin queso', precio: 0 }, { id: 'sin-salsa-rosa', tipo: 'quitar', nombre: 'Sin salsa rosa', precio: 0 },
+        { id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }, { id: 'extra-tocineta', tipo: 'extra', nombre: 'Tocineta extra', precio: 3000 }] },
+        { id: 'lil', nombre: 'Lil Norte', cantidad: 1, precio: 18000 }],
+      subtotal: 80000, costo_domicilio: 0, total: 80000, estado_pago: 'aprobado', pagado_en: new Date().toISOString() });
+    const tokenBonito = (await srv('GET', `pedidos?id=eq.${pedBonito.id}&select=token_seguimiento`))[0].token_seguimiento;
+    for (const [ancho, alto] of [[390, 844], [1280, 900]]) {
+      const sb = await pagina('opc-seguimiento-bonito-' + ancho, { ancho, alto });
+      await sb.ir(URL_O + '/pedido.html?ref=' + tokenBonito);
+      await sb.esperar(`function(){return document.querySelectorAll('.linea').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'seguimiento (captura)');
+      await sleep(600);
+      await captura(sb, 'seguimiento-con-opciones-' + ancho);
+    }
+    for (const [ancho, alto] of [[390, 844], [1280, 900]]) {
+      const sg = await pagina('opc-seguimiento-' + ancho, { ancho, alto });
+      await sg.ir(URL_O + '/pedido.html?ref=' + tokenSeg);
+      await sg.esperar(`function(){return document.querySelectorAll('.linea').length>0 && document.documentElement.classList.contains('rp-listo');}`, 12000, 'seguimiento con opciones');
+      await sleep(600);
+      const seg = JSON.parse(await sg.eval(`JSON.stringify({opc: Array.from(document.querySelectorAll('.linea .it-opc')).map(function(e){return e.textContent;}), lineas: document.querySelectorAll('.linea').length, imgs: document.querySelectorAll('.card img[src="x"]').length, pwn: typeof window.__pwn, desborde: document.documentElement.scrollWidth <= innerWidth})`));
+      comprobar(seg.opc.length === 1 && seg.opc[0] === 'Sin queso · + Queso extra · + <img src=x onerror="window.__pwn=1">' && seg.imgs === 0 && seg.pwn === 'undefined' && seg.desborde,
+        `el seguimiento (${ancho} px) muestra las opciones bajo el producto como TEXTO (el <img> del nombre no se convierte en etiqueta), sin desborde; el producto sin opciones no agrega nada`, JSON.stringify(seg));
+      comprobar(sg.errores.length === 0, `sin errores de JavaScript en el seguimiento con opciones (${ancho} px)`, sg.errores.join('|'));
+    }
   });
 
   // ---------------------------------------------------------------------------------------------------------

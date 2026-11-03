@@ -155,6 +155,8 @@
   }
   .linea:last-of-type{border-bottom:none;}
   .linea .cant{color:var(--mostaza); font-weight:800; margin-right:.4rem;}
+  /* Opciones del producto (quitar / extras) bajo su nombre */
+  .linea .it-opc{display:block; margin-top:.15rem; font-size:.8rem; line-height:1.35; color:var(--texto-tenue); overflow-wrap:anywhere;}
   .linea .val{color:var(--texto-tenue); font-variant-numeric:tabular-nums; white-space:nowrap;}
   .total{
     display:flex; justify-content:space-between; align-items:baseline;
@@ -279,6 +281,7 @@ if(TEMA_CLARO) document.body.classList.add("tema-claro");
 
 <script src="supabase-publico.js?v=2"></script>
 <script src="restaurante-publico.js?v=2"></script>
+<script src="opciones-texto.js?v=1"></script>
 <script>
 /* =========================================================
    SEGUIMIENTO DEL PEDIDO
@@ -434,8 +437,11 @@ function render(p){
   // --- Resumen del pedido ---
   html += '<div class="card"><h2>Tu pedido</h2>';
   (p.items || []).forEach(it => {
+    /* Las opciones (si las hay) como texto escapado bajo el nombre; la copia de pedidos.items no es de fiar (docs 22.17, H10) */
+    const opcionesTexto = OpcionesTexto.resumen(it && it.opciones, { separador: ' · ' });
     html += '<div class="linea">' +
-      '<span><span class="cant">' + escapar(it.cantidad) + '×</span>' + escapar(it.nombre) + '</span>' +
+      '<span><span class="cant">' + escapar(it.cantidad) + '×</span>' + escapar(it.nombre) +
+        (opcionesTexto ? '<small class="it-opc">' + escapar(opcionesTexto) + '</small>' : '') + '</span>' +
       '<span class="val">' + formatoCOP(it.precio * it.cantidad) + '</span>' +
     '</div>';
   });

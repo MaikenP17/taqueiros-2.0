@@ -368,7 +368,8 @@ async function main() {
     const lista = (dir, ext) => fs.readdirSync(path.join(RAIZ, dir)).filter((f) => ext.test(f)).map((f) => (dir ? dir + '/' : '') + f);
     const archivos = [...lista('api', /\.js$/), ...lista('api/_modulos', /\.js$/), ...lista('', /\.(js|html)$/)].filter((f) => !f.startsWith('node_modules'));
     // "precio x cantidad" o "cantidad x precio" en cualquier forma
-    const SUMA = /(\bprecio\b|\bprice\b)[^\n;]{0,16}\*\s*[A-Za-z_.]*(cantidad|qty|\bq\b)|(cantidad|qty)\s*\*\s*[A-Za-z_.]*(precio|price)|\.price\s*\*|\.precio\s*\*/;
+    // (parte B: tambien "unit" = el precio unitario con extras de una linea del carrito, lineaDe().unit en index.html)
+    const SUMA = /(\bprecio\b|\bprice\b)[^\n;]{0,16}\*\s*[A-Za-z_.]*(cantidad|qty|\bq\b)|(cantidad|qty)\s*\*\s*[A-Za-z_.]*(precio|price)|\.price\s*\*|\.precio\s*\*|\.unit\s*\*/;
     const hallados = {};
     for (const f of archivos) {
       const lineas = leer(f).split(/\r?\n/);
@@ -378,7 +379,8 @@ async function main() {
     const REVISADOS_FINAL = { 'api/_notificar.js': 1, 'historial.html': 1, 'panel.html': 2, 'pedido.html': 1, 'index.html': 2 };
     // El servidor: UNICO sitio que arma el precio (base + extras)
     const SERVIDOR = { 'api/_precios.js': 1 };      // (producto.precio * cantidad, sin opciones; el unitario con extras lo verifica E3)
-    // Carrito DEL NAVEGADOR (index.html): hoy no ofrece opciones y cobra por precio base = lo que el servidor cobra; la PARTE B lo cambia.
+    // Carrito DEL NAVEGADOR (index.html): CAMBIO A PROPOSITO de la PARTE B. Antes sumaba por precio BASE (3 lugares: el total, el subtotal de cada linea y el mensaje
+    // de WhatsApp); ahora multiplica el precio unitario CON extras (lineaDe().unit = base + extras del menu, solo para MOSTRAR: el servidor vuelve a calcularlo).
     const PENDIENTE_PARTE_B = { 'index.html': 3 };
     const esperado = {};
     for (const grupo of [REVISADOS_FINAL, SERVIDOR]) for (const [f, n] of Object.entries(grupo)) esperado[f] = (esperado[f] || 0) + n;
@@ -387,7 +389,8 @@ async function main() {
     prueba('E1 cada lugar del codigo que multiplica un precio por una cantidad esta revisado (si aparece uno nuevo, esta prueba obliga a revisarlo)',
       JSON.stringify(Object.entries(cuentas).sort()) === JSON.stringify(Object.entries(esperado).sort()), JSON.stringify(cuentas) + ' esperado ' + JSON.stringify(esperado));
     prueba('E2 ninguno de esos lugares lee precio_base: todos usan el precio FINAL guardado en el pedido (o, en el servidor, el unitario con extras)',
-      Object.keys(esperado).every((f) => !/precio_base/.test(leer(f).replace(/\/\*[\s\S]*?\*\//g, '').split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l)).join('\n')) || f === 'api/_precios.js'));
+      // (index.html guarda precio_base en el resumen LOCAL del pedido para la confirmacion; no lo lee para sumar: esa unica linea se excusa)
+      Object.keys(esperado).every((f) => !/precio_base/.test(leer(f).replace(/\/\*[\s\S]*?\*\//g, '').split(/\r?\n/).filter((l) => !/^\s*\/\//.test(l) && !(f === 'index.html' && /item\.precio_base = l\.p\.price;/.test(l))).join('\n')) || f === 'api/_precios.js'));
     const precios = leer('api/_precios.js');
     prueba('E3 en el servidor, el subtotal se acumula SIEMPRE con el unitario final: "precioUnitario * cantidad" (con opciones) o el de la base (sin opciones); nunca con la base cuando hay opciones',
       /subtotal \+= precioUnitario \* cantidad;/.test(precios) && /subtotal \+= producto\.precio \* cantidad;\s*continue;/.test(precios) && (precios.match(/subtotal \+=/g) || []).length === 2);
@@ -411,8 +414,10 @@ async function main() {
     const nuevo = { ...viejo, total: 30000, subtotal: 30000, items: [{ id: 'taco', nombre: 'Taco', cantidad: 2, precio: 15000, precio_base: 10000, opciones: [{ id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }, { id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }] }] };
     const p = T.preparar ? T.preparar : null;
     const dv = p ? p(viejo) : null; const dn = p ? p(nuevo) : null;
-    prueba('F1 el ticket lee un item NUEVO igual que uno viejo: mismo nombre y cantidad, sin romperse (las opciones se imprimiran en la parte B)',
-      !!p ? dn.items.length === 1 && dn.items[0].cantidad === 2 && dn.items[0].nombre === 'Taco' && JSON.stringify(dv.items) === JSON.stringify(dn.items) : true, p ? JSON.stringify(dn.items) : 'ticket-comanda no exporta preparar');
+    // CAMBIO A PROPOSITO de la parte B: el ticket YA imprime las opciones. El item nuevo trae lo mismo de siempre MAS 'sin' y 'extras'; el viejo queda igual.
+    prueba('F1 el ticket lee un item NUEVO: mismo nombre y cantidad y, ademas, sus opciones (sin: cebolla; extras: Queso extra); el item viejo queda con las 3 claves de siempre',
+      !!p ? dn.items.length === 1 && dn.items[0].cantidad === 2 && dn.items[0].nombre === 'Taco' && JSON.stringify(dv.items) === JSON.stringify([{ cantidad: 2, nombre: 'Taco', nota: '' }])
+        && JSON.stringify(dn.items[0].sin) === JSON.stringify(['cebolla']) && JSON.stringify(dn.items[0].extras) === JSON.stringify(['Queso extra']) : true, p ? JSON.stringify(dn.items) : 'ticket-comanda no exporta preparar');
     // jornada: el resumen cuenta unidades por nombre y suma los totales guardados, con items viejos y nuevos mezclados
     const db = await base17();
     await db.exec(SQL18());

@@ -682,6 +682,57 @@
   .modal-foot{display:flex; align-items:center; justify-content:space-between; margin-top:.4rem;}
   .modal-foot .price{font-weight:800; font-size:1.4rem; color:var(--rojo-oscuro);}
 
+  /* ---------- OPCIONES DEL PRODUCTO: "Quitale algo" (gratis) y "Agregale extras" (con precio) ----------
+     Casillas reales (<input type=checkbox> dentro de su <label>): se marcan con el dedo, con el teclado (espacio)
+     y las lee un lector de pantalla. Cada fila mide al menos 48 px de alto. */
+  .modal-opciones{display:flex; flex-direction:column; gap:.9rem; margin-top:.2rem;}
+  .modal-opciones[hidden]{display:none;}
+  .opc-grupo{border:0; padding:0; margin:0; min-width:0;}
+  .opc-grupo legend{font-weight:800; font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:var(--rojo-oscuro); padding:0; margin-bottom:.4rem;}
+  .opc{
+    display:flex; align-items:center; gap:.7rem; min-height:48px; padding:.5rem .8rem; margin-bottom:.45rem;
+    border:1.5px solid rgba(var(--carbon-rgb),.3); border-radius:12px; background:#fff; color:var(--carbon);
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .opc:hover{border-color:rgba(var(--carbon-rgb),.65);}
+  .opc input{width:24px; height:24px; flex:none; margin:0; accent-color:var(--rojo); cursor:pointer;}
+  .opc input:focus-visible{outline:3px solid var(--carbon); outline-offset:3px;}
+  .opc .opc-nombre{flex:1; min-width:0; font-weight:600; font-size:.95rem; line-height:1.25; overflow-wrap:anywhere;}
+  .opc .opc-precio{flex:none; font-weight:800; font-size:.92rem; color:var(--rojo-oscuro); white-space:nowrap;}
+  .opc:has(input:checked){border-color:var(--rojo); background:rgba(var(--rojo-rgb),.08);}
+  .modal-foot.con-opciones{display:block; margin-top:.2rem;}
+  .modal-foot.con-opciones .price, .modal-foot.con-opciones .qty-slot{display:none;}
+  .modal-foot.con-opciones .form-submit-btn{margin-top:0;}
+
+  /* En la tarjeta del menu: cuantas unidades de este producto lleva el carrito (el "+" siempre abre el modal) */
+  .qty-chip{
+    display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px; padding:0 .45rem; margin-right:.45rem;
+    border-radius:999px; background:var(--carbon); color:var(--crema-suave); font-weight:800; font-size:.8rem;
+  }
+  .qty-slot.con-chip{display:flex; align-items:center;}
+
+  /* Carrito y confirmacion: las opciones de cada linea */
+  .drawer-item .opciones-linea{font-size:.8rem; line-height:1.35; color:rgba(var(--carbon-rgb),.85); overflow-wrap:anywhere;}
+  .drawer-item .opciones-linea.alerta{color:#a33; font-weight:700;}
+  .confirm-summary .line-opc{display:block; font-size:.78rem; line-height:1.35; color:rgba(var(--carbon-rgb),.78); overflow-wrap:anywhere;}
+  .drawer-aviso{
+    margin:0 1.2rem .6rem; padding:.7rem .9rem; border-radius:12px; font-size:.85rem; font-weight:700; line-height:1.4;
+    background:rgba(var(--mostaza-rgb),.25); border:1px solid rgba(var(--mostaza-rgb),.7); color:var(--carbon);
+  }
+  .drawer-aviso[hidden]{display:none;}
+
+  /* Aviso de precio cambiado (C2): dos botones, sin cerrar al tocar fuera */
+  /* El aviso sale CON el formulario de entrega todavia abierto detras (el pedido ya se creo y falta decidir): z-index mayor que el de los demas modales (500), si no quedaria tapado por el formulario, que esta despues en el HTML */
+  #precioCambioOverlay{z-index:600;}
+  .precio-cambio-botones{display:flex; flex-direction:column; gap:.6rem; margin-top:.6rem;}
+  .precio-cambio-botones .form-submit-btn{margin-top:0; position:static; box-shadow:none;}
+  .btn-revisar{
+    width:100%; min-height:48px; padding:.9rem 1rem; border-radius:999px; background:transparent; color:var(--carbon);
+    border:2px solid var(--carbon); font-weight:800; font-size:1rem;
+  }
+  .btn-revisar:hover{background:rgba(var(--carbon-rgb),.07);}
+  .btn-revisar:focus-visible, .form-submit-btn:focus-visible, .add-btn:focus-visible{outline:3px solid var(--carbon); outline-offset:3px;}
+
   /* ---------- FOOTER ---------- */
   footer{
     position:relative; z-index:1; background:#150d0b; padding:3.5rem 1.5rem 2rem;
@@ -966,6 +1017,7 @@ if(TEMA_CLARO) document.body.classList.add("tema-claro");
     <h2>Tu pedido</h2>
     <button id="closeCartBtn" aria-label="Cerrar carrito">&times;</button>
   </div>
+  <div class="drawer-aviso" id="drawerAviso" role="status" hidden></div>
   <div class="drawer-items" id="drawerItems"></div>
   <div class="drawer-footer">
     <label class="note-label" for="orderNote">Nota para tu pedido (opcional)</label>
@@ -984,15 +1036,32 @@ if(TEMA_CLARO) document.body.classList.add("tema-claro");
 
 <!-- ================= PRODUCT MODAL ================= -->
 <div class="modal-overlay" id="modalOverlay">
-  <div class="product-modal" id="productModal" role="dialog" aria-modal="true">
+  <div class="product-modal" id="productModal" role="dialog" aria-modal="true" aria-labelledby="modalName">
     <button class="modal-close" id="modalCloseBtn" aria-label="Cerrar">&times;</button>
     <div class="modal-img" id="modalImg"></div>
     <div class="modal-body">
       <h3 id="modalName"></h3>
       <p class="desc" id="modalDesc"></p>
-      <div class="modal-foot">
+      <!-- Solo si el producto tiene opciones: se llena con createElement/textContent (nunca con HTML) -->
+      <div class="modal-opciones" id="modalOpciones" hidden></div>
+      <div class="modal-foot" id="modalFoot">
         <span class="price" id="modalPrice"></span>
         <div class="qty-slot" id="modalQtySlot"></div>
+        <button type="button" class="form-submit-btn" id="modalAgregarBtn" aria-live="polite" hidden></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= PRECIO CAMBIADO (el servidor cobra otro total que el del carrito) ================= -->
+<div class="modal-overlay" id="precioCambioOverlay">
+  <div class="product-modal" id="precioCambioModal" role="alertdialog" aria-modal="true" aria-labelledby="precioCambioTitulo" aria-describedby="precioCambioTexto">
+    <div class="modal-body">
+      <h3 id="precioCambioTitulo">El precio cambió</h3>
+      <p class="desc" id="precioCambioTexto"></p>
+      <div class="precio-cambio-botones">
+        <button type="button" class="form-submit-btn" id="precioCambioPagar"></button>
+        <button type="button" class="btn-revisar" id="precioCambioRevisar">Revisar mi pedido</button>
       </div>
     </div>
   </div>
@@ -1217,6 +1286,9 @@ if(TEMA_CLARO) document.body.classList.add("tema-claro");
 <!-- Datos del restaurante de este dominio (nombre, logo, colores, textos, WhatsApp, domicilio, pago) -->
 <script src="restaurante-publico.js?v=2"></script>
 
+<!-- Texto y claves de las opciones de producto (quitar / extras): una sola copia -->
+<script src="opciones-texto.js?v=1"></script>
+
 <script>
 /* =========================================================
    EL MENU VIENE DE LA BASE DE DATOS
@@ -1261,6 +1333,29 @@ function esc(t){
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+/* Opciones de un producto (quitar ingredientes / extras con precio), tal como las manda /api/menu:
+   [{id, tipo, nombre, precio, orden}] solo las ACTIVAS. Aqui se vuelven a revisar (S1 a S4): una lista rara,
+   un id con la forma equivocada, un precio fuera de rango o un nombre vacio se descartan, y el nombre queda en
+   una sola linea, sin invisibles, cortado por caracteres. Los PRECIOS que se ven aqui son solo para mostrar:
+   los que se cobran los lee el servidor de la base al crear el pedido (regla S8). */
+const OT = window.OpcionesTexto;
+function opcionesDelMenu(lista){
+  if(!Array.isArray(lista)) return [];
+  const vistos = new Set();
+  const limpias = [];
+  lista.slice(0, OT.MAX_OPCIONES).forEach(o => {
+    if(!o || typeof o !== "object" || typeof o.id !== "string" || !OT.ID_OPCION.test(o.id) || vistos.has(o.id)) return;
+    if(o.tipo !== "quitar" && o.tipo !== "extra") return;
+    const nombre = OT.limpiar(o.nombre, OT.MAX_NOMBRE);
+    if(!nombre) return;
+    const precio = o.tipo === "extra" ? o.precio : 0;
+    if(typeof precio !== "number" || !Number.isInteger(precio) || precio < 0 || precio > 50000) return;
+    vistos.add(o.id);
+    limpias.push({ id:o.id, tipo:o.tipo, nombre, precio });
+  });
+  return limpias;
+}
+
 function traducirMenu(datos){
   const porCategoria = new Map();
   (datos.categorias || []).forEach(c => {
@@ -1276,7 +1371,8 @@ function traducirMenu(datos){
       desc: pr.descripcion || "",
       price: Number(pr.precio),
       img: pr.imagen || null,
-      disponible: pr.disponible !== false
+      disponible: pr.disponible !== false,
+      opciones: opcionesDelMenu(pr.opciones)
     });
   });
 
@@ -1331,7 +1427,10 @@ async function cargarMenu(opciones){
      en ningun lado, pero sigue contando en el carrito y el servidor
      rechaza cada intento de pago. Solo con un menu que acaba de llegar
      del servidor; la copia vieja del navegador no es prueba de nada. */
-  if(desdeServidor) purgarCarritoHuerfano();
+  if(desdeServidor){
+    purgarCarritoHuerfano();
+    revisarOpcionesDelCarrito();
+  }
 
   pintarNavCategorias();
   pintarMenu();
@@ -1398,9 +1497,10 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados, desconocidos){
 
   // --- Eliminados del menu: se sacan del carrito ---
   (desconocidos || []).forEach(id => {
-    if(!cart[id]) return;
+    const claves = clavesDeProducto(id);
+    if(!claves.length) return;
     const pr = findProduct(id);
-    delete cart[id];
+    claves.forEach(c => { delete cart[c]; });
     lineas.push("\u{1F6AB} " + (pr ? pr.name : "Un producto") + " ya no está en el menú, lo quitamos del carrito.");
   });
 
@@ -1426,8 +1526,9 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados, desconocidos){
       ? a.nombre + " no está disponible por ahora"
       : "Se nos acabó " + a.nombre;
 
-    if(cart[a.id]){
-      delete cart[a.id];
+    const clavesAgotado = clavesDeProducto(a.id);
+    if(clavesAgotado.length){
+      clavesAgotado.forEach(c => { delete cart[c]; });
       lineas.push("\u{1F6AB} " + frase + ", lo quitamos del carrito.");
     }else{
       lineas.push("\u{1F6AB} " + frase + ".");
@@ -1478,9 +1579,9 @@ function aplicarCambiosDelMenu(agotados, preciosCambiados, desconocidos){
 
 /* Saca del carrito los ids que ya no existen en el menu cargado. */
 function purgarCarritoHuerfano(){
-  const huerfanos = Object.keys(cart).filter(id => !findProduct(id));
+  const huerfanos = Object.keys(cart).filter(clave => !findProduct(idDeClave(clave)));
   if(!huerfanos.length) return;
-  huerfanos.forEach(id => delete cart[id]);
+  huerfanos.forEach(clave => delete cart[clave]);
   saveCart();
   // Despues de pintar el menu, para no dejar la pagina en blanco detras del aviso
   setTimeout(() => alert("Algún producto de tu carrito ya no está en el menú y lo quitamos.\nRevisa tu pedido antes de pagar."), 400);
@@ -1514,13 +1615,15 @@ function aplicarEstadoMenu(){
   });
 
   // Si algo del carrito se agoto, se saca y se avisa
-  const enCarritoAgotados = Object.keys(cart).filter(id => productosAgotados.has(id));
-  if(enCarritoAgotados.length){
+  const clavesAgotadas = Object.keys(cart).filter(clave => productosAgotados.has(idDeClave(clave)));
+  if(clavesAgotadas.length){
     const sinExistencia = [];   // se agotaron: "se nos acabó"
     const noDisponibles = [];   // su categoria esta apagada: "no está disponible por ahora"
+    // Un producto con varias lineas (distintas opciones) se nombra UNA sola vez
+    const enCarritoAgotados = [...new Set(clavesAgotadas.map(idDeClave))];
+    clavesAgotadas.forEach(clave => { delete cart[clave]; });
     enCarritoAgotados.forEach(id => {
       const pr = findProduct(id);
-      delete cart[id];
       (enCategoriaApagada.has(id) ? noDisponibles : sinExistencia).push(pr ? pr.name : id);
     });
     saveCart();
@@ -1595,6 +1698,13 @@ function abrirWhatsApp(textoCodificado){
    ESTADO DEL CARRITO
 ========================================================= */
 const CART_KEY = "carrito-v2";
+
+/* El carrito es { clave de linea: cantidad }. Una LINEA es producto + conjunto de opciones (C1 de docs 22.17):
+     "nb-big-norte"                          producto sin opciones (la clave de siempre: un carrito guardado por una
+                                             version anterior sigue funcionando tal cual)
+     "nb-big-norte|extra-queso,sin-cebolla"  producto con opciones; los ids van ORDENADOS, asi el mismo conjunto
+                                             siempre da la misma clave y dos lineas iguales se juntan.
+   Con distintas opciones son dos lineas. En el navegador se guardan SOLO ids; nombres y precios salen del menu. */
 let cart = {};     // se carga en arrancar(), cuando ya se sabe de que restaurante es
 
 /* El carrito se guarda con el id del restaurante: uno de otro restaurante se descarta. */
@@ -1602,9 +1712,13 @@ function loadCart(){
   const v = RP.leer(CART_KEY);
   const limpio = {};
   if(v && typeof v === "object" && !Array.isArray(v)){
-    Object.keys(v).forEach(id => {
-      const q = v[id];
-      if(Number.isInteger(q) && q > 0 && q <= 999) limpio[id] = q;
+    Object.keys(v).forEach(clave => {
+      const q = v[clave];
+      const k = OT.leerClave(clave);
+      if(!k || !Number.isInteger(q) || q <= 0 || q > 999) return;   // una clave rota o una cantidad rara se descarta
+      // Se normaliza (ids ordenados): si dos claves eran el mismo conjunto, se juntan
+      const normal = OT.claveLinea(k.id, k.ids);
+      limpio[normal] = Math.min(999, (limpio[normal] || 0) + q);
     });
   }
   return limpio;
@@ -1625,14 +1739,61 @@ function findProduct(id){
   return null;
 }
 
+/* El id del producto de una clave de linea (o null si la clave no sirve). */
+function idDeClave(clave){
+  const k = OT.leerClave(clave, id => !!findProduct(id));
+  return k ? k.id : null;
+}
+/* Las claves del carrito que son de ese producto (puede haber varias: distintas opciones). */
+function clavesDeProducto(id){
+  return Object.keys(cart).filter(clave => idDeClave(clave) === id);
+}
+function unidadesDeProducto(id){
+  return clavesDeProducto(id).reduce((a, clave) => a + cart[clave], 0);
+}
+function tieneOpciones(p){
+  return !!(p && Array.isArray(p.opciones) && p.opciones.length);
+}
+
+/* Una linea del carrito ya resuelta contra el menu: el producto, las opciones que SIGUEN en el menu (en el
+   orden del menu), las que ya no estan ('faltan': apagadas o borradas desde que se agregaron) y el precio
+   unitario para MOSTRAR = precio base + extras. */
+function lineaDe(clave){
+  const k = OT.leerClave(clave, id => !!findProduct(id));
+  const p = k ? findProduct(k.id) : null;
+  if(!p) return null;
+  const pedidas = new Set(k.ids);
+  const opciones = (p.opciones || []).filter(o => pedidas.has(o.id));
+  const faltan = k.ids.filter(id => !opciones.some(o => o.id === id));
+  const extras = opciones.reduce((suma, o) => suma + (o.tipo === "extra" ? o.precio : 0), 0);
+  return { clave, p, ids:k.ids, opciones, faltan, qty:cart[clave], unit:p.price + extras };
+}
+function lineasDelCarrito(){
+  return Object.keys(cart).map(lineaDe).filter(Boolean);
+}
+
 function cartCount(){
   return Object.values(cart).reduce((a,q) => a+q, 0);
 }
 function cartTotal(){
-  return Object.entries(cart).reduce((sum,[id,qty]) => {
-    const p = findProduct(id);
-    return sum + (p ? p.price*qty : 0);
-  }, 0);
+  return lineasDelCarrito().reduce((sum, l) => sum + l.unit*l.qty, 0);
+}
+
+/* Si el menu que acaba de llegar del servidor ya no ofrece alguna opcion de una linea (la apagaron o la
+   borraron), la linea se QUITA del carrito y se avisa. No se le quita solo esa opcion: seria cambiarle el
+   pedido en silencio (un "sin cebolla" que desaparece lo pagaria con cebolla). El cliente la vuelve a
+   agregar con las opciones de hoy. */
+function revisarOpcionesDelCarrito(){
+  const quitadas = [];
+  Object.keys(cart).forEach(clave => {
+    const l = lineaDe(clave);
+    if(!l || !l.faltan.length) return;
+    quitadas.push(l.p.name);
+    delete cart[clave];
+  });
+  if(!quitadas.length) return;
+  saveCart();
+  setTimeout(() => alert("Quitamos de tu carrito: " + [...new Set(quitadas)].join(", ") + ".\nUna de sus opciones (algo que quitar o un extra) ya no está disponible. Agrégalo de nuevo con las opciones de hoy."), 400);
 }
 
 /* =========================================================
@@ -1705,8 +1866,10 @@ function pintarMenu(){
    cards del grid como en el modal de producto. */
 function fillQtySlot(slot, id){
   if(!slot) return;
-  const qty = cart[id] || 0;
+  const conOpciones = tieneOpciones(findProduct(id));
+  const qty = conOpciones ? unidadesDeProducto(id) : (cart[id] || 0);
   slot.innerHTML = "";
+  slot.classList.toggle("con-chip", conOpciones);
 
   // Agotado: se ve, pero no se puede agregar al carrito
   if(productosAgotados.has(id)){
@@ -1714,6 +1877,26 @@ function fillQtySlot(slot, id){
     etiqueta.className = "etiqueta-agotado";
     etiqueta.textContent = "Agotado";
     slot.appendChild(etiqueta);
+    return;
+  }
+
+  /* Un producto CON opciones: el "+" abre el modal para elegirlas (no suma directo). Si ya hay unidades de el en el
+     carrito (de una o varias lineas) se ven en una burbuja; para quitarlas o cambiarlas se usa el carrito. */
+  if(conOpciones){
+    if(qty > 0){
+      const chip = document.createElement("span");
+      chip.className = "qty-chip";
+      chip.textContent = String(qty);
+      chip.setAttribute("aria-label", qty + (qty === 1 ? " unidad" : " unidades") + " en tu pedido");
+      slot.appendChild(chip);
+    }
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-btn";
+    btn.setAttribute("aria-label", "Elegir opciones y agregar " + findProduct(id).name);
+    btn.textContent = "+";
+    btn.addEventListener("click", (e) => { e.stopPropagation(); openProductModal(id); });
+    slot.appendChild(btn);
     return;
   }
 
@@ -1741,13 +1924,14 @@ function renderQtyControls(){
   });
 }
 
+/* 'id' es la clave de la linea: para un producto sin opciones es su id de siempre. */
 function changeQty(id, delta){
   const current = cart[id] || 0;
   const next = current + delta;
   if(next <= 0){
     delete cart[id];
   }else{
-    cart[id] = next;
+    cart[id] = Math.min(999, next);
   }
   saveCart();
   renderQtyControls();
@@ -1804,9 +1988,10 @@ function renderDrawerItems(){
   }
   drawerItems.innerHTML = "";
   ids.forEach(id => {
-    const p = findProduct(id);
-    if(!p) return;
-    const qty = cart[id];
+    const linea = lineaDe(id);
+    if(!linea) return;
+    const p = linea.p;
+    const qty = linea.qty;
     const row = document.createElement("div");
     row.className = "drawer-item";
     row.innerHTML = `
@@ -1814,9 +1999,9 @@ function renderDrawerItems(){
       <div class="meta">
         <div class="top">
           <h4>${esc(p.name)}</h4>
-          <span class="subtotal">${formatCOP(p.price*qty)}</span>
+          <span class="subtotal">${formatCOP(linea.unit*qty)}</span>
         </div>
-        <div class="unit">${formatCOP(p.price)} c/u</div>
+        <div class="unit">${formatCOP(linea.unit)} c/u</div>
         <div class="row-bottom">
           <div class="qty-control">
             <button class="minus" aria-label="Quitar uno">–</button>
@@ -1827,6 +2012,15 @@ function renderDrawerItems(){
         </div>
       </div>
     `;
+    /* Las opciones de la linea ("Sin queso · + Tocineta extra"): texto, nunca HTML (S1). Una linea sin opciones
+       no agrega nada. Si alguna ya no esta en el menu, se avisa en rojo (el servidor la rechazaria al pagar). */
+    const detalle = OT.resumen(linea.opciones, { separador:" \u00b7 " });
+    if(detalle || linea.faltan.length){
+      const op = document.createElement("div");
+      op.className = "opciones-linea" + (linea.faltan.length ? " alerta" : "");
+      op.textContent = detalle + (linea.faltan.length ? (detalle ? " \u00b7 " : "") + "Una opción ya no está disponible: quita esta línea y agrégala de nuevo" : "");
+      row.querySelector(".unit").insertAdjacentElement("afterend", op);
+    }
     row.querySelector(".minus").addEventListener("click", () => changeQty(id,-1));
     row.querySelector(".plus").addEventListener("click", () => changeQty(id,1));
     row.querySelector(".remove-link").addEventListener("click", () => {
@@ -1850,7 +2044,14 @@ function openDrawer(){
   drawer.classList.add("open");
   document.body.style.overflow = "hidden";
 }
+/* Aviso fijo sobre los productos del carrito (por ejemplo, el total que confirmo el servidor al cambiar un precio) */
+function avisarEnCarrito(texto){
+  const caja = document.getElementById("drawerAviso");
+  caja.textContent = texto || "";
+  caja.hidden = !texto;
+}
 function closeDrawer(){
+  avisarEnCarrito("");
   overlay.classList.remove("open");
   drawer.classList.remove("open");
   document.body.style.overflow = "";
@@ -1866,11 +2067,18 @@ overlay.addEventListener("click", closeDrawer);
 const modalOverlay = document.getElementById("modalOverlay");
 const productModal = document.getElementById("productModal");
 let currentModalProductId = null;
+let modalConOpciones = false;      // el modal abierto es el de un producto con opciones (boton "Agregar al carrito")
+let modalQuienAbrio = null;        // a donde vuelve el foco al cerrar
+
+/* Lo que el cliente alcanzo a marcar en cada producto, por si cierra el modal sin querer (X, Escape o un toque
+   fuera): al volver a abrir el mismo producto sigue marcado. Solo en memoria; se borra al agregar al carrito. */
+const borradorOpciones = new Map();
 
 function openProductModal(id){
   const p = findProduct(id);
   if(!p) return;
   currentModalProductId = id;
+  modalQuienAbrio = document.activeElement;
 
   document.getElementById("modalImg").innerHTML = p.img
     ? `<img src="${esc(encodeURI(p.img))}" alt="${esc(p.name)}">`
@@ -1879,22 +2087,112 @@ function openProductModal(id){
   document.getElementById("modalName").textContent = p.name;
   document.getElementById("modalDesc").textContent = p.desc;
   document.getElementById("modalPrice").textContent = formatCOP(p.price);
-  renderModalQty();
+
+  // Con opciones (y no agotado): grupos "Quitale algo" / "Agregale extras" y el boton "Agregar al carrito — $X"
+  modalConOpciones = tieneOpciones(p) && !productosAgotados.has(id);
+  const cajaOpciones = document.getElementById("modalOpciones");
+  const botonAgregar = document.getElementById("modalAgregarBtn");
+  cajaOpciones.textContent = "";
+  cajaOpciones.hidden = !modalConOpciones;
+  botonAgregar.hidden = !modalConOpciones;
+  document.getElementById("modalFoot").classList.toggle("con-opciones", modalConOpciones);
+  if(modalConOpciones) pintarOpcionesDelModal(p);
+  else renderModalQty();
 
   modalOverlay.classList.add("open");
   document.body.style.overflow = "hidden";
+  document.getElementById("modalCloseBtn").focus({ preventScroll:true });
 }
 
 function closeProductModal(){
+  const estabaAbierto = modalOverlay.classList.contains("open");
   modalOverlay.classList.remove("open");
   currentModalProductId = null;
+  modalConOpciones = false;
   if(!drawer.classList.contains("open")) document.body.style.overflow = "";
+  // El foco vuelve al boton que abrio el modal (para quien navega con teclado o lector de pantalla)
+  if(estabaAbierto && modalQuienAbrio && document.contains(modalQuienAbrio) && modalQuienAbrio.focus){
+    try{ modalQuienAbrio.focus({ preventScroll:true }); }catch(e){ /* sin foco */ }
+  }
+  modalQuienAbrio = null;
 }
 
 function renderModalQty(){
-  if(!currentModalProductId) return;
+  if(!currentModalProductId || modalConOpciones) return;
   fillQtySlot(document.getElementById("modalQtySlot"), currentModalProductId);
 }
+
+/* Los ids marcados en el modal, en el orden del menu (siempre existentes en el menu de ahora). */
+function opcionesMarcadasDelModal(){
+  return [...document.querySelectorAll("#modalOpciones input[type=checkbox]:checked")].map(i => i.value);
+}
+
+/* El precio del boton: base + extras marcados. Es solo para MOSTRAR; el servidor vuelve a calcular. */
+function actualizarBotonDelModal(){
+  const p = findProduct(currentModalProductId);
+  if(!p) return;
+  const marcadas = new Set(opcionesMarcadasDelModal());
+  const extras = p.opciones.reduce((suma, o) => suma + (o.tipo === "extra" && marcadas.has(o.id) ? o.precio : 0), 0);
+  document.getElementById("modalAgregarBtn").textContent = "Agregar al carrito \u2014 " + formatCOP(p.price + extras);
+}
+
+function pintarOpcionesDelModal(p){
+  const caja = document.getElementById("modalOpciones");
+  const guardadas = borradorOpciones.get(p.id) || new Set();
+
+  const grupo = (titulo, lista) => {
+    if(!lista.length) return;
+    const fs = document.createElement("fieldset");
+    fs.className = "opc-grupo";
+    const lg = document.createElement("legend");
+    lg.textContent = titulo;
+    fs.appendChild(lg);
+    lista.forEach(o => {
+      const etiqueta = document.createElement("label");
+      etiqueta.className = "opc";
+      const casilla = document.createElement("input");
+      casilla.type = "checkbox";
+      casilla.value = o.id;
+      casilla.checked = guardadas.has(o.id);
+      casilla.addEventListener("change", () => {
+        borradorOpciones.set(p.id, new Set(opcionesMarcadasDelModal()));
+        actualizarBotonDelModal();
+      });
+      const nombre = document.createElement("span");
+      nombre.className = "opc-nombre";
+      nombre.textContent = o.nombre;
+      etiqueta.appendChild(casilla);
+      etiqueta.appendChild(nombre);
+      if(o.tipo === "extra"){
+        // Un espacio entre el nombre y el precio: asi el lector de pantalla dice "Queso extra mas 2.000" y no todo junto (en la pantalla no se nota: la fila es flex)
+        etiqueta.appendChild(document.createTextNode(" "));
+        const precio = document.createElement("span");
+        precio.className = "opc-precio";
+        precio.textContent = "+" + formatCOP(o.precio);
+        etiqueta.appendChild(precio);
+      }
+      fs.appendChild(etiqueta);
+    });
+    caja.appendChild(fs);
+  };
+  grupo("Quítale algo", p.opciones.filter(o => o.tipo === "quitar"));
+  grupo("Agrégale extras", p.opciones.filter(o => o.tipo === "extra"));
+  actualizarBotonDelModal();
+}
+
+/* "Agregar al carrito": una unidad de ESA combinacion de opciones. La misma combinacion se junta con la linea que
+   ya exista (cantidad + 1); otra combinacion es otra linea. */
+document.getElementById("modalAgregarBtn").addEventListener("click", () => {
+  const p = findProduct(currentModalProductId);
+  if(!p || !modalConOpciones || productosAgotados.has(p.id)) return;
+  const clave = OT.claveLinea(p.id, opcionesMarcadasDelModal());
+  cart[clave] = Math.min(999, (cart[clave] || 0) + 1);
+  borradorOpciones.delete(p.id);
+  saveCart();
+  renderQtyControls();
+  updateCartUI(true);
+  closeProductModal();
+});
 
 document.getElementById("modalCloseBtn").addEventListener("click", closeProductModal);
 modalOverlay.addEventListener("click", (e) => {
@@ -1916,12 +2214,11 @@ document.addEventListener("keydown", (e) => {
    PEDIDO POR WHATSAPP
 ========================================================= */
 function buildWhatsAppMessage(){
-  const ids = Object.keys(cart);
-  const lines = ids.map(id => {
-    const p = findProduct(id);
-    const qty = cart[id];
-    return `- ${qty}x ${p.name} - ${formatCOP(p.price*qty)}`;
-  });
+  /* Cada linea en UNA sola linea de texto; las opciones entre parentesis y limpias para WhatsApp (S1 a S5):
+     "- 2x Big Norte (Sin queso, + Tocineta extra) - $56.000". Sin opciones sale exactamente igual que siempre. */
+  const lines = lineasDelCarrito().map(l =>
+    `- ${l.qty}x ${l.p.name}${OT.parentesis(l.opciones)} - ${formatCOP(l.unit*l.qty)}`
+  );
   const total = cartTotal();
   const note = document.getElementById("orderNote").value.trim();
 
@@ -2436,9 +2733,14 @@ async function iniciarPagoWompi(){
      compara con el de la base: si el catalogo cacheado quedo viejo,
      rechaza el pedido y avisa, en vez de cobrar un total distinto del
      que el cliente vio en pantalla. */
-  const items = Object.keys(cart).map(id => {
-    const pr = findProduct(id);
-    return { id, cantidad: cart[id], precio: pr ? pr.price : undefined };
+  /* Al servidor viajan SOLO ids: el producto, su cantidad, el precio BASE que se esta mostrando (para detectar un
+     producto que cambio de precio) y, si las hay, los ids de las opciones. Nunca nombres ni precios de opciones. */
+  const items = Object.keys(cart).map(clave => {
+    const k = OT.leerClave(clave, id => !!findProduct(id)) || { id: clave, ids: [] };
+    const pr = findProduct(k.id);
+    const item = { id: k.id, cantidad: cart[clave], precio: pr ? pr.price : undefined };
+    if(k.ids.length) item.opciones = k.ids.slice();
+    return item;
   });
 
   paymentFormSubmitBtn.disabled = true;
@@ -2493,10 +2795,44 @@ async function iniciarPagoWompi(){
         alert(detalle.error);
         return;
       }
+      /* Opciones que ya no valen (una opcion apagada o borrada: 400) o que no se pudieron confirmar (503). Los dos
+         traen las listas vacias de 'agotados' (solo las respuestas de la validacion de items las traen). El servidor
+         no dice CUAL opcion fallo, a proposito. 400: se vuelve a pedir el menu UNA vez (sin bucle) y se lleva al
+         cliente a su carrito; la revision de opciones quita la linea que ya no se puede pedir. 503: reintentar. */
+      if((resp.status === 400 || resp.status === 503) && Array.isArray(detalle.agotados)){
+        closePaymentForm();
+        alert((detalle.error || "Alguna de las opciones elegidas ya no está disponible.") +
+          (resp.status === 400 ? "\n\nRevisa tu carrito." : ""));
+        if(resp.status === 400){
+          openDrawer();
+          await cargarMenu({ forzar: true });
+        }
+        return;
+      }
       throw new Error(detalle.error || "No se pudo registrar el pedido");
     }
     const datos = await resp.json();
     const { referencia, total, firma } = datos;
+
+    /* C2 (H5): el servidor manda. Si el total que devolvio no es el que el carrito mostraba (un extra cambio de precio
+       en los ultimos segundos), NO se abre Wompi en silencio: se le dice al cliente el monto real y elige entre pagarlo
+       o revisar su pedido. El pedido ya existe (pendiente de pago); "pagar" sigue con ESE mismo pedido y su firma, asi
+       que no se crea otro. Nada de recargar el menu en bucle: la copia del menu puede seguir vieja un minuto. */
+    const subtotalMostrado = cartTotal();
+    const totalMostrado = subtotalMostrado + costoDomicilioActual();
+    let ajuste = 0;
+    if(Number.isFinite(Number(total)) && (Number(total) !== totalMostrado || Number(datos.subtotal) !== subtotalMostrado)){
+      const decision = await preguntarPrecioCambiado(totalMostrado, Number(total));
+      if(decision !== "pagar"){
+        closePaymentForm();
+        openDrawer();
+        avisarEnCarrito("El total confirmado por el restaurante es " + formatCOP(Number(total)) +
+          ". Revisamos los precios del menú; toca Pagar en línea cuando quieras continuar.");
+        cargarMenu({ forzar: true });   // una sola vez, y solo para que el carrito muestre los precios al dia
+        return;
+      }
+      if(Number.isFinite(Number(datos.subtotal))) ajuste = Number(datos.subtotal) - subtotalMostrado;
+    }
 
     // Resumen local, solo para poder mostrar la confirmacion si el
     // banco redirige fuera de la pagina (PSE) y el cliente vuelve.
@@ -2511,11 +2847,19 @@ async function iniciarPagoWompi(){
       costoDomicilio: datos.costoDomicilio,
       distanciaKm: datos.distanciaKm,
       fueraDeCobertura: datos.fueraDeCobertura,
-      items: Object.keys(cart).map(id => {
-        const p = findProduct(id);
-        return { id, nombre: p.name, cantidad: cart[id], precio: p.price };
+      /* C4: lo que se guarda para la confirmacion y el WhatsApp lleva las opciones de cada linea y el TOTAL DEL
+         SERVIDOR (arriba), no el recalculado. 'precio' es el unitario con extras (como la copia del pedido). */
+      items: lineasDelCarrito().map(l => {
+        const item = { id: l.p.id, nombre: l.p.name, cantidad: l.qty, precio: l.unit };
+        if(l.opciones.length){
+          item.precio_base = l.p.price;
+          item.opciones = l.opciones.map(o => ({ id: o.id, tipo: o.tipo, nombre: o.nombre, precio: o.precio }));
+        }
+        return item;
       })
     };
+    // Cuando el cliente acepto pagar un total distinto al que veia, la diferencia queda a la vista en la confirmacion
+    if(ajuste) pedido.ajuste = ajuste;
     RP.guardar(PENDING_ORDER_KEY, pedido);
 
     closePaymentForm();
@@ -2527,6 +2871,39 @@ async function iniciarPagoWompi(){
     paymentFormSubmitBtn.disabled = false;
     paymentFormSubmitBtn.textContent = "Continuar al pago 💳";
   }
+}
+
+/* Aviso de precio cambiado: dos botones. Devuelve "pagar" o "revisar". Escape cuenta como "revisar"; tocar fuera
+   no hace nada (hay que elegir). */
+function preguntarPrecioCambiado(antes, ahora){
+  return new Promise(resolver => {
+    const overlayPrecio = document.getElementById("precioCambioOverlay");
+    const botonPagar = document.getElementById("precioCambioPagar");
+    const botonRevisar = document.getElementById("precioCambioRevisar");
+    document.getElementById("precioCambioTitulo").textContent = ahora > antes ? "El precio subió" : "El precio bajó";
+    document.getElementById("precioCambioTexto").textContent =
+      "El precio de un extra cambió mientras armabas tu pedido. Tu total ahora es " + formatCOP(ahora) +
+      " (antes " + formatCOP(antes) + "). Es el valor que se cobrará en el pago.";
+    botonPagar.textContent = "Pagar " + formatCOP(ahora);
+    botonPagar.disabled = false;
+    botonRevisar.disabled = false;
+
+    const terminar = (decision) => {
+      document.removeEventListener("keydown", alTeclear, true);
+      botonPagar.onclick = null;
+      botonRevisar.onclick = null;
+      overlayPrecio.classList.remove("open");
+      resolver(decision);
+    };
+    const alTeclear = (e) => { if(e.key === "Escape") terminar("revisar"); };
+    document.addEventListener("keydown", alTeclear, true);
+    // Un solo clic cuenta: los dos botones se bloquean al elegir (sin doble pedido por un doble toque)
+    botonPagar.onclick = () => { botonPagar.disabled = true; botonRevisar.disabled = true; terminar("pagar"); };
+    botonRevisar.onclick = () => { botonPagar.disabled = true; botonRevisar.disabled = true; terminar("revisar"); };
+
+    overlayPrecio.classList.add("open");
+    botonPagar.focus({ preventScroll:true });
+  });
 }
 
 function abrirWidgetWompi(pedido, firma){
@@ -2577,9 +2954,16 @@ const confirmOverlay = document.getElementById("confirmOverlay");
 function mostrarConfirmacion(pedido){
   document.getElementById("confirmTitulo").textContent = "¡Pedido confirmado! " + RP.emoji(R);
   document.getElementById("confirmRef").textContent = "Referencia: " + pedido.referencia;
-  document.getElementById("confirmSummary").innerHTML = pedido.items.map(it =>
-    `<div class="line"><span>${esc(it.cantidad)}x ${esc(it.nombre)}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`
-  ).join("");
+  document.getElementById("confirmSummary").innerHTML = pedido.items.map(it => {
+    // Las opciones (si las hay) van bajo el nombre, como texto escapado (S1): vienen del navegador guardado y no son de fiar
+    const detalle = OT.resumen(it.opciones, { separador: " · " });
+    return `<div class="line"><span>${esc(it.cantidad)}x ${esc(it.nombre)}${detalle ? `<small class="line-opc">${esc(detalle)}</small>` : ""}</span><span>${formatCOP(it.precio*it.cantidad)}</span></div>`;
+  }).join("");
+  // Si el cliente acepto pagar un total distinto al que veia, los renglones ya no suman el total: se muestra la diferencia
+  if(Number(pedido.ajuste)){
+    document.getElementById("confirmSummary").innerHTML +=
+      '<div class="line"><span>Ajuste de precios</span><span>' + (pedido.ajuste < 0 ? "-" : "") + formatCOP(Math.abs(Number(pedido.ajuste))) + '</span></div>';
+  }
   document.getElementById("confirmTotal").textContent = formatCOP(pedido.total);
 
   // Si hubo domicilio, se muestra el desglose en el resumen
@@ -2654,7 +3038,8 @@ function mostrarConfirmacion(pedido){
 function enviarPedidoPagadoPorWhatsApp(pedido){
   const c = pedido.cliente;
   const tipoTexto = { domicilio:"Domicilio", llevar:"Para llevar", local:"En el local" }[c.tipoPedido] || c.tipoPedido;
-  const lineas = pedido.items.map(it => `✅ ${it.cantidad}x ${it.nombre} — ${formatCOP(it.precio*it.cantidad)}`);
+  const lineas = pedido.items.map(it => `✅ ${it.cantidad}x ${it.nombre}${OT.parentesis(it.opciones)} — ${formatCOP(it.precio*it.cantidad)}`);
+  if(Number(pedido.ajuste)) lineas.push(`✅ Ajuste de precios — ${pedido.ajuste < 0 ? "-" : ""}${formatCOP(Math.abs(Number(pedido.ajuste)))}`);
 
   const partes = [
     RP.emoji(R) + " *PEDIDO PAGADO EN LÍNEA*",
@@ -3129,8 +3514,13 @@ function renderStatusBanner(){
   const hoy = estadoServidor.horarioHoy;
   if(estadoServidor.abierto){
     const cierra = hoy && hoy.cierra ? formatHour(String(hoy.cierra)) : "";
-    pintarBanner(banner, "open", RP.t("banner_abierto_icono"), RP.t("banner_abierto_titulo"),
-      RP.t("banner_abierto_texto", { cierre: cierra ? " — hoy hasta las " + cierra : "" }));
+    const cierreTexto = cierra ? " — hoy hasta las " + cierra : "";
+    let textoAbierto = RP.t("banner_abierto_texto", { cierre: cierreTexto });
+    /* La hora de cierre termina en punto ("10:00 p.m.") y la plantilla suele poner otro justo despues de {cierre}
+       ("...pedidos{cierre}."): quedaba "p.m..". Si la hora ya termina en punto, el que viene pegado se quita; si no
+       (por ejemplo "(medianoche)"), el punto de la plantilla se queda. Solo toca ese punto: el resto del texto no. */
+    if(cierreTexto.endsWith(".")) textoAbierto = textoAbierto.split(cierreTexto + ".").join(cierreTexto);
+    pintarBanner(banner, "open", RP.t("banner_abierto_icono"), RP.t("banner_abierto_titulo"), textoAbierto);
   }else{
     pintarBanner(banner, "closed", RP.t("banner_cerrado_icono"),
       (typeof estadoServidor.mensaje === "string" && estadoServidor.mensaje) || RP.t("banner_cerrado_mensaje"), "");
