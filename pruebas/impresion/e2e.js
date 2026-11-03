@@ -1055,6 +1055,70 @@ async function escenario(nombre, fn) {
     });
 
     /* ------------------------------------------------------------ */
+    await escenario("22. Ticket con opciones de producto (parte B): SIN y extras claros, sin emojis ni invisibles, largo sin partirse", async () => {
+      const bidi = String.fromCharCode(0x202e), cero = String.fromCharCode(0x200b), aislar = String.fromCharCode(0x2066), blando = String.fromCharCode(0xad);
+      const op = (id, tipo, nombre) => ({ id, tipo, nombre, precio: tipo === "extra" ? 2000 : 0 });
+      await admin.reset([]);
+      const p = await abrirPanel("opciones", true);
+
+      // ---- un pedido normal con opciones: "SIN: ..." y un "+ extra" por linea; el item sin opciones no cambia ----
+      await admin.evento(pedido(740, {
+        tipo_pedido: "llevar", indicaciones: "Tocar el timbre", subtotal: 66500, total: 66500,
+        items: [
+          { id: "big", nombre: "Big Norte", cantidad: 2, precio: 31000, precio_base: 26000,
+            opciones: [op("sin-queso", "quitar", "Sin queso"), op("sin-salsa-rosa", "quitar", "Sin salsa rosa"), op("extra-queso", "extra", "Queso extra"), op("extra-tocineta", "extra", "Tocineta extra")] },
+          { id: "coca", nombre: "Coca-Cola", cantidad: 1, precio: 4500 }
+        ]
+      }));
+      await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 10000, "ticket con opciones");
+      let imp = (await p.impresos())[0], doc = (await p.htmlImpresos())[0];
+      const lineas = imp.texto.split("\n").map(l => l.trim()).filter(Boolean);
+      const i = lineas.indexOf("Big Norte");
+      comprobar(i > 0 && lineas[i + 1] === "SIN: queso, salsa rosa" && lineas[i + 2] === "+ Queso extra" && lineas[i + 3] === "+ Tocineta extra",
+        "bajo el producto: una linea \"SIN: queso, salsa rosa\" y un \"+ extra\" por linea: " + JSON.stringify(lineas.slice(i, i + 5)));
+      comprobar(lineas[lineas.indexOf("Coca-Cola") + 1] === "Pago: Tarjeta · PAGADO" || !/^(SIN:|\+ )/.test(lineas[lineas.indexOf("Coca-Cola") + 1] || ""), "el producto sin opciones no trae lineas de SIN ni de +");
+      comprobar((doc.match(/class="sin"/g) || []).length === 1 && (doc.match(/class="extra"/g) || []).length === 2, "en el documento: 1 bloque \"sin\" y 2 bloques \"extra\" (bloques aparte para dar negrita y sangria)");
+      comprobar(/\.item \.sin,\.item \.extra\{[^}]*font-weight:900/.test(doc) && /\.item \.extra\{padding-left:1\.4em;text-indent:-1\.4em/.test(doc), "los dos van en negrita (900) y los extras con sangria francesa");
+      comprobar(/PEDIDO WEB/.test(imp.texto.split("\n").slice(-3).join(" ")), "el pie del ticket (nombre del restaurante · PEDIDO WEB) sigue al final");
+      await sleep(PAUSA_TICKETS_MS);
+
+      // ---- el nombre se imprime tal como lo guarda el servidor, SIN emojis, invisibles ni bidi; el HTML sale como texto ----
+      await admin.evento(pedido(741, {
+        tipo_pedido: "llevar", subtotal: 9000, total: 9000,
+        items: [{ id: "x", nombre: "Hamburguesa", cantidad: 1, precio: 9000, precio_base: 7000, opciones: [
+          op("a", "quitar", "Sin \u{1F9C5} cebolla"), op("b", "quitar", "Sin" + bidi + " sal" + cero), op("c", "quitar", "Sin <b>pepinillo</b> & \"mostaza\""),
+          op("d", "extra", "Queso \u{1F9C0} extra" + aislar), op("e", "extra", "Salsa" + blando + " picante"), { id: "z", tipo: "raro", nombre: "No debe salir" }, null, "texto suelto"
+        ] }]
+      }));
+      await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 10000, "ticket sin emojis");
+      imp = (await p.impresos())[1]; doc = (await p.htmlImpresos())[1];
+      comprobar(!/[\u{1F000}-\u{1FAFF}]/u.test(imp.texto) && !new RegExp("[" + bidi + cero + aislar + blando + "]").test(doc), "sin emojis, sin invisibles (ancho cero, bidi, guion suave) en el ticket");
+      comprobar(/SIN: cebolla, sal, <b>pepinillo<\/b> & "mostaza"\n/.test(imp.texto) && /\+ Queso extra\n\+ Salsa picante/.test(imp.texto.replace(/\n\s*/g, "\n")), "el nombre sale limpio (\"Sin 🧅 cebolla\" -> \"cebolla\") y lo raro (tipo desconocido, null, texto suelto) se ignora: " + JSON.stringify(imp.texto.split("\n").filter(l => /SIN|^\s*\+/.test(l))));
+      comprobar(/&lt;b&gt;pepinillo&lt;\/b&gt; &amp;/.test(doc) && !/<b>pepinillo/.test(doc) && !(await p.eval("window.__xss")), "el HTML del nombre sale como TEXTO (escapado), nunca como etiquetas");
+      await sleep(PAUSA_TICKETS_MS);
+
+      // ---- un ticket largo: 5 productos con 12 opciones de nombre largo cada uno ----
+      const largos = Array.from({ length: 5 }, (_, k) => ({
+        id: "l" + k, nombre: "Hamburguesa especial numero " + (k + 1), cantidad: 1 + k, precio: 40000, precio_base: 16000,
+        opciones: Array.from({ length: 12 }, (_, j) => op("o" + j, j < 4 ? "quitar" : "extra",
+          (j < 4 ? "Sin ingrediente " : "Extra ingrediente ") + (j + 1) + " con un nombre bien largo de cuarenta"))
+      }));
+      await admin.evento(pedido(742, { tipo_pedido: "llevar", items: largos, subtotal: 600000, total: 600000 }));
+      await p.esperar("function(){return (window.__impresos||[]).length>=3;}", 10000, "ticket largo con opciones");
+      imp = (await p.impresos())[2]; doc = (await p.htmlImpresos())[2];
+      comprobar((doc.match(/class="item"/g) || []).length === 5 && (doc.match(/class="extra"/g) || []).length === 40 && (doc.match(/class="sin"/g) || []).length === 5, "los 5 productos, sus 5 bloques SIN y sus 40 extras estan en el ticket");
+      comprobar((doc.match(/class="continuacion"/g) || []).length >= 1 && /class="continuacion">#742 · continuación</.test(doc), "el ticket largo se reparte en hojas con su linea de continuacion");
+      comprobar((doc.match(/class="pie"/g) || []).length === 1 && /PEDIDO WEB/.test(imp.texto) && imp.texto.trim().split("\n").pop().trim().length > 0, "el pie sigue UNA sola vez y es lo ultimo del ticket (no se lo come el largo)");
+      // medido en un documento real de 80 mm: nada se sale del ancho y cada producto con sus opciones esta entero en una hoja
+      const medida = await p.eval("new Promise(function(ok){var f=document.createElement('iframe');f.style.cssText='position:fixed;left:-9999px;top:0;width:80mm;height:1200mm;border:0';" +
+        "f.onload=function(){var d=f.contentDocument,b=d.body.getBoundingClientRect();var fuera=Array.prototype.filter.call(d.querySelectorAll('.nom,.sin,.extra,.pie'),function(e){return e.getBoundingClientRect().right>b.right+0.5;}).length;" +
+        "var pie=d.querySelector('.pie').getBoundingClientRect();ok({fuera:fuera,ancho:Math.round(b.width),pie:pie.height>0&&pie.bottom<=d.documentElement.scrollHeight});f.remove();};f.srcdoc=" + JSON.stringify(doc) + ";document.body.appendChild(f);})");
+      comprobar(medida.fuera === 0 && medida.pie && medida.ancho > 250 && medida.ancho < 290, "medido a 80 mm (" + medida.ancho + " px): ninguna linea se sale del ancho y el pie se ve: " + JSON.stringify(medida));
+      comprobar(p.errores.length === 0, "sin errores de JavaScript: " + p.errores.join(" | "));
+      await sleep(PAUSA_TICKETS_MS);
+    });
+
+    /* ------------------------------------------------------------ */
     if (process.env.TICKETS) {
       fs.mkdirSync(process.env.TICKETS, { recursive: true });
       await escenario("Guardando los documentos de ticket que se imprimieron", async () => {
@@ -1119,12 +1183,88 @@ async function escenario(nombre, fn) {
         const nombres = Object.keys(casos).concat(["06-reimpresion", "07-ticket-de-prueba"]);
         todos.forEach((h, i) => fs.writeFileSync(path.join(process.env.TICKETS, nombres[i] + ".html"), h));
         comprobar(todos.length === 7, "guardados " + todos.length + " documentos en " + process.env.TICKETS);
+
+        /* Tickets NUEVOS, con opciones de producto (parte B): no existen en el commit de antes; comparar-tickets los compara con el HTML
+           esperado de pruebas/impresion/esperado/ (un ticket de pedido SIN opciones sigue comparandose con el de antes, uno por uno). */
+        const bidi = String.fromCharCode(0x202e), cero = String.fromCharCode(0x200b);
+        const op = (id, tipo, nombre) => ({ id, tipo, nombre, precio: tipo === "extra" ? 2000 : 0 });
+        const nuevos = {
+          "08-con-opciones": pedido(31, {
+            cliente_nombre: "Ana Gómez", direccion: "Calle 10 # 5-20", barrio: "Caobos", indicaciones: "Sin servilletas",
+            subtotal: 66500, total: 71500, costo_domicilio: 5000, wompi_metodo_pago: "NEQUI",
+            items: [
+              { id: "big", nombre: "Big Norte", cantidad: 2, precio: 31000, precio_base: 26000,
+                opciones: [op("sin-queso", "quitar", "Sin queso"), op("sin-salsa-rosa", "quitar", "Sin salsa rosa"), op("extra-queso", "extra", "Queso extra"), op("extra-tocineta", "extra", "Tocineta extra")] },
+              { id: "coca", nombre: "Coca-Cola", cantidad: 1, precio: 4500 }
+            ]
+          }),
+          "09-opciones-sin-emojis-ni-invisibles": pedido(32, {
+            tipo_pedido: "llevar", subtotal: 9000, total: 9000,
+            items: [{ id: "x", nombre: "Hamburguesa", cantidad: 1, precio: 9000, precio_base: 7000, opciones: [
+              op("a", "quitar", "Sin \u{1F9C5} cebolla"), op("b", "quitar", "Sin" + bidi + " sal" + cero), op("c", "quitar", "Sin <b>pepinillo</b> & \"mostaza\""),
+              op("d", "extra", "Queso \u{1F9C0} extra"), { id: "z", tipo: "raro", nombre: "No debe salir" }
+            ] }]
+          }),
+          "10-opciones-ticket-largo": pedido(33, {
+            tipo_pedido: "llevar", subtotal: 600000, total: 600000,
+            items: Array.from({ length: 5 }, (_, k) => ({
+              id: "l" + k, nombre: "Hamburguesa especial numero " + (k + 1), cantidad: 1 + k, precio: 40000, precio_base: 16000,
+              opciones: Array.from({ length: 12 }, (_, j) => op("o" + j, j < 4 ? "quitar" : "extra", (j < 4 ? "Sin ingrediente " : "Extra ingrediente ") + (j + 1) + " con un nombre bien largo de cuarenta"))
+            }))
+          })
+        };
+        let m = todos.length;
+        for (const [nombre, ped] of Object.entries(nuevos)) {
+          await admin.evento(ped);
+          m++;
+          await p.esperar("function(){return (window.__impresos||[]).length>=" + m + ";}", 15000, nombre);
+        }
+        const conOpciones = (await p.htmlImpresos()).slice(todos.length);
+        Object.keys(nuevos).forEach((nombre, k) => fs.writeFileSync(path.join(process.env.TICKETS, nombre + ".html"), conOpciones[k]));
+        comprobar(conOpciones.length === 3, "guardados " + conOpciones.length + " documentos NUEVOS (con opciones) en " + process.env.TICKETS);
       });
     }
 
     /* ------------------------------------------------------------ */
     if (process.env.CAPTURAS) {
       fs.mkdirSync(process.env.CAPTURAS, { recursive: true });
+      // El ticket de prueba (con un item con opciones) y el ticket largo, dibujados a 80 mm (302 px) con doble resolucion: lo que veria la cocina en el papel
+      await escenario("Capturas de los tickets con opciones (80 mm)", async () => {
+        const bidi = String.fromCharCode(0x202e);
+        const op = (id, tipo, nombre) => ({ id, tipo, nombre, precio: tipo === "extra" ? 2000 : 0 });
+        await admin.reset([]);
+        const p = await abrirPanel("ticket-captura", true);
+        await p.eval("document.getElementById('impPruebaBtn').click(); true");
+        await p.esperar("function(){return (window.__impresos||[]).length>=1;}", 15000, "ticket de prueba");
+        await sleep(PAUSA_TICKETS_MS);
+        await admin.evento(pedido(34, {
+          cliente_nombre: "Ana Gómez", direccion: "Calle 10 # 5-20", barrio: "Caobos", indicaciones: "Sin servilletas",
+          subtotal: 66500, total: 71500, costo_domicilio: 5000, wompi_metodo_pago: "NEQUI",
+          items: [
+            { id: "big", nombre: "Big Norte", cantidad: 2, precio: 31000, precio_base: 26000,
+              opciones: [op("sin-queso", "quitar", "Sin queso"), op("sin-salsa-rosa", "quitar", "Sin salsa rosa"), op("extra-queso", "extra", "Queso extra"), op("extra-tocineta", "extra", "Tocineta extra")] },
+            { id: "choc", nombre: "Chori Norte", cantidad: 1, precio: 9000, precio_base: 7000,
+              opciones: [op("a", "quitar", "Sin \u{1F9C5} cebolla"), op("b", "quitar", "Sin" + bidi + " rúgula"), op("c", "extra", "Chorizo extra con un nombre bien largo que envuelve")] },
+            { id: "coca", nombre: "Coca-Cola", cantidad: 1, precio: 4500 }
+          ]
+        }));
+        await p.esperar("function(){return (window.__impresos||[]).length>=2;}", 15000, "ticket con opciones");
+        const htmls = await p.htmlImpresos();
+        for (const [nombre, html] of [["ticket-de-prueba-con-opciones", htmls[0]], ["ticket-pedido-con-opciones", htmls[1]]]) {
+          const pg = await nuevaPagina("render-" + nombre);
+          await pg.ir("about:blank");
+          await sleep(300);
+          await pg.eval("document.open(); document.write(" + JSON.stringify(html) + "); document.close(); true");
+          await sleep(500);
+          const alto = Math.ceil(await pg.eval("document.body.scrollHeight")) + 20;
+          await pg.cdp.send("Emulation.setDeviceMetricsOverride", { width: 302, height: alto, deviceScaleFactor: 2, mobile: false }, pg.sid);
+          await sleep(400);
+          const r = await pg.cdp.send("Page.captureScreenshot", { format: "png" }, pg.sid);
+          fs.writeFileSync(path.join(process.env.CAPTURAS, "opciones-" + nombre + "-80mm.png"), Buffer.from(r.data, "base64"));
+        }
+        comprobar(p.errores.length === 0, "tickets con opciones: sin errores de consola");
+      });
+
       await escenario("Capturas del tablero a 360, 390, 768 y 1280 px", async () => {
         const datos = [
           pedido(801, { impreso_en: new Date().toISOString(), indicaciones: "Sin cebolla", costo_domicilio: 5000, subtotal: 19000, total: 24000, distancia_km: 2.4 }),

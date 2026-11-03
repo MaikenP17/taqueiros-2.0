@@ -34,6 +34,7 @@ function correr(cwd, salida) {
 }
 
 let fallas = 0;
+let nuevosVistos = 0;
 try {
   execFileSync('git', ['worktree', 'add', '-f', arbol, commit], { cwd: REPO, stdio: 'ignore' });
   const dirAntes = path.join(tmp, 'tickets-antes'), dirAhora = path.join(tmp, 'tickets-ahora');
@@ -54,9 +55,23 @@ try {
     ['Agua de Jamaica 500 ml', 'Coca-Cola Lata 350 ml'],
     ['Sin cebolla ni cilantro, salsa picante aparte.', 'Sin cebolla ni pepinillos, salsa picante aparte.'],
     ['más limón.', 'más servilletas.'],
-    ['$90.000</span>', '$92.500</span>'],
-    ['$95.000</span>', '$97.500</span>']
+    ['$90.000</span>', '$102.500</span>'],
+    ['$95.000</span>', '$107.500</span>']
   ];
+  /* PARTE B DE LAS OPCIONES (a proposito): el ticket de PRUEBA ahora trae un item CON opciones (precio final 31.000 = 26.000 + 2.000 + 3.000, de ahi los
+     montos de arriba). Solo se excusan estas piezas del ticket 07, cada una EXACTAMENTE una vez: la hoja de estilos de las opciones (solo existe cuando algun
+     producto trae opciones) y las lineas "SIN" y "+ extra" de ese item. Los otros 6 tickets (sin opciones) no se tocan: tienen que seguir identicos. */
+  const OPCIONES_DE_MUESTRA = [
+    /<style id="estilos-opciones">[^<]*<\/style>/,
+    '<div class="sin">SIN: queso, salsa rosa</div>',
+    '<div class="extra">+ Queso extra</div>',
+    '<div class="extra">+ Tocineta extra</div>'
+  ];
+  const sinOpcionesDeMuestra = (s) => OPCIONES_DE_MUESTRA.reduce((t, x) => {
+    const partes = typeof x === 'string' ? t.split(x) : t.split(x);
+    if (partes.length !== 2) throw new Error(`el ticket de prueba de ahora trae ${partes.length - 1} veces (se esperaba 1): ${x}`);
+    return partes.join('');
+  }, s);
   const deMuestra = (s) => MUESTRA.reduce((t, [viejo, nuevo]) => {
     const partes = t.split(viejo);
     if (partes.length !== 2) throw new Error(`el ticket de prueba de antes trae ${partes.length - 1} veces (se esperaba 1): ${viejo}`);
@@ -65,7 +80,8 @@ try {
   for (const f of fs.readdirSync(dirAntes).sort()) {
     const a = normal(fs.readFileSync(path.join(dirAntes, f), 'utf8'));
     const a2 = f === '07-ticket-de-prueba.html' ? deMuestra(a) : a;
-    const b = fs.existsSync(path.join(dirAhora, f)) ? normal(fs.readFileSync(path.join(dirAhora, f), 'utf8')) : null;
+    let b = fs.existsSync(path.join(dirAhora, f)) ? normal(fs.readFileSync(path.join(dirAhora, f), 'utf8')) : null;
+    if (b !== null && f === '07-ticket-de-prueba.html') b = sinOpcionesDeMuestra(b);
     const igual = a2 === b;
     if (!igual) fallas++;
     console.log((igual ? 'IGUAL    ' : 'DISTINTO ') + f + '  (' + a.length + ' caracteres)' + (f === '07-ticket-de-prueba.html' && igual ? '  (salvo los productos de muestra, a proposito)' : ''));
@@ -75,10 +91,29 @@ try {
       for (let i = 0; i < Math.max(la.length, lb.length) && mostradas < 12; i++) if (la[i] !== lb[i]) { console.log('   antes: ' + (la[i] || '').trim().slice(0, 160) + '\n   ahora: ' + (lb[i] || '').trim().slice(0, 160)); mostradas++; }
     }
   }
+  /* Los tickets NUEVOS (con opciones de producto) no existen en el commit de antes: se comparan con el HTML ESPERADO que esta guardado en
+     pruebas/impresion/esperado/ (se vuelve a escribir con ACTUALIZAR_ESPERADOS=1, solo cuando el cambio es a proposito). */
+  const dirEsperado = path.join(REPO, 'pruebas', 'impresion', 'esperado');
+  const nuevos = fs.readdirSync(dirAhora).sort().filter((f) => !fs.existsSync(path.join(dirAntes, f)));
+  for (const f of nuevos) {
+    const b = normal(fs.readFileSync(path.join(dirAhora, f), 'utf8'));
+    const esperado = path.join(dirEsperado, f);
+    if (process.env.ACTUALIZAR_ESPERADOS === '1') { fs.mkdirSync(dirEsperado, { recursive: true }); fs.writeFileSync(esperado, b); }
+    const a = fs.existsSync(esperado) ? normal(fs.readFileSync(esperado, 'utf8')) : null;
+    const igual = a === b;
+    if (!igual) fallas++;
+    nuevosVistos++;
+    console.log((igual ? 'ESPERADO ' : 'DISTINTO ') + f + '  (' + b.length + ' caracteres, comparado con pruebas/impresion/esperado/)');
+    if (!igual && a !== null) {
+      const la = a.split(/(?<=>)/), lb = b.split(/(?<=>)/);
+      let mostradas = 0;
+      for (let i = 0; i < Math.max(la.length, lb.length) && mostradas < 12; i++) if (la[i] !== lb[i]) { console.log('   esperado: ' + (la[i] || '').trim().slice(0, 160) + '\n   ahora:    ' + (lb[i] || '').trim().slice(0, 160)); mostradas++; }
+    } else if (a === null) console.log('   (no hay esperado guardado: corre con ACTUALIZAR_ESPERADOS=1 la primera vez)');
+  }
 } finally {
   try { execFileSync('git', ['worktree', 'remove', '--force', arbol], { cwd: REPO, stdio: 'ignore' }); } catch (e) { /* ya no estaba */ }
   try { execFileSync('git', ['worktree', 'prune'], { cwd: REPO, stdio: 'ignore' }); } catch (e) { /* nada */ }
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* en uso */ }
 }
-console.log(fallas ? `\n${fallas} ticket(s) CAMBIARON.` : '\nLos 7 tickets son identicos (salvo la hora).');
+console.log(fallas ? `\n${fallas} ticket(s) CAMBIARON.` : `\nLos 7 tickets son identicos (salvo la hora)` + (nuevosVistos ? ` y los ${nuevosVistos} tickets nuevos (con opciones) son iguales a lo esperado.` : '.'));
 process.exitCode = fallas ? 1 : 0;

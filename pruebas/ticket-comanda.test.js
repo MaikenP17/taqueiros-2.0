@@ -403,16 +403,16 @@ test("las claves de las preferencias del ticket son neutras (la migracion desde 
 
 /* ---------- Items con opciones (SQL 18): el pedido guarda precio final, precio_base y opciones ---------- */
 
-test("un item NUEVO (con precio_base y opciones) se lee igual que uno antiguo: mismos datos del ticket, sin romperse", () => {
+test("un item NUEVO (con precio_base y opciones) trae los mismos datos de siempre MAS sus opciones; el antiguo queda con las 3 claves de siempre", () => {
+  // CAMBIO A PROPOSITO (parte B): antes el ticket ignoraba las opciones ("se imprimiran en la parte B"); ahora las imprime.
   const antiguo = Object.assign({}, base, { items: [{ id: "taco", nombre: "Taco", cantidad: 2, precio: 10000 }] });
   const nuevo = Object.assign({}, base, { items: [{
     id: "taco", nombre: "Taco", cantidad: 2, precio: 15000, precio_base: 10000,
     opciones: [{ id: "sin-cebolla", tipo: "quitar", nombre: "Sin cebolla", precio: 0 }, { id: "extra-queso", tipo: "extra", nombre: "Queso extra", precio: 2000 }]
   }] });
   const a = T.preparar(antiguo), n = T.preparar(nuevo);
-  assert.deepEqual(n.items, a.items, "las opciones se imprimiran en la parte B; mientras tanto el ticket ignora las claves que no conoce");
-  assert.equal(n.items[0].cantidad, 2);
-  assert.equal(n.items[0].nombre, "Taco");
+  assert.deepEqual(a.items, [{ cantidad: 2, nombre: "Taco", nota: "" }], "un item sin opciones sale exactamente como antes (3 claves, sin 'sin' ni 'extras')");
+  assert.deepEqual(n.items, [{ cantidad: 2, nombre: "Taco", nota: "", sin: ["cebolla"], extras: ["Queso extra"] }]);
   assert.equal(n.numero, a.numero);
 });
 
@@ -423,4 +423,119 @@ test("mezclar items antiguos y nuevos en el mismo pedido no cambia el orden ni l
     { id: "c", nombre: "Otro antiguo", cantidad: 2, precio: 1000 }
   ] });
   assert.deepEqual(T.preparar(p).items.map((i) => i.nombre + ":" + i.cantidad), ["Antiguo:1", "Nuevo:3", "Otro antiguo:2"]);
+});
+
+/* ---------- Opciones de producto en el ticket (parte B): "SIN: ..." y "+ extra", reglas S1 a S4 y S7 ---------- */
+
+const BIDI = String.fromCharCode(0x202e), CERO = String.fromCharCode(0x200b), AISLAR = String.fromCharCode(0x2066), BLANDO = String.fromCharCode(0xad);
+const itemConOpciones = (opciones) => T.preparar(Object.assign({}, base, { items: [{ id: "x", nombre: "Big Norte", cantidad: 1, precio: 5000, opciones }] })).items[0];
+const q = (nombre) => ({ id: "q", tipo: "quitar", nombre, precio: 0 });
+const x = (nombre) => ({ id: "x", tipo: "extra", nombre, precio: 1000 });
+
+test("opciones: lo que se quita va junto en 'sin' (sin el 'Sin ' del nombre) y cada extra va aparte (S7)", () => {
+  const it = itemConOpciones([q("Sin queso"), q("Sin salsa rosa"), x("Queso extra"), x("Tocineta extra")]);
+  assert.deepEqual(it.sin, ["queso", "salsa rosa"]);
+  assert.deepEqual(it.extras, ["Queso extra", "Tocineta extra"]);
+});
+
+test("opciones: un 'quitar' que no empieza por 'Sin' se imprime tal cual (nunca se pierde lo que hay que quitar)", () => {
+  assert.deepEqual(itemConOpciones([q("Cebolla"), q("sin  pepinillos"), q("SIN tomate"), q("Sinsabor"), q("Sin")]).sin, ["Cebolla", "pepinillos", "tomate", "Sinsabor", "Sin"]);
+});
+
+test("opciones: sin emojis (la impresora los borra), sin invisibles ni bidi, una sola linea (S2, S3)", () => {
+  const it = itemConOpciones([q("Sin \u{1F9C5} cebolla"), q("Sin" + BIDI + " sal" + CERO), q("Sin\nsalsa\r\npicante"), x("Queso \u{1F9C0} extra" + AISLAR), x("Salsa" + BLANDO + " picante")]);
+  assert.deepEqual(it.sin, ["cebolla", "sal", "salsa picante"]);
+  assert.deepEqual(it.extras, ["Queso extra", "Salsa picante"]);
+  for (const t of [...it.sin, ...it.extras]) assert.doesNotMatch(t, /[\n\r\u{1F000}-\u{1FAFF}]/u);
+});
+
+test("opciones: un nombre hecho solo de emojis o de invisibles desaparece (no deja una linea vacia que parezca otra cosa)", () => {
+  const it = itemConOpciones([q("\u{1F9C5}"), q(CERO + BIDI), x("\u{1F9C0}\u{1F9C0}"), q("Sin sal")]);
+  assert.deepEqual(it.sin, ["sal"]);
+  assert.deepEqual(it.extras, []);
+});
+
+test("opciones: lo raro se ignora (tipo desconocido, null, texto suelto, numeros) y son maximo 12 (S1)", () => {
+  const raro = [null, "texto", 7, { tipo: "raro", nombre: "No debe salir" }, { tipo: "extra" }, { tipo: "quitar", nombre: "   " }];
+  assert.equal(itemConOpciones(raro).sin, undefined, "un item con solo basura queda como uno sin opciones (3 claves)");
+  const trece = Array.from({ length: 13 }, (_, i) => x("Extra " + i));
+  assert.equal(itemConOpciones(trece).extras.length, 12);
+  assert.equal(itemConOpciones("no es una lista").sin, undefined);
+});
+
+test("opciones: el nombre largo NO se corta a 40 (envuelve en el papel), solo a 60 caracteres completos, nunca por la mitad de un emoji (S4)", () => {
+  const largo = "Ingrediente con un nombre bien largo de cuarenta y cinco letras";
+  assert.equal(itemConOpciones([x(largo)]).extras[0], largo.slice(0, 60).trim());
+  const emoji = "a".repeat(59) + "\u{1F9C0}\u{1F9C0}";
+  const r = itemConOpciones([x(emoji)]).extras[0];
+  assert.doesNotMatch(r, /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  assert.equal(r, "a".repeat(59), "el emoji se borra (la termica no lo imprime), no se parte");
+});
+
+test("opciones: un item SIN opciones queda con las 3 claves de siempre, y la hoja de estilos de las opciones solo se agrega cuando hace falta", () => {
+  assert.deepEqual(Object.keys(itemConOpciones(undefined)), ["cantidad", "nombre", "nota"]);
+  assert.deepEqual(Object.keys(itemConOpciones([q("Sin sal")])), ["cantidad", "nombre", "nota", "sin", "extras"]);
+  assert.ok(!T.ESTILOS.includes(".sin") && !T.ESTILOS.includes(".extra"), "el CSS de siempre no cambia: un ticket sin opciones sale byte a byte igual");
+  assert.match(T.ESTILOS_OPCIONES, /\.item \.sin,\.item \.extra\{[^}]*font-weight:900/);
+  assert.match(T.ESTILOS_OPCIONES, /\.item \.extra\{padding-left:1\.4em;text-indent:-1\.4em/);
+});
+
+test("opciones: el ticket de prueba trae un item con opciones (SIN y extras) y sus totales cuadran", () => {
+  const p = T.pedidoDePrueba();
+  const d = T.preparar(p, { prueba: true });
+  assert.deepEqual(d.items[0].sin, ["queso", "salsa rosa"]);
+  assert.deepEqual(d.items[0].extras, ["Queso extra", "Tocineta extra"]);
+  assert.equal(d.items[1].sin, undefined);
+  assert.equal(p.items.reduce((s, i) => s + i.precio * i.cantidad, 0), p.subtotal, "subtotal = suma de los renglones (precio final x cantidad)");
+  assert.equal(p.subtotal + p.costo_domicilio, p.total);
+});
+
+/* ---------- pintar(): la hoja de estilos de las opciones solo existe cuando hace falta; el corte por caracteres ---------- */
+
+/* Un documento minimo (sin navegador) con lo que usan pintar() y sus ayudas: createElement, getElementById, head, body. */
+function documentoFalso() {
+  const nodo = (etiqueta) => {
+    const n = { etiqueta, className: "", id: "", textContent: "", children: [], attrs: {}, firstChild: null,
+      appendChild(h) { this.children.push(h); this.firstChild = this.children[0]; return h; },
+      removeChild(h) { this.children = this.children.filter((x) => x !== h); this.firstChild = this.children[0] || null; return h; },
+      setAttribute(k, v) { this.attrs[k] = v; } };
+    return n;
+  };
+  const head = nodo("head"), body = nodo("body");
+  return { head, body, createElement: nodo,
+    getElementById: (id) => head.children.find((h) => h.id === id) || null };
+}
+const hijosDe = (n, clase) => n.children.filter((h) => h.className === clase);
+const dibujar = (items) => { const doc = documentoFalso(); T.pintar(doc, T.preparar(Object.assign({}, base, { items }))); return doc; };
+
+test("pintar: sin opciones NO agrega la hoja de estilos de las opciones (el ticket sale igual que antes)", () => {
+  const doc = dibujar([{ nombre: "Taco", cantidad: 2, precio: 9000 }]);
+  assert.equal(doc.head.children.length, 0);
+  assert.equal(doc.getElementById("estilos-opciones"), null);
+});
+
+test("pintar: con opciones agrega UNA hoja de estilos (#estilos-opciones) y los bloques 'sin' y 'extra' bajo el nombre, antes de la nota", () => {
+  const doc = dibujar([{ nombre: "Taco", cantidad: 2, precio: 9000, nota: "bien tostado", opciones: [q("Sin cebolla"), q("Sin sal"), x("Queso extra"), x("Salsa extra")] }, { nombre: "Agua", cantidad: 1, precio: 3000 }]);
+  const hoja = doc.getElementById("estilos-opciones");
+  assert.ok(hoja && hoja.etiqueta === "style" && hoja.textContent === T.ESTILOS_OPCIONES);
+  assert.equal(doc.head.children.filter((h) => h.id === "estilos-opciones").length, 1);
+  const items = doc.body.children.filter((h) => h.className === "item");
+  const cuerpo = items[0].children.find((h) => h.className === "cuerpo");
+  assert.deepEqual(cuerpo.children.map((h) => h.className + ":" + h.textContent), ["nom:Taco", "sin:SIN: cebolla, sal", "extra:+ Queso extra", "extra:+ Salsa extra", "nota:bien tostado"]);
+  const cuerpo2 = items[1].children.find((h) => h.className === "cuerpo");
+  assert.deepEqual(cuerpo2.children.map((h) => h.className), ["nom"], "el producto sin opciones no trae lineas de mas");
+});
+
+test("pintar: dibujar dos veces el mismo documento no repite la hoja de estilos", () => {
+  const doc = documentoFalso();
+  const d = T.preparar(Object.assign({}, base, { items: [{ nombre: "Taco", cantidad: 1, precio: 1, opciones: [q("Sin sal")] }] }));
+  T.pintar(doc, d); T.pintar(doc, d);
+  assert.equal(doc.head.children.filter((h) => h.id === "estilos-opciones").length, 1);
+});
+
+test("opciones: un caracter fuera del plano basico que la termica SI imprime (no es emoji) tampoco se parte al cortar a 60", () => {
+  const astral = String.fromCodePoint(0x1d49c);   // letra A cursiva matematica: no esta en la lista de simbolos que se borran
+  const r = itemConOpciones([x("a".repeat(59) + astral + astral)]).extras[0];
+  assert.equal(r, "a".repeat(59) + astral, "60 caracteres completos");
+  assert.doesNotMatch(r, /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
 });

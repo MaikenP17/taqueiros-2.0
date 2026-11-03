@@ -126,7 +126,7 @@
 
   /* Emojis, flechas, simbolos y dingbats; selectores de variacion y
      uniones de emoji; marcas invisibles y de direccion. */
-  const SIMBOLOS = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{2460}-\u{27BF}\u{2900}-\u{297F}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{20E3}\u{FEFF}\u{E0020}-\u{E007F}]/gu;
+  const SIMBOLOS = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{2460}-\u{27BF}\u{2900}-\u{297F}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{20E3}\u{FEFF}\u{E0020}-\u{E007F}\u{061C}\u{00AD}\u{115F}-\u{1160}\u{180E}\u{2065}-\u{206F}\u{3164}\u{FFA0}\u{FFF9}-\u{FFFB}\u{E0000}-\u{E001F}]/gu;
   const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;
 
   /* Espacios que no son el normal: duro, de cifra, fino y fino estrecho. */
@@ -215,6 +215,37 @@
     return duro(TIPOS[tipo]) + NBSP + "· " + duro("WEB · PAGADO");
   }
 
+  /* ---------- Opciones de un producto (quitar / extras) ----------
+     La copia de las opciones viene en pedidos.items[].opciones: [{id, tipo, nombre, precio}]. Es texto del dueno
+     y esa copia NO es de fiar (docs 22.17, H10), asi que pasa por limpiarTexto como todo lo demas: sin emojis (la
+     impresora los borra: se imprime tal como lo guarda el servidor, sin adornos), sin invisibles ni bidi (S3),
+     una sola linea (S2), cortado por CARACTERES (S4) y como maximo 12 opciones. NO se corta para que quepa: el
+     nombre envuelve en varias lineas (overflow-wrap) porque un "quitar" mal impreso es un problema de alergias.
+       quitar -> "SIN: queso, salsa rosa"   (el "Sin " del nombre se quita: "Sin queso" -> "queso")
+       extra  -> una linea "+ Tocineta extra" por cada uno (S7: la cocina los distingue en un segundo) */
+  const MAX_OPCIONES_TICKET = 12;
+  const MAX_CARACTERES_OPCION = 60;
+
+  function recortarCaracteres(texto, maximo) {
+    return Array.from(texto).slice(0, maximo).join("").trim();
+  }
+
+  function opcionesDelItem(opciones) {
+    const sin = [];
+    const extras = [];
+    (Array.isArray(opciones) ? opciones.slice(0, MAX_OPCIONES_TICKET) : []).forEach(o => {
+      if (!o || typeof o !== "object") return;
+      const nombre = recortarCaracteres(limpiarTexto(o.nombre), MAX_CARACTERES_OPCION);
+      if (!nombre) return;
+      if (o.tipo === "quitar") {
+        sin.push(recortarCaracteres(limpiarTexto(nombre.replace(/^sin\s+(?=\S)/i, "")), MAX_CARACTERES_OPCION) || nombre);
+      } else if (o.tipo === "extra") {
+        extras.push(nombre);
+      }
+    });
+    return { sin: sin, extras: extras };
+  }
+
   /* ---------- De pedido a datos del ticket ---------- */
 
   /* Funcion pura: no toca el DOM. opciones:
@@ -232,11 +263,18 @@
       const nota = limpiarTexto(
         it && (it.nota || it.notas || it.observacion || it.observaciones || it.indicaciones),
         { saltos: true });
-      return {
+      const fila = {
         cantidad: cant,
         nombre: limpiarTexto(it && it.nombre) || "(sin nombre)",
         nota: nota
       };
+      /* Solo los items CON opciones traen 'sin' y 'extras': un item sin opciones queda con las 3 claves de siempre */
+      const op = opcionesDelItem(it && it.opciones);
+      if (op.sin.length || op.extras.length) {
+        fila.sin = op.sin;
+        fila.extras = op.extras;
+      }
+      return fila;
     });
 
     const costoDomicilio = Number(p.costo_domicilio) || 0;
@@ -318,6 +356,15 @@
     ".pie .chico{display:block;font-weight:400;margin-top:2px;}"
   ].join("\n");
 
+  /* Estilos de las opciones de producto. Van en su PROPIA hoja (#estilos-opciones), que solo se agrega al ticket cuando
+     algun producto trae opciones: asi un ticket sin opciones sale byte a byte igual que antes (comparar-tickets.mjs).
+     Negrita y mas grandes que la nota para que la cocina las lea de un vistazo. Los extras llevan sangria francesa:
+     si el nombre envuelve, la segunda linea queda alineada bajo el texto y no bajo el "+". */
+  const ESTILOS_OPCIONES = [
+    ".item .sin,.item .extra{font-size:" + esc(15) + ";font-weight:900;line-height:1.2;margin-top:3px;overflow-wrap:break-word;}",
+    ".item .extra{padding-left:1.4em;text-indent:-1.4em;}"
+  ].join("\n");
+
   const PLANTILLA =
     "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">" +
     "<title>Comanda</title>" +
@@ -382,11 +429,23 @@
 
     body.appendChild(el(doc, "div", "sep"));
 
+    if (d.items.some(it => it.sin || it.extras)) {
+      let hoja = doc.getElementById("estilos-opciones");
+      if (!hoja) {
+        hoja = doc.createElement("style");
+        hoja.id = "estilos-opciones";
+        doc.head.appendChild(hoja);
+      }
+      hoja.textContent = ESTILOS_OPCIONES;
+    }
+
     d.items.forEach(it => {
       const fila = el(doc, "div", "item");
       fila.appendChild(el(doc, "div", "cant", it.cantidad + "x"));
       const cuerpo = el(doc, "div", "cuerpo");
       cuerpo.appendChild(el(doc, "div", "nom", it.nombre));
+      if (it.sin && it.sin.length) cuerpo.appendChild(el(doc, "div", "sin", "SIN: " + it.sin.join(", ")));
+      (it.extras || []).forEach(x => cuerpo.appendChild(el(doc, "div", "extra", "+ " + x)));
       if (it.nota) cuerpo.appendChild(el(doc, "div", "nota", it.nota));
       fila.appendChild(cuerpo);
       body.appendChild(fila);
@@ -823,15 +882,22 @@
       indicaciones: "Portón negro junto a la droguería. Tocar el timbre, no llamar. " +
         "Sin cebolla ni pepinillos, salsa picante aparte. Pidió pa' ñoños: más servilletas.",
       items: [
-        { id: "x1", nombre: "Big Norte con Queso Extra (combo x3)", cantidad: 2, precio: 26000,
+        /* Un item CON opciones (precio = unitario final 26000 + 2000 + 3000): para ver en el papel como salen "SIN" y "+" */
+        { id: "x1", nombre: "Big Norte con Queso Extra (combo x3)", cantidad: 2, precio: 31000, precio_base: 26000,
+          opciones: [
+            { id: "sin-queso", tipo: "quitar", nombre: "Sin queso", precio: 0 },
+            { id: "sin-salsa-rosa", tipo: "quitar", nombre: "Sin salsa rosa", precio: 0 },
+            { id: "extra-queso", tipo: "extra", nombre: "Queso extra", precio: 2000 },
+            { id: "extra-tocineta", tipo: "extra", nombre: "Tocineta extra", precio: 3000 }
+          ],
           nota: "Sin cebolla, con mucha salsa y pan bien tostadito" },
         { id: "x2", nombre: "Full Norte Súper Cargado", cantidad: 1, precio: 18000 },
         { id: "x3", nombre: "Coca-Cola Lata 350 ml", cantidad: 3, precio: 4500, nota: "Sin hielo" },
         { id: "x4", nombre: "Supercalifragilisticoespialidosoextraordinario", cantidad: 1, precio: 9000 }
       ],
-      subtotal: 92500,
+      subtotal: 102500,
       costo_domicilio: 5000,
-      total: 97500,
+      total: 107500,
       wompi_metodo_pago: "NEQUI",
       pagado_en: new Date().toISOString(),
       creado_en: new Date().toISOString()
@@ -843,7 +909,7 @@
     ESCALAS, TAMANO_POR_DEFECTO, TAMANO_KEY,
     MODOS_HOJA, MODO_HOJA_POR_DEFECTO, MODO_HOJA_KEY, ALTO_HOJA_FIJA_MM,
     CONTINUACION_MM, HOLGURA_HOJA_MM,
-    PLANTILLA, ESTILOS, ESTILOS_CALIBRACION,
+    PLANTILLA, ESTILOS, ESTILOS_OPCIONES, ESTILOS_CALIBRACION,
     limpiarTexto, fijarRestaurante, textoPie, preparar, pintar, aplicarEscala, ajustarPagina,
     planHoja, repartirHojas, paginarHojas, ajustarHoja, pintarCalibracion, dibujarCalibracion,
     leerTamano, guardarTamano, leerModoHoja, guardarModoHoja,

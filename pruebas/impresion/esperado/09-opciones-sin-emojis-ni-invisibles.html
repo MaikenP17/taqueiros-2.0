@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="es" style="--escala: 0.75;"><head><meta charset="utf-8"><title>Comanda</title><style id="estilos-ticket">:root{--escala:0.75;}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:#fff;color:#000;}
+body{width:72mm;margin:0 auto;
+  padding:3mm 0 4mm;
+  font-family:Arial,'Helvetica Neue',Helvetica,'Liberation Sans','DejaVu Sans',sans-serif;
+  font-size:calc(14px * var(--escala));line-height:1.25;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.marca{text-align:center;font-weight:900;font-size:calc(20px * var(--escala));letter-spacing:.06em;
+  border:3px solid #000;padding:3px 2px;margin-bottom:5px;}
+.franja{text-align:center;font-weight:900;font-size:calc(21px * var(--escala));line-height:1.15;overflow-wrap:break-word;
+  border-top:3px solid #000;border-bottom:3px solid #000;padding:5px 2px;margin-bottom:6px;}
+.numero{text-align:center;font-weight:900;font-size:calc(46px * var(--escala));line-height:1.05;}
+.fecha{text-align:center;font-size:calc(14px * var(--escala));font-weight:700;margin:1px 0 7px;}
+.bloque{margin:3px 0;overflow-wrap:break-word;}
+.etq{display:block;font-size:calc(11px * var(--escala));font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.val{display:block;font-size:calc(15px * var(--escala));font-weight:700;overflow-wrap:break-word;}
+.val.grande{font-size:calc(18px * var(--escala));font-weight:700;}
+.aviso{border:2px solid #000;padding:3px 4px;margin:5px 0;font-size:calc(13px * var(--escala));font-weight:900;
+  text-transform:uppercase;overflow-wrap:break-word;}
+.sep{border-top:2px dashed #000;margin:8px 0;}
+.item,.datos-cliente,.notas-pedido,.totales{break-inside:avoid;page-break-inside:avoid;}
+.continuacion{height:9mm;padding:3mm 0 2mm;
+  border-bottom:1px solid #000;text-align:center;font-weight:700;letter-spacing:.04em;
+  font-size:calc(12px * var(--escala));line-height:1.1;break-before:page;page-break-before:always;}
+.item{display:flex;gap:7px;align-items:flex-start;margin:6px 0;}
+.item .cant{flex:0 0 auto;min-width:calc(10mm * var(--escala));font-size:calc(28px * var(--escala));font-weight:900;line-height:1;}
+.item .cuerpo{flex:1 1 auto;min-width:0;}
+.item .nom{font-size:calc(18px * var(--escala));font-weight:700;line-height:1.15;overflow-wrap:break-word;}
+.item .nota{font-size:calc(13px * var(--escala));font-weight:400;margin-top:2px;white-space:pre-line;overflow-wrap:break-word;}
+.notas{font-size:calc(15px * var(--escala));font-weight:700;white-space:pre-line;overflow-wrap:break-word;}
+.linea-monto{display:flex;justify-content:space-between;gap:6px;font-size:calc(14px * var(--escala));font-weight:700;margin:2px 0;}
+.total{display:flex;justify-content:space-between;align-items:baseline;gap:6px;
+  font-size:calc(24px * var(--escala));font-weight:900;margin-top:4px;}
+.pago{font-size:calc(14px * var(--escala));font-weight:700;margin-top:4px;}
+.pie{text-align:center;font-size:calc(12px * var(--escala));font-weight:700;margin-top:8px;
+  border-top:2px solid #000;padding-top:4px;}
+.pie .chico{display:block;font-weight:400;margin-top:2px;}</style><style id="pagina-ticket">@page{size:80mm 297mm;margin:0;}html,body{height:auto;}</style><style id="estilos-opciones">.item .sin,.item .extra{font-size:calc(15px * var(--escala));font-weight:900;line-height:1.2;margin-top:3px;overflow-wrap:break-word;}
+.item .extra{padding-left:1.4em;text-indent:-1.4em;}</style></head><body data-numero="#032"><div class="franja">PARA&nbsp;LLEVAR&nbsp;· WEB&nbsp;·&nbsp;PAGADO</div><div class="numero">#032</div><div class="fecha"><FECHA></div><div class="datos-cliente"><div class="bloque"><span class="etq">Cliente</span><span class="val grande">Cliente 32</span></div><div class="bloque"><span class="etq">Teléfono</span><span class="val">300 123 4567</span></div></div><div class="sep"></div><div class="item"><div class="cant">1x</div><div class="cuerpo"><div class="nom">Hamburguesa</div><div class="sin">SIN: cebolla, sal, &lt;b&gt;pepinillo&lt;/b&gt; &amp; "mostaza"</div><div class="extra">+ Queso extra</div></div></div><div class="sep"></div><div class="totales"><div class="total"><span>TOTAL</span><span>$9.000</span></div><div class="pago">Pago: Tarjeta · PAGADO</div><div class="pie">LOS TAQUEIROS · PEDIDO WEB</div></div></body></html>
