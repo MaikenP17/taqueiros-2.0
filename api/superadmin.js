@@ -1,4 +1,4 @@
-const { usuarioDeSolicitud } = require("./_sesion.js");
+const { sesionDeSolicitud } = require("./_sesion.js");
 const { esSuperadmin, llamarFuncionSuperadmin } = require("./_supabase.js");
 const { invalidarCache } = require("./_restaurante.js");
 const { generarClaveTemporal, crearUsuario, borrarUsuario, buscarUsuarioPorCorreo } = require("./_auth-admin.js");
@@ -18,21 +18,43 @@ const { generarClaveTemporal, crearUsuario, borrarUsuario, buscarUsuarioPorCorre
      vuelven a comprobarlo (p_actor) y dejan constancia en la auditoria.
      La sesion se valida con el MISMO helper de siempre (api/_sesion.js).
 
+   VERIFICACION EN DOS PASOS (MFA, TOTP) OBLIGATORIA - paso 3B parte 1, docs seccion 23
+     TODAS las acciones (salvo 'mi_estado') exigen que la sesion sea aal2: la sesion se verifico con un segundo factor TOTP.
+     El nivel (aal) sale del JWT que Supabase Auth acaba de validar (api/_sesion.js explica por que es seguro leerlo ahi).
+     El orden de las respuestas es este, y no cambia:
+        sin sesion / token malo ............................ 401   (cuenta como intento fallido)
+        sesion valida, NO es superadmin (con aal1 o aal2) ... 403 { error: "No autorizado" }  (identico; cuenta como intento fallido;
+                                                              el aal ni se mira: no se puede distinguir a un superadmin sin MFA)
+        superadmin con aal1 ................................ 403 { error, codigo: "mfa_requerida", aal: "aal1" }  (NO cuenta como
+                                                              intento fallido: ya entro con contrasena; deja constancia acotada)
+        superadmin con aal2 ................................ la accion
+     'mi_estado' es la UNICA accion que un superadmin con aal1 puede usar: dice { es_superadmin, aal, mfa_requerida } para que la
+     pantalla sepa si debe pedir el codigo. Para quien no es superadmin responde el mismo 403 generico que todo lo demas.
+     NO hay variable de entorno, parametro ni cabecera que apague la MFA. Solo este endpoint la exige: el panel de los
+     restaurantes, el webhook, el cron, crear-pedido y reembolso no cambian.
+
    LIMITE DE INTENTOS FALLIDOS (sin infraestructura nueva)
      Despues de 10 intentos fallidos (401 o 403) desde la misma IP en 10 minutos responde 429 con Retry-After. Es en memoria de
      cada instancia de Vercel: frena a quien prueba tokens o cuentas a mano, no a un ataque distribuido. El inicio de sesion
      (correo y contrasena) NO pasa por aqui sino por Supabase Auth, que tiene sus propios limites (Authentication -> Rate
      Limits); este limite protege a ESTE endpoint. Ver docs seccion 19.
-     Recomendacion: activar MFA en las cuentas de superadmin (P9 de la seccion 13: esta funcion no mira el nivel aal2).
-
    SECRETOS: SOLO ESCRITURA
      guardar_secretos recibe llaves de Wompi / CallMeBot y las manda a la base. NUNCA las devuelve, ni las imprime, ni las deja
      en la auditoria: la respuesta solo dice, campo por campo, si se guardo / ya coincidia / ya habia otro valor / estaba
      repetido en otro restaurante, y que secretos estan puestos (si/no). No existe ninguna accion que lea un secreto.
      El cuerpo de las peticiones tampoco se imprime nunca.
 
+   "ENTRAR COMO": SOLO LECTURA (SQL 19)
+     No se suplanta la sesion de nadie ni se emiten tokens de otro usuario: son acciones de LECTURA que devuelven datos de UN
+     restaurante elegido por id (paginados y con tope). Cada una deja una fila en la auditoria SIN datos personales.
+
    ACCIONES
+     mi_estado               { es_superadmin, aal, mfa_requerida }: la unica que acepta aal1
      yo                      quien soy (para que la pantalla sepa si puede entrar)
+     ver_pedidos             jornada actual o recientes (con items y opciones), paginado       [SQL 19]
+     ver_menu                categorias, productos y opciones, tambien las inactivas             [SQL 19]
+     ver_config              config, horario, dominios, miembros con rol y correo, tarifas       [SQL 19]
+     ver_resumen             conteos y ventas de la jornada y del mes                            [SQL 19]
      listar_restaurantes     todos, con su vigencia calculada
      detalle_restaurante     uno: config, dominios, miembros, tarifas, vigencia, secretos puestos si/no
      crear_restaurante       alta (estado inicial prueba; slug, dominio, zona, plan, modalidad, vigencia, config)
@@ -180,8 +202,60 @@ function validarSecretos(valores) {
 --------------------------------------------------------------- */
 const sa = (nombre, args) => llamarFuncionSuperadmin(nombre, args);
 
+/* Las lecturas de "entrar como" viven en el SQL 19. Si aun no se aplico, PostgREST dice que la funcion no existe
+   (PGRST202, o 42883 en el falso): se responde un aviso claro y generico en vez de un 500. Las demas acciones no se enteran. */
+function faltaLaFuncion(err) {
+  if (!err || typeof err.cuerpo !== "string") return false;
+  try { const c = JSON.parse(err.cuerpo); return !!c && (c.code === "PGRST202" || c.code === "42883"); } catch (e) { return false; }
+}
+async function lectura(nombre, args) {
+  try {
+    return await sa(nombre, args);
+  } catch (err) {
+    if (faltaLaFuncion(err)) throw new ErrorDeAccion(503, "Esta consulta todavía no está disponible: falta aplicar el SQL 19 en la base");
+    throw err;
+  }
+}
+
+const MODOS_PEDIDOS = ["jornada", "recientes"];
+
 const ACCIONES = Object.assign(Object.create(null), {
+  // El estado de la sesion. Es la UNICA accion que acepta un superadmin con aal1 (el manejador lo deja pasar); aqui solo se
+  // dice la verdad: nada de lo que mande el cliente cambia estos valores.
+  mi_estado: async (u, b) => {
+    soloAdmitidos(b, "mi_estado", []);
+    return { es_superadmin: true, aal: u.aal, mfa_requerida: true };
+  },
+
   yo: async (u) => ({ usuario: { id: u.id }, es_superadmin: true }),
+
+  ver_pedidos: async (u, b) => {
+    soloAdmitidos(b, "ver_pedidos", ["restaurante_id", "modo", "limite", "antes_de"]);
+    const rid = uuid(b.restaurante_id, "restaurante_id");
+    const modo = b.modo === undefined || b.modo === null ? "jornada" : b.modo;
+    if (typeof modo !== "string" || !MODOS_PEDIDOS.includes(modo)) throw mal("modo debe ser jornada o recientes");
+    const args = { p_actor: u.id, p_restaurante: rid, p_modo: modo };
+    const limite = entero(b.limite, "limite", 1, 100, { obligatorio: false });
+    if (limite !== undefined) args.p_limite = limite;
+    const antes = entero(b.antes_de, "antes_de", 1, Number.MAX_SAFE_INTEGER, { obligatorio: false });
+    if (antes !== undefined) args.p_antes_de = antes;
+    return await lectura("sa_ver_pedidos", args);
+  },
+
+  ver_menu: async (u, b) => {
+    soloAdmitidos(b, "ver_menu", ["restaurante_id"]);
+    return { menu: await lectura("sa_ver_menu", { p_actor: u.id, p_restaurante: uuid(b.restaurante_id, "restaurante_id") }) };
+  },
+
+  ver_config: async (u, b) => {
+    soloAdmitidos(b, "ver_config", ["restaurante_id"]);
+    return { restaurante: await lectura("sa_ver_config", { p_actor: u.id, p_restaurante: uuid(b.restaurante_id, "restaurante_id") }) };
+  },
+
+  ver_resumen: async (u, b) => {
+    soloAdmitidos(b, "ver_resumen", ["restaurante_id"]);
+    return { resumen: await lectura("sa_ver_resumen", { p_actor: u.id, p_restaurante: uuid(b.restaurante_id, "restaurante_id") }) };
+  },
 
   listar_restaurantes: async (u) => ({ restaurantes: await sa("sa_listar_restaurantes", { p_actor: u.id }) }),
 
@@ -397,6 +471,30 @@ function responderError(res, err, accion, valoresSecretos) {
 }
 
 /* ---------------------------------------------------------------
+   MFA: lo que se le dice a un superadmin sin segundo factor, y la constancia acotada del rechazo
+--------------------------------------------------------------- */
+const MENSAJE_MFA = "Activa o confirma la verificación en dos pasos";
+
+/* Constancia del rechazo: la base deja UNA fila por superadmin cada 15 minutos (sa_registrar_rechazo_mfa, SQL 19) y aqui se
+   evita ni siquiera llamarla de nuevo en esa ventana (en memoria de la instancia; la base es la que manda). Nunca bloquea ni
+   cambia la respuesta: si el SQL 19 aun no esta o la base falla, solo queda una linea en el log, sin datos de la peticion. */
+const VENTANA_RECHAZO_MFA_MS = 15 * 60 * 1000;
+const rechazosMfa = new Map();   // id del superadmin -> momento del ultimo aviso a la base
+
+async function anotarRechazoMfa(usuario, accionPedida, ahora) {
+  const ultimo = rechazosMfa.get(usuario.id);
+  if (ultimo !== undefined && ahora - ultimo < VENTANA_RECHAZO_MFA_MS) return;
+  if (rechazosMfa.size >= MAX_CLAVES) rechazosMfa.delete(rechazosMfa.keys().next().value);
+  rechazosMfa.set(usuario.id, ahora);
+  try {
+    // Solo el NOMBRE de una accion conocida: lo que escriba el cliente nunca llega a la auditoria.
+    await sa("sa_registrar_rechazo_mfa", { p_actor: usuario.id, p_aal: "aal1", p_accion: accionPedida && ACCIONES[accionPedida] ? accionPedida : null });
+  } catch (err) {
+    console.error("[Superadmin] No se pudo dejar constancia del rechazo por falta de MFA (HTTP", err && err.status, ")");
+  }
+}
+
+/* ---------------------------------------------------------------
    EL MANEJADOR
 --------------------------------------------------------------- */
 async function manejador(req, res) {
@@ -418,10 +516,10 @@ async function manejador(req, res) {
     return;
   }
 
-  // ---- quien es (un token falso, vencido o manipulado es 401, nunca 500) ----
+  // ---- quien es, y con que nivel de garantia (un token falso, vencido o manipulado es 401, nunca 500) ----
   let usuario;
   try {
-    usuario = await usuarioDeSolicitud(req);
+    usuario = await sesionDeSolicitud(req);
   } catch (err) {
     console.error("[Superadmin] No se pudo validar la sesion:", err && err.message);
     res.status(500).json({ error: "No se pudo validar la sesión" });
@@ -448,9 +546,18 @@ async function manejador(req, res) {
     return;
   }
 
-  // ---- la accion ----
+  // ---- la accion (se lee ANTES de mirar la MFA solo para saber si es 'mi_estado') ----
   let cuerpo = req.body;
   if (typeof cuerpo === "string") { try { cuerpo = JSON.parse(cuerpo); } catch (e) { cuerpo = null; } }
+  const pedida = cuerpo && typeof cuerpo === "object" && !Array.isArray(cuerpo) && typeof cuerpo.accion === "string" ? cuerpo.accion : "";
+
+  // ---- MFA: un superadmin sin segundo factor (aal1) no hace NADA, ni siquiera ver si la accion existe o si el cuerpo esta bien ----
+  if (usuario.aal !== "aal2" && pedida !== "mi_estado") {
+    await anotarRechazoMfa(usuario, pedida, ahora);
+    res.status(403).json({ error: MENSAJE_MFA, codigo: "mfa_requerida", aal: "aal1" });
+    return;
+  }
+
   if (!cuerpo || typeof cuerpo !== "object" || Array.isArray(cuerpo)) {
     res.status(400).json({ error: "El cuerpo debe ser un objeto JSON con la accion" });
     return;
@@ -477,4 +584,4 @@ async function manejador(req, res) {
 
 module.exports = manejador;
 module.exports.ACCIONES = Object.keys(ACCIONES);
-module.exports.reiniciarLimite = () => fallos.clear();
+module.exports.reiniciarLimite = () => { fallos.clear(); rechazosMfa.clear(); };
