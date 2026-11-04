@@ -5,7 +5,13 @@
    crear-pedido) contra la base real, con los mismos escenarios que la bateria local
    (pruebas/multirestaurante/escenarios-superadmin.mjs), y dice PASA o FALLA por cada uno.
 
-   Corre DESPUES del SQL 10, del 11 y del 16 (supabase/16-superadmin.sql).
+   Corre DESPUES del SQL 10, del 11 y del 16 (supabase/16-superadmin.sql). NO necesita el SQL 19.
+
+   DESDE EL PASO 3B (PARTE 1) EL SERVIDOR EXIGE MFA: cada superadmin de prueba enrola un TOTP REAL por las rutas de Supabase Auth
+   (/auth/v1/factors), calcula el codigo con node:crypto (RFC 6238, sin dependencias) y obtiene una sesion aal2. Por eso el proyecto
+   debe tener habilitado el MFA con TOTP (Authentication -> Sign In / Providers -> Multi-Factor; viene activo por defecto). Los
+   secretos TOTP viven solo en memoria. Las pruebas de la MFA y de las lecturas de "entrar como" (que si necesitan el SQL 19)
+   estan en supabase/probar-superadmin-mfa.mjs.
 
    QUE COMPRUEBA
      * PERMISOS: un anon, un dueno, un cajero, una cocina, alguien sin membresia, el dueno de otro restaurante y un token
@@ -14,11 +20,12 @@
      * ALTA: crea el restaurante "mr16-prueba" con su dominio de prueba, su usuario dueno (con contrasena temporal) y sus
        secretos; su menu no se mezcla con el de Taqueiros; estados, pagos, config, tarifas, dominios y miembros.
      * SECRETOS: jamas aparecen en una respuesta, en el log ni en la auditoria.
+     * MFA: los superadmins de prueba usan sesion aal2 (TOTP real) para todos los escenarios.
      * TAQUEIROS: solo se LEE; al terminar su fila, configuracion, secretos, tarifas, dominios y miembros estan iguales.
 
    QUE TOCA EN LA BASE REAL
      * Solo filas de restaurantes "mr16-prueba*" (dominios "*.mr-prueba.test", sin clientes reales) y usuarios
-       "*@prueba-superadmin.example.com" (se borran al terminar, aun con Ctrl+C o si algo falla; al empezar barre los restos).
+       "*@prueba-superadmin.example.com" (con sus factores TOTP; se borran al terminar, aun con Ctrl+C o si algo falla; al empezar barre los restos).
      * La tabla de auditoria: queda UNA constancia por cada accion de la prueba (superadmins de prueba, restaurantes mr16-*).
        Es de solo agregar a proposito y NO se puede borrar: es lo unico que queda. Se pueden ignorar (accion y
        restaurante_slug dicen "mr16-prueba...").
@@ -49,6 +56,9 @@ const URL_BASE = (process.env.SUPABASE_URL || (publico.match(/url:\s*"([^"]+)"/)
 const PUB = (process.env.SUPABASE_PUBLISHABLE_KEY || (publico.match(/publishableKey:\s*"([^"]+)"/) || [])[1] || "").trim();
 if (!URL_BASE || !PUB) { console.error("No pude leer la URL y la llave publishable de supabase-publico.js"); process.exit(2); }
 
+const GRUPOS = String(process.env.PROBAR_SA_GRUPOS || "base").split(",").map((x) => x.trim()).filter(Boolean);
+const CON_SQL19 = GRUPOS.includes("lecturas");
+
 let SRV;
 try { SRV = leerLlaveServicio(); } catch (e) { console.error(e.message); process.exit(2); }
 if (tipoDeLlave(SRV) === "secreta" && SRV.split("sb_secret_").length !== 2) {
@@ -78,6 +88,14 @@ const rest = async (metodo, ruta, cuerpo, extra) => {
   if (!(c.cuerpo && c.cuerpo.code === "42501")) {
     console.error("No encuentro las funciones del superadmin (HTTP " + c.status + "). Corre primero supabase/16-superadmin.sql.");
     process.exit(2);
+  }
+  if (CON_SQL19) {
+    // el SQL 19 esta si sa_ver_menu responde 42501 ("No autorizado") a un actor cualquiera; si no existe, 404 / PGRST202
+    const d = await rest("POST", "rpc/sa_ver_menu", { p_actor: "00000000-0000-4000-8000-0000000000ff", p_restaurante: "00000000-0000-4000-8000-0000000000fe" });
+    if (!(d.cuerpo && d.cuerpo.code === "42501")) {
+      console.error("No encuentro las lecturas de entrar como (HTTP " + d.status + "). Corre primero supabase/19-superadmin-lectura.sql en el SQL Editor (Run without RLS) y vuelve a intentar.");
+      process.exit(2);
+    }
   }
 }
 
@@ -122,11 +140,11 @@ process.on("SIGINT", async () => {
 /* ---- Escenarios (los mismos que la bateria local) ------------------------------------------------------------------ */
 const { correrSuperadmin } = await import("../pruebas/multirestaurante/escenarios-superadmin.mjs");
 
-console.log(`PANEL DE SUPERADMIN contra ${URL_BASE.replace(/^https:\/\//, "")}\n`);
+console.log(`PANEL DE SUPERADMIN (${GRUPOS.join(" + ")}) contra ${URL_BASE.replace(/^https:\/\//, "")}\n`);
 let resultados = [], limpieza = [];
 try {
   ({ resultados, limpieza } = await correrSuperadmin({
-    apiDir: path.join(raiz, "api"), urlBase: URL_BASE, llaveServicio: SRV, llavePublicable: PUB, real: true
+    apiDir: path.join(raiz, "api"), urlBase: URL_BASE, llaveServicio: SRV, llavePublicable: PUB, real: true, grupos: GRUPOS, sql19: CON_SQL19
   }));
 } catch (e) {
   console.error("\nLa corrida se interrumpio por un error: " + e.message);

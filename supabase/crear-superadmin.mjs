@@ -16,8 +16,10 @@
    NO imprime ninguna llave, contrasena ni token: solo el correo, un trozo del id del usuario y si se agrego.
    Si la llave parece pegada dos veces, no hace nada. Es idempotente: correrlo otra vez no duplica ni falla.
 
-   IMPORTANTE: un superadmin ve y administra TODOS los restaurantes. Activa la verificacion en dos pasos (MFA) en esa
-   cuenta (Authentication -> Users -> el usuario, o desde su perfil) y usa una contrasena larga y unica.
+   IMPORTANTE: un superadmin ve y administra TODOS los restaurantes. Desde el paso 3B (docs seccion 23) api/superadmin.js EXIGE
+   verificacion en dos pasos (TOTP): una cuenta sin segundo factor es rechazada con 403 "mfa_requerida" en todas las acciones
+   (menos mi_estado). El factor se activa desde la pantalla de superadmin (parte 2 del paso 3B); si se pierde el celular:
+   node supabase/quitar-mfa.mjs <correo>. Usa ademas una contrasena larga y unica.
 
    Esto es una accion de OPERADOR (llave de servicio), no de la API: no deja fila en la auditoria del superadmin.
 ============================================================= */
@@ -99,7 +101,7 @@ async function principal() {
   const ahora = await rest("GET", `superadmins?user_id=eq.${usuario.id}&select=user_id`);
   if (!ahora.length) { console.error("No quedo registrado. Revisa los permisos de la llave de servicio."); return 1; }
   console.log("Agregado a superadmins y verificado.");
-  console.log("Recuerda: activa la verificacion en dos pasos (MFA) en esa cuenta.");
+  console.log("Recuerda: el servidor exige verificacion en dos pasos (MFA) a los superadmins; sin ella la API responde 403 mfa_requerida.");
   return 0;
 }
 

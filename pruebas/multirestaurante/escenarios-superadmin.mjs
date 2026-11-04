@@ -26,12 +26,19 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
+const totp = require('./totp.js');
 const TAQUEIROS_ID = '00000000-0000-4000-8000-000000000001';
 const HOST_TAQUEIROS = 'taqueiros-2-0.vercel.app';
 const SLUG_PRUEBA = 'mr16-prueba';
 
+/* opts.grupos: que grupos correr. 'base' = los de siempre (permisos, alta, secretos, auditoria, Taqueiros intacto); 'mfa' = la verificacion
+   en dos pasos (aal1 / aal2); 'lecturas' = "entrar como" de solo lectura y la constancia de los rechazos (necesita el SQL 19).
+   opts.sql19 = false: el SQL 19 NO esta aplicado (la corrida comprueba que el servidor nuevo sigue bien sin el: las lecturas
+   avisan que falta y lo demas funciona igual). opts.hooks: ganchos del Supabase FALSO (registrarToken, fabricarToken, b64);
+   contra la base real no hay. */
 export async function correrSuperadmin(opts) {
-  const { apiDir, urlBase, llaveServicio, llavePublicable = '', real = false } = opts;
+  const { apiDir, urlBase, llaveServicio, llavePublicable = '', real = false, grupos = ['base', 'mfa', 'lecturas'], sql19 = true, hooks = {} } = opts;
+  const quiere = (g) => grupos.includes(g);
   const URL_BASE = urlBase.replace(/\/$/, '');
   const resultados = [];
   const sfx = crypto.randomBytes(3).toString('hex');
@@ -166,6 +173,26 @@ export async function correrSuperadmin(opts) {
     sembrarSecreto(t.access_token);
     return t.access_token;
   }
+  /* Sube una persona a aal2 con un TOTP DE VERDAD, por las rutas de Auth (en el falso o en la base real): inicia sesion (aal1), enrola un
+     factor TOTP, lo desafia y lo verifica con el codigo calculado aqui (RFC 6238, sin dependencias). Devuelve la sesion aal2.
+     El secreto TOTP y el codigo viven solo en memoria: nunca se imprimen ni se guardan. */
+  async function elevarAal2(u) {
+    const token1 = await iniciarSesion(u);
+    const cab = { apikey: llavePublicable || llaveServicio, Authorization: 'Bearer ' + token1, 'Content-Type': 'application/json' };
+    const json = async (r) => { const t = await r.text(); try { return JSON.parse(t); } catch { return { texto: t.slice(0, 120) }; } };
+    const enrolado = await fetchReal(`${URL_BASE}/auth/v1/factors`, { method: 'POST', headers: cab, body: JSON.stringify({ factor_type: 'totp', friendly_name: 'prueba-' + sfx + '-' + crypto.randomBytes(2).toString('hex'), issuer: 'prueba-superadmin' }) });
+    const f = await json(enrolado);
+    if (!enrolado.ok || !f.id || !f.totp || !f.totp.secret) throw new Error('no se pudo enrolar el TOTP de ' + u.email + ' (HTTP ' + enrolado.status + '): ' + JSON.stringify(f).replace(/"secret":"[^"]*"/g, '"secret":"..."').slice(0, 160));
+    sembrarSecreto(f.totp.secret);
+    const desafio = await fetchReal(`${URL_BASE}/auth/v1/factors/${f.id}/challenge`, { method: 'POST', headers: cab, body: '{}' });
+    const d = await json(desafio);
+    if (!desafio.ok || !d.id) throw new Error('no se pudo desafiar el TOTP (HTTP ' + desafio.status + '): ' + JSON.stringify(d).slice(0, 160));
+    const verificado = await fetchReal(`${URL_BASE}/auth/v1/factors/${f.id}/verify`, { method: 'POST', headers: cab, body: JSON.stringify({ challenge_id: d.id, code: totp.codigoTotp(f.totp.secret, dateNowReal()) }) });
+    const v = await json(verificado);
+    if (!verificado.ok || !v.access_token) throw new Error('no se pudo verificar el TOTP (HTTP ' + verificado.status + '): ' + JSON.stringify(v).slice(0, 160));
+    sembrarSecreto(v.access_token);
+    return { token: v.access_token, token1 };
+  }
   const iniciarSesionCon = async (email, password) => {
     const rt = await fetchReal(`${URL_BASE}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: llavePublicable || llaveServicio, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
     const t = JSON.parse(await rt.text());
@@ -227,8 +254,12 @@ export async function correrSuperadmin(opts) {
       { user_id: uCocina.id, restaurante_id: rA.id, rol: 'cocina', activo: true }, { user_id: uOtroDueno.id, restaurante_id: rB.id, rol: 'dueno', activo: true }
     ]);
 
-    const tSuper = await iniciarSesion(uSuper);
-    const tSuper2 = await iniciarSesion(uSuper2);
+    // Desde el paso 3B (parte 1) el servidor exige aal2: los superadmins entran con un segundo factor TOTP real (aal2). tSuper1 / tSuper2_1 son sus
+    // sesiones aal1 (solo contrasena), para las pruebas de la MFA.
+    const sSuper = await elevarAal2(uSuper);
+    const sSuper2 = await elevarAal2(uSuper2);
+    const tSuper = sSuper.token, tSuper1 = sSuper.token1;
+    const tSuper2 = sSuper2.token, tSuper2_1 = sSuper2.token1;
     const sesiones = {
       dueno: await iniciarSesion(uDueno), cajero: await iniciarSesion(uCajero), cocina: await iniciarSesion(uCocina),
       'sin membresia': await iniciarSesion(uSin), 'dueno de otro restaurante': await iniciarSesion(uOtroDueno)
@@ -245,9 +276,10 @@ export async function correrSuperadmin(opts) {
       await leer('tarifas_domicilio', 'select=hasta,precio,restaurante_id&order=id.asc'), await leer('superadmins', 'select=*&order=user_id.asc')])));
     const secretosHuella = async () => sha(JSON.stringify(canon(await leer('restaurante_secretos', 'select=*&order=restaurante_id.asc'))));
 
+    if (quiere('base')) {
     await T(`la lista de acciones es la esperada (${ACCIONES.length}) y 'yo' funciona para un superadmin`, async () => {
       const y = await llamar(tSuper, { accion: 'yo' });
-      return es(ACCIONES.length === 17 && y.status === 200 && y.cuerpo.ok === true && y.cuerpo.usuario.id === uSuper.id && y.cuerpo.es_superadmin === true, `${ACCIONES.length} ${y.status} ${JSON.stringify(y.cuerpo)}`);
+      return es(ACCIONES.length === 22 && y.status === 200 && y.cuerpo.ok === true && y.cuerpo.usuario.id === uSuper.id && y.cuerpo.es_superadmin === true, `${ACCIONES.length} ${y.status} ${JSON.stringify(y.cuerpo)}`);
     });
     await T('SIN SESION (anon): ninguna de las acciones responde otra cosa que 401, y la base no cambia', async () => {
       const antes = await estadoBase(); const s0 = await secretosHuella();
@@ -807,6 +839,444 @@ export async function correrSuperadmin(opts) {
       const despues = await huellaTaq();
       return es(despues === taqAntes, 'la huella de Taqueiros cambio');
     });
+    } // fin del grupo 'base'
+
+    /* =====================================================================
+       5. MFA (paso 3B, parte 1): sesion aal1 (solo contrasena) contra aal2 (con segundo factor TOTP)
+          Cada superadmin de estas pruebas tiene un TOTP REAL (enrolado y verificado por las rutas de Auth).
+    ===================================================================== */
+    let ipContador = 0;
+    const ipN = () => '10.50.' + Math.floor(ipContador / 250) + '.' + ((ipContador++ % 250) + 1);
+    const normalizar = (x) => x.metodo + ' ' + x.url.replace(URL_BASE, '').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'ID');
+    const CUERPO_MFA = { error: 'Activa o confirma la verificación en dos pasos', codigo: 'mfa_requerida', aal: 'aal1' };
+    const ACC_SIN_ESTADO = ACCIONES.filter((a) => a !== 'mi_estado');
+    const PUB2 = llavePublicable || 'sb_publishable_FAKE_0000';
+    const rpcComo = async (fn, args, { llave, token }) => {
+      const r = await fetchReal(`${URL_BASE}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { apikey: llave, 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(args) });
+      return { status: r.status, texto: await r.text() };
+    };
+
+    if (quiere('mfa')) {
+      grupo('mfa');
+      SA.reiniciarLimite();
+      const uMfaDueno = await crearUsuarioAuth('mfa-dueno');
+      const uMfaSin = await crearUsuarioAuth('mfa-sin');
+      sembrarSecreto(uMfaDueno.password, uMfaSin.password);
+      await insertar('miembros', [{ user_id: uMfaDueno.id, restaurante_id: rA.id, rol: 'dueno', activo: true }]);
+      const tMfaDueno = (await elevarAal2(uMfaDueno)).token;   // un dueno CON segundo factor: sigue sin ser superadmin
+      const tMfaSin = (await elevarAal2(uMfaSin)).token;
+      const huellaGlobal = async () => sha(JSON.stringify([await estadoBase(), await secretosHuella()]));
+      const cargaDe = (t) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8'));
+      const reponer = (t, carga) => t.split('.')[0] + '.' + Buffer.from(JSON.stringify(carga)).toString('base64url') + '.' + t.split('.')[2];
+
+      await T('las sesiones de la prueba son lo que dicen ser: la de contrasena es aal1 y la verificada con TOTP es aal2 (con TOTP en amr)', async () => {
+        const a1 = cargaDe(tSuper1), a2 = cargaDe(tSuper);
+        return es(a1.aal === 'aal1' && !(a1.amr || []).some((m) => /totp/i.test(m.method)) && a2.aal === 'aal2' && (a2.amr || []).some((m) => /totp/i.test(m.method)) && a2.sub === uSuper.id && a1.sub === uSuper.id,
+          JSON.stringify([a1.aal, a1.amr, a2.aal, a2.amr]));
+      });
+      await T('mi_estado: un superadmin sin MFA (aal1) lo consulta y ve aal1; con MFA ve aal2; los dos ven mfa_requerida', async () => {
+        const a = await llamar(tSuper1, { accion: 'mi_estado' }, { ip: ipN() });
+        const b = await llamar(tSuper, { accion: 'mi_estado' }, { ip: ipN() });
+        return es(a.status === 200 && igual(a.cuerpo, { ok: true, es_superadmin: true, aal: 'aal1', mfa_requerida: true }) && b.status === 200 && igual(b.cuerpo, { ok: true, es_superadmin: true, aal: 'aal2', mfa_requerida: true }),
+          JSON.stringify([a.cuerpo, b.cuerpo]));
+      });
+      await T('mi_estado dice la verdad aunque el cliente mienta: cabeceras y parametros con "aal2" no cambian nada (los campos de mas se rechazan con 400)', async () => {
+        const cabecera = await llamar(tSuper1, { accion: 'mi_estado' }, { ip: ipN(), headers: { 'x-aal': 'aal2', aal: 'aal2', 'x-supabase-aal': 'aal2', 'x-mfa': 'true', 'x-forwarded-aal': 'aal2' } });
+        const campo = await llamar(tSuper1, { accion: 'mi_estado', aal: 'aal2' }, { ip: ipN() });
+        const campo2 = await llamar(tSuper1, { accion: 'mi_estado', mfa: true, amr: ['totp'] }, { ip: ipN() });
+        const otra = await llamar(tSuper1, { accion: 'listar_restaurantes', aal: 'aal2', mfa: true }, { ip: ipN(), headers: { 'x-aal': 'aal2' } });
+        return es(cabecera.status === 200 && cabecera.cuerpo.aal === 'aal1' && campo.status === 400 && campo2.status === 400 && otra.status === 403 && otra.cuerpo.codigo === 'mfa_requerida',
+          [cabecera.status, cabecera.cuerpo.aal, campo.status, campo2.status, otra.status].join(','));
+      });
+      await T(`SUPERADMIN SIN MFA (aal1): las ${ACC_SIN_ESTADO.length} acciones (las 17 de antes y las nuevas) responden 403 con el codigo estable mfa_requerida y el mensaje en español; la base no cambia y el servidor no llama a ninguna funcion sa_* (salvo la constancia del rechazo)`, async () => {
+        const antes = await huellaGlobal();
+        const desde = rastro();
+        const malas = [];
+        for (const a of ACC_SIN_ESTADO) {
+          const r = await llamar(tSuper1, lleno(a), { ip: ipN() });
+          if (r.status !== 403 || !igual(r.cuerpo, CUERPO_MFA)) malas.push(`${a}:${r.status}`);
+        }
+        const hechas = registro.slice(desde);
+        const extra = hechas.filter((x) => (/\/rpc\/sa_/.test(x.url) && !/\/rpc\/sa_registrar_rechazo_mfa$/.test(x.url)) || /\/auth\/v1\/admin\//.test(x.url));
+        const constancias = hechas.filter((x) => /\/rpc\/sa_registrar_rechazo_mfa$/.test(x.url)).length;
+        return es(malas.length === 0 && extra.length === 0 && constancias <= 1 && (await huellaGlobal()) === antes, malas.join(',') + ' extra:' + extra.length + ' constancias:' + constancias);
+      });
+      await T('el segundo superadmin sin MFA tampoco puede nada, y su rechazo es independiente del primero', async () => {
+        const r = await llamar(tSuper2_1, { accion: 'listar_restaurantes' }, { ip: ipN() });
+        const e = await llamar(tSuper2_1, { accion: 'mi_estado' }, { ip: ipN() });
+        return es(r.status === 403 && igual(r.cuerpo, CUERPO_MFA) && e.status === 200 && e.cuerpo.aal === 'aal1', JSON.stringify([r.status, r.cuerpo, e.status, e.cuerpo]));
+      });
+      await T('SUPERADMIN SIN MFA: un cuerpo roto, vacio o con una accion que no existe tambien da 403 mfa_requerida (no 400): sin MFA no se aprende nada, ni siquiera que una accion existe', async () => {
+        const casos = [undefined, null, 'texto', [], {}, { accion: 'no_existe' }, { accion: '__proto__' }, { accion: 7 }, { accion: ['yo'] }, { accion: 'yo' }, { accion: 'MI_ESTADO' }, { accion: 'mi_estado ' }];
+        const malos = [];
+        for (const c of casos) { const r = await llamar(tSuper1, c, { ip: ipN() }); if (r.status !== 403 || !igual(r.cuerpo, CUERPO_MFA)) malos.push(`${JSON.stringify(c)}:${r.status}`); }
+        const m = await llamar(tSuper1, JSON.stringify({ accion: 'mi_estado' }), { ip: ipN() });   // el cuerpo puede llegar como texto JSON
+        return es(malos.length === 0 && m.status === 200 && m.cuerpo.aal === 'aal1', malos.join(','));
+      });
+      await T('SUPERADMIN CON MFA (aal2): pasa la verificacion y llega a la accion (accion desconocida 400, falta de datos 400, metodos que no son POST 405); el 401 y el 405 no cambiaron', async () => {
+        const a = await llamar(tSuper, { accion: 'no_existe' }, { ip: ipN() });
+        const b = await llamar(tSuper, { accion: 'detalle_restaurante' }, { ip: ipN() });
+        const c = await llamar(tSuper, { accion: 'listar_restaurantes' }, { ip: ipN() });
+        const d = await llamar(tSuper, undefined, { metodo: 'GET', ip: ipN() });
+        const e = await llamar(null, { accion: 'mi_estado' }, { ip: ipN() });
+        return es(a.status === 400 && b.status === 400 && c.status === 200 && Array.isArray(c.cuerpo.restaurantes) && d.status === 405 && e.status === 401, [a.status, b.status, c.status, d.status, e.status].join(','));
+      });
+      await T(`UN NO-SUPERADMIN recibe EXACTAMENTE lo mismo con aal1 que con aal2 en las ${ACCIONES.length} acciones: 403 {"error":"No autorizado"} sin codigo ni aal, y el servidor hace las mismas peticiones (no se puede distinguir a un superadmin por su MFA)`, async () => {
+        const malas = [];
+        for (const a of ACCIONES) {
+          const d1 = rastro(); const r1 = await llamar(sesiones['sin membresia'], lleno(a), { ip: ipN() }); const p1 = registro.slice(d1).map(normalizar);
+          const d2 = rastro(); const r2 = await llamar(tMfaSin, lleno(a), { ip: ipN() }); const p2 = registro.slice(d2).map(normalizar);
+          if (r1.status !== 403 || r2.status !== 403 || !igual(r1.cuerpo, { error: 'No autorizado' }) || !igual(r1.cuerpo, r2.cuerpo) || JSON.stringify(r1.cab) !== JSON.stringify(r2.cab) || JSON.stringify(p1) !== JSON.stringify(p2)) malas.push(a);
+        }
+        const dd = await llamar(tMfaDueno, { accion: 'mi_estado' }, { ip: ipN() });   // un dueno con MFA preguntando su estado: igual de generico
+        return es(malas.length === 0 && dd.status === 403 && igual(dd.cuerpo, { error: 'No autorizado' }), malas.join(',') + ' ' + dd.status);
+      });
+      await T('un dueno CON MFA y un dueno sin MFA reciben el mismo 403 generico tambien en yo (tener un segundo factor no convierte a nadie en superadmin)', async () => {
+        const a = await llamar(tMfaDueno, { accion: 'yo' }, { ip: ipN() });
+        const b = await llamar(sesiones.dueno, { accion: 'yo' }, { ip: ipN() });
+        return es(a.status === 403 && b.status === 403 && igual(a.cuerpo, b.cuerpo), JSON.stringify([a.cuerpo, b.cuerpo]));
+      });
+      await T('un superadmin sin MFA NO suma intentos fallidos (no se bloquea a si mismo: 25 seguidos, ninguno 429) y despues, con MFA, entra desde la misma IP; un no-superadmin SI suma', async () => {
+        SA.reiniciarLimite();
+        const ip = '203.0.113.90';
+        const rs = [];
+        for (let i = 0; i < 25; i++) rs.push((await llamar(tSuper1, { accion: 'yo' }, { ip })).status);
+        const bien = await llamar(tSuper, { accion: 'yo' }, { ip });
+        const ip2 = '203.0.113.91';
+        const sin = [];
+        for (let i = 0; i < 10; i++) sin.push((await llamar(tMfaSin, { accion: 'yo' }, { ip: ip2 })).status);
+        const once = await llamar(tMfaSin, { accion: 'yo' }, { ip: ip2 });
+        SA.reiniciarLimite();
+        return es(rs.every((x) => x === 403) && bien.status === 200 && sin.every((x) => x === 403) && once.status === 429, [rs.join(''), bien.status, once.status].join(' '));
+      });
+      await T('TOKEN CON EL AAL MANIPULADO O SIN FIRMA VALIDA: 401 (la firma ya no coincide), nunca 403 ni 200; incluye un aal1 maquillado de aal2, alg none, el sub cambiado y mezclar carga y firma de dos sesiones', async () => {
+        const cA1 = cargaDe(tSuper1), cA2 = cargaDe(tSuper);
+        const [h1, , s1] = tSuper1.split('.'), [h2, , s2] = tSuper.split('.');
+        const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+        const tokens = {
+          'aal1 maquillado de aal2': reponer(tSuper1, { ...cA1, aal: 'aal2', amr: [{ method: 'totp', timestamp: 1 }, ...(cA1.amr || [])] }),
+          'solo el aal cambiado': reponer(tSuper1, { ...cA1, aal: 'aal2' }),
+          'alg none sin firma': b64u({ alg: 'none', typ: 'JWT' }) + '.' + b64u(cA2) + '.',
+          'alg none con firma vacia': b64u({ alg: 'none', typ: 'JWT' }) + '.' + b64u(cA2),
+          'alg HS256 inventado': b64u({ alg: 'HS256', typ: 'JWT' }) + '.' + b64u(cA2) + '.' + crypto.createHmac('sha256', 'secreto-inventado').update('x').digest('base64url'),
+          'sub de un dueno con la firma del superadmin': reponer(tSuper, { ...cA2, sub: uDueno.id }),
+          'carga aal2 con la firma de la sesion aal1': h2 + '.' + tSuper.split('.')[1] + '.' + s1,
+          'carga aal1 con la firma de la sesion aal2': h1 + '.' + tSuper1.split('.')[1] + '.' + s2,
+          'aal2 con un caracter de la firma cambiado': tSuper.slice(0, -3) + (tSuper.endsWith('AAA') ? 'BBB' : 'AAA'),
+          'aal2 partido': tSuper.slice(0, Math.floor(tSuper.length / 2))
+        };
+        const malos = [];
+        for (const [nombre, t] of Object.entries(tokens)) {
+          for (const accion of ['mi_estado', 'yo']) {
+            const r = await llamar(t, { accion }, { ip: ipN(), headers: { authorization: 'Bearer ' + t } });
+            if (r.status !== 401) malos.push(`${nombre}/${accion}:${r.status}`);
+          }
+        }
+        return es(malos.length === 0, malos.slice(0, 4).join(' | '));
+      });
+      if (hooks.registrarToken && hooks.fabricarToken) {
+        await T('LO QUE SE HACE CON LOS CLAIMS DE UN TOKEN QUE AUTH YA ACEPTO (falso): aal2 solo si el sub es el mismo, aal es exactamente aal2 y amr trae TOTP; cualquier otra cosa es aal1 (403 mfa_requerida, nunca 500) y un token bien formado si pasa', async () => {
+          const b64u = hooks.b64;
+          const firma = 'x'.repeat(86);
+          const forjar = (carga, uid = uSuper.id) => { const t = b64u({ alg: 'ES256', typ: 'JWT' }) + '.' + (typeof carga === 'string' ? carga : b64u(carga)) + '.' + firma + crypto.randomBytes(3).toString('hex'); hooks.registrarToken(t, uid); return t; };
+          const ahoraS = Math.floor(dateNowReal() / 1000);
+          const buena = { sub: uSuper.id, aal: 'aal2', amr: [{ method: 'totp', timestamp: ahoraS }], role: 'authenticated' };
+          const casos = {
+            'sub de otra persona': { ...buena, sub: uSuper2.id }, 'sin sub': { aal: 'aal2', amr: buena.amr }, 'aal2 sin amr': { sub: uSuper.id, aal: 'aal2' },
+            'amr solo con contrasena': { ...buena, amr: [{ method: 'password', timestamp: ahoraS }] }, 'amr vacio': { ...buena, amr: [] }, 'amr no es lista': { ...buena, amr: 'totp' },
+            'aal escrito distinto': { ...buena, aal: 'AAL2' }, 'aal numerico': { ...buena, aal: 2 }, 'aal2 solo en user_metadata': { sub: uSuper.id, aal: 'aal1', user_metadata: { aal: 'aal2', amr: [{ method: 'totp' }] }, app_metadata: { aal: 'aal2' } },
+            'carga que no es json': Buffer.from('esto no es json').toString('base64url'), 'carga vacia': '', 'carga con caracteres raros': '@@@@', 'carga es una lista': [buena], 'carga es null': 'bnVsbA'
+          };
+          const malos = [];
+          for (const [nombre, carga] of Object.entries(casos)) {
+            const r = await llamar(forjar(carga), { accion: 'yo' }, { ip: ipN() });
+            const e = await llamar(forjar(carga), { accion: 'mi_estado' }, { ip: ipN() });
+            if (r.status !== 403 || !igual(r.cuerpo, CUERPO_MFA) || e.status !== 200 || e.cuerpo.aal !== 'aal1') malos.push(nombre + ':' + r.status + '/' + e.status);
+          }
+          const ok = await llamar(forjar(buena), { accion: 'yo' }, { ip: ipN() });
+          const ok2 = await llamar(forjar({ ...buena, amr: [{ method: 'mfa/totp' }, { method: 'password' }] }), { accion: 'yo' }, { ip: ipN() });
+          return es(malos.length === 0 && ok.status === 200 && ok2.status === 200, malos.slice(0, 4).join(' | ') + ' ' + ok.status + ' ' + ok2.status);
+        });
+      }
+      await T('NO SE EXIGE MFA A NADIE MAS: dueno, cajero y cocina con sesion normal (aal1) siguen leyendo SU restaurante con RLS; el reembolso responde por permisos y no por MFA', async () => {
+        const leerCon = async (t, ruta) => { const r = await fetchReal(`${URL_BASE}/rest/v1/${ruta}`, { headers: { apikey: PUB2, Authorization: 'Bearer ' + t } }); return { status: r.status, filas: JSON.parse(await r.text()) }; };
+        const malos = [];
+        for (const quien of ['dueno', 'cajero', 'cocina']) {
+          const m = await leerCon(sesiones[quien], 'miembros?select=rol,restaurante_id');
+          const r = await leerCon(sesiones[quien], 'restaurantes?select=id,slug');
+          if (m.status !== 200 || m.filas.length !== 1 || m.filas[0].restaurante_id !== rA.id || r.status !== 200 || r.filas.length !== 1 || r.filas[0].id !== rA.id) malos.push(quien);
+        }
+        const reemb = await invocar(api('reembolso'), { host: HOST_TAQUEIROS, ruta: '/api/reembolso', cuerpo: { referencia: 'NO-EXISTE' }, headers: { authorization: 'Bearer ' + sesiones.dueno } });
+        const reemb2 = await invocar(api('reembolso'), { host: HOST_TAQUEIROS, ruta: '/api/reembolso', cuerpo: { referencia: 'NO-EXISTE' } });
+        return es(malos.length === 0 && reemb.status === 403 && !/dos pasos|mfa/i.test(JSON.stringify(reemb.cuerpo)) && /due/.test(reemb.cuerpo.error) && reemb2.status === 401, malos.join(',') + ' ' + reemb.status + ' ' + JSON.stringify(reemb.cuerpo) + ' ' + reemb2.status);
+      });
+    }
+
+    /* =====================================================================
+       6. "ENTRAR COMO" (SQL 19): lecturas de solo lectura y constancia de los rechazos por falta de MFA
+    ===================================================================== */
+    if (quiere('lecturas') && !sql19) {
+      grupo('sin sql 19');
+      await T('SIN EL SQL 19: las 4 lecturas responden 503 con un aviso claro (falta el SQL 19) y generico; mi_estado, yo, listar_restaurantes y el rechazo por MFA siguen funcionando', async () => {
+        const malas = [];
+        for (const a of ['ver_pedidos', 'ver_menu', 'ver_config', 'ver_resumen']) {
+          const r = await llamar(tSuper, { accion: a, restaurante_id: rA.id }, { ip: ipN() });
+          if (r.status !== 503 || !/SQL 19/.test(r.cuerpo.error || '') || JSON.stringify(r.cuerpo).length > 200) malas.push(`${a}:${r.status} ${JSON.stringify(r.cuerpo).slice(0, 80)}`);
+        }
+        const y = await llamar(tSuper, { accion: 'yo' }, { ip: ipN() });
+        const l = await llamar(tSuper, { accion: 'listar_restaurantes' }, { ip: ipN() });
+        const e = await llamar(tSuper1, { accion: 'mi_estado' }, { ip: ipN() });
+        const mfa = await llamar(tSuper1, { accion: 'ver_pedidos', restaurante_id: rA.id }, { ip: ipN() });
+        return es(malas.length === 0 && y.status === 200 && l.status === 200 && e.status === 200 && mfa.status === 403 && mfa.cuerpo.codigo === 'mfa_requerida', malas.join(' | '));
+      });
+      await T('SIN EL SQL 19: un restaurante mal formado se rechaza igual (400) y un no-superadmin sigue recibiendo 403', async () => {
+        const a = await llamar(tSuper, { accion: 'ver_menu', restaurante_id: 'x' }, { ip: ipN() });
+        const b = await llamar(sesiones.dueno, { accion: 'ver_menu', restaurante_id: rA.id }, { ip: ipN() });
+        return es(a.status === 400 && b.status === 403, `${a.status} ${b.status}`);
+      });
+    }
+
+    if (quiere('lecturas') && sql19) {
+      grupo('lecturas');
+      SA.reiniciarLimite();
+      const L = rA;
+      const PII = { nombre: 'Cliente Reservado Uno', telefono: '3151112223', email: 'secreto.cliente@correo-privado.example.com', direccion: 'Calle Privada 12-34 Apto 501', indicaciones: 'Dejar con el portero Anselmo' };
+      const SENT = { apikey: 'CMB-SENTINELA-' + sfx, integridad: 'test_integrity_SENTINELA' + sfx, privada: 'prv_test_SENTINELA' + sfx };
+      sembrarSecreto(...Object.values(PII), ...Object.values(SENT));
+      const inicioLecturas = respuestas.length;
+      let tablaOpciones = true;
+      try { await leer('producto_opciones', 'select=id&limit=1'); } catch (e) { tablaOpciones = false; }
+      await insertar('categorias', [{ restaurante_id: L.id, id: 'lect-activa', nombre: 'Hamburguesas', emoji: 'x', orden: 1, activa: true }, { restaurante_id: L.id, id: 'lect-inactiva', nombre: 'Apagada', emoji: 'x', orden: 2, activa: false }]);
+      await insertar('productos', [
+        { restaurante_id: L.id, id: 'lect-p1', nombre: 'Producto Uno', precio: 20000, categoria: 'lect-activa', orden: 1, disponible: true },
+        { restaurante_id: L.id, id: 'lect-p2', nombre: 'Producto Agotado', precio: 15000, categoria: 'lect-activa', orden: 2, disponible: false },
+        { restaurante_id: L.id, id: 'lect-p3', nombre: 'Producto Escondido', precio: 9000, categoria: 'lect-inactiva', orden: 1, disponible: true }]);
+      if (tablaOpciones) {
+        await insertar('producto_opciones', [
+          { restaurante_id: L.id, producto_id: 'lect-p1', id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0, orden: 0, activa: true },
+          { restaurante_id: L.id, producto_id: 'lect-p1', id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000, orden: 1, activa: true },
+          { restaurante_id: L.id, producto_id: 'lect-p1', id: 'extra-apagada', tipo: 'extra', nombre: 'Opcion apagada', precio: 1500, orden: 2, activa: false }]);
+      }
+      const itemsConOpciones = [{ id: 'lect-p1', nombre: 'Producto Uno', cantidad: 2, precio: 22000, opciones: [{ id: 'extra-queso', tipo: 'extra', nombre: 'Queso extra', precio: 2000 }, { id: 'sin-cebolla', tipo: 'quitar', nombre: 'Sin cebolla', precio: 0 }] }];
+      const ahoraIso = () => new Date(dateNowReal()).toISOString();
+      const pedido = (ref, extra) => ({ restaurante_id: L.id, referencia: `LECT-${sfx}-${ref}`, estado: 'nuevo', estado_pago: 'aprobado', cliente_nombre: PII.nombre, cliente_telefono: PII.telefono, cliente_email: PII.email,
+        tipo_pedido: 'domicilio', direccion: PII.direccion, barrio: 'Centro', indicaciones: PII.indicaciones, items: itemsConOpciones, subtotal: 44000, costo_domicilio: 3000, total: 47000, pagado_en: ahoraIso(), creado_en: ahoraIso(), ...extra });
+      await insertar('pedidos', [
+        pedido('a-vendido'), pedido('b-cancelado', { estado: 'cancelado' }), pedido('c-sin-pagar', { estado: 'pendiente_pago', estado_pago: 'pendiente', pagado_en: null }),
+        pedido('d-viejo', { estado: 'entregado', creado_en: new Date(dateNowReal() - 3 * 86400000).toISOString() })]);
+      await insertar('pedidos', Array.from({ length: 121 }, (_, i) => ({ restaurante_id: L.id, referencia: `LECT-${sfx}-m${i}`, estado: 'entregado', estado_pago: 'aprobado', cliente_nombre: 'Cliente ' + i, cliente_telefono: '3000000000',
+        tipo_pedido: 'llevar', items: [{ id: 'lect-p1', nombre: 'Producto Uno', cantidad: 1, precio: 10000 }], subtotal: 10000, costo_domicilio: 0, total: 10000, pagado_en: ahoraIso(), creado_en: ahoraIso() })));
+      const TOTAL_JORNADA = 124, TOTAL_TODOS = 125, VENTAS_JORNADA = 47000 + 121 * 10000;
+      // secretos de verdad en la fila de este restaurante: ninguna lectura debe devolverlos
+      const sec = await srv('PATCH', `restaurante_secretos?restaurante_id=eq.${L.id}`, { callmebot_apikey: SENT.apikey, wompi_integridad_test: SENT.integridad, otros: { wompi_llave_privada_test: SENT.privada, wompi_modo: 'test' } });
+      if (sec.status >= 300) throw new Error('no se pudieron sembrar los secretos del restaurante de lecturas: ' + sec.status + ' ' + JSON.stringify(sec.cuerpo).slice(0, 120));
+      const tokensSeguimiento = (await leer('pedidos', `restaurante_id=eq.${L.id}&select=token_seguimiento&limit=300`)).map((x) => x.token_seguimiento).filter(Boolean);
+      sembrarSecreto(...tokensSeguimiento.filter((t) => String(t).length > 8));
+      // (un dueno de L CON segundo factor, creado ANTES de la huella de la base: se usa mas abajo para probar que ni con MFA un dueno puede leer)
+      const uMfaL = await crearUsuarioAuth('lect-dueno-mfa');
+      sembrarSecreto(uMfaL.password);
+      await insertar('miembros', [{ user_id: uMfaL.id, restaurante_id: L.id, rol: 'dueno', activo: true }]);
+      const tMfaL = (await elevarAal2(uMfaL)).token;
+      // (dos superadmins nuevos, sin historial, para probar la constancia del rechazo; tambien ANTES de la huella de la base)
+      const u3 = await crearUsuarioAuth('mfa-nombre-inventado');
+      const u4 = await crearUsuarioAuth('mfa-nombre-conocido');
+      sembrarSecreto(u3.password, u4.password);
+      await insertar('superadmins', [{ user_id: u3.id }, { user_id: u4.id }]);
+      const t3 = await iniciarSesion(u3), t4 = await iniciarSesion(u4);
+      const huellaNegocio = async () => sha(JSON.stringify([await estadoBase(), await secretosHuella(), await huellaTaq(),
+        canon(await leer('pedidos', `restaurante_id=eq.${L.id}&select=*&order=id.asc`)), canon(await leer('productos', `restaurante_id=eq.${L.id}&select=*&order=id.asc`)),
+        canon(await leer('categorias', `restaurante_id=eq.${L.id}&select=*&order=id.asc`)), tablaOpciones ? canon(await leer('producto_opciones', `restaurante_id=eq.${L.id}&select=*&order=id.asc`)) : [],
+        canon(await leer('configuracion', `restaurante_id=eq.${L.id}&select=*`)), canon(await leer('contadores_pedido', `restaurante_id=eq.${L.id}&select=*`))]));
+      const antesNegocio = await huellaNegocio();
+      const ver = (cuerpo, token = tSuper) => llamar(token, cuerpo, { ip: ipN() });
+      const CLAVES_PEDIDO = ['barrio', 'cliente_email', 'cliente_nombre', 'cliente_telefono', 'costo_domicilio', 'creado_en', 'direccion', 'distancia_km', 'estado', 'estado_cambiado_en', 'estado_pago', 'fuera_de_cobertura', 'id', 'impreso_en', 'indicaciones', 'items',
+        'numero', 'pagado_en', 'referencia', 'reembolsado_en', 'reimpresiones', 'subtotal', 'tipo_pedido', 'total', 'wompi_ambiente', 'wompi_metodo_pago'];
+
+      await T('ver_pedidos (jornada actual): 50 por defecto, del mas nuevo al mas viejo, con items y sus opciones, cliente, pago y estado; trae la jornada; NO trae el token de seguimiento ni las coordenadas', async () => {
+        const r = await ver({ accion: 'ver_pedidos', restaurante_id: L.id });
+        const p = r.cuerpo.pedidos || [];
+        const ids = p.map((x) => x.id);
+        return es(r.status === 200 && r.cuerpo.ok === true && r.cuerpo.modo === 'jornada' && p.length === 50 && r.cuerpo.devueltos === 50 && r.cuerpo.hay_mas === true && Number.isInteger(r.cuerpo.siguiente) && r.cuerpo.siguiente === Math.min(...ids)
+          && ids.every((x, i) => i === 0 || ids[i - 1] > x) && r.cuerpo.jornada && /^\d{4}-\d{2}-\d{2}$/.test(r.cuerpo.jornada.fecha) && r.cuerpo.jornada.inicio && r.cuerpo.jornada.fin
+          && p.every((x) => igual(Object.keys(x).sort(), CLAVES_PEDIDO.slice().sort())) && !p.some((x) => 'token_seguimiento' in x || 'lat' in x || 'lng' in x),
+          r.status + ' ' + JSON.stringify(r.cuerpo).slice(0, 200));
+      });
+      await T('ver_pedidos: pagina con "siguiente"/antes_de sin repetir ni saltarse ninguno (100 + 24 en la jornada); el pedido viejo y los de otra jornada no salen; "recientes" si trae los 125', async () => {
+        const p1 = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, limite: 100 });
+        const p2 = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, limite: 100, antes_de: p1.cuerpo.siguiente });
+        const ids1 = p1.cuerpo.pedidos.map((x) => x.id), ids2 = (p2.cuerpo.pedidos || []).map((x) => x.id);
+        const todos = new Set([...ids1, ...ids2]);
+        const viejoEnJornada = [...p1.cuerpo.pedidos, ...(p2.cuerpo.pedidos || [])].some((x) => x.referencia.endsWith('d-viejo'));
+        const r1 = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, modo: 'recientes', limite: 100 });
+        const r2 = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, modo: 'recientes', limite: 100, antes_de: r1.cuerpo.siguiente });
+        const reciente = [...r1.cuerpo.pedidos, ...(r2.cuerpo.pedidos || [])];
+        return es(p1.status === 200 && ids1.length === 100 && p1.cuerpo.hay_mas === true && p2.status === 200 && ids2.length === TOTAL_JORNADA - 100 && p2.cuerpo.hay_mas === false && p2.cuerpo.siguiente === null && todos.size === TOTAL_JORNADA
+          && Math.max(...ids2) < Math.min(...ids1) && !viejoEnJornada && r1.cuerpo.modo === 'recientes' && r1.cuerpo.jornada === null && new Set(reciente.map((x) => x.id)).size === TOTAL_TODOS && reciente.some((x) => x.referencia.endsWith('d-viejo')),
+          [ids1.length, ids2.length, todos.size, viejoEnJornada, reciente.length].join(','));
+      });
+      await T('ver_pedidos: los items llegan con sus opciones (extras y "sin") y los datos del cliente tal cual los guardo el servidor', async () => {
+        // los 4 pedidos especiales se sembraron primero: tienen los ids mas viejos, asi que estan en la segunda pagina
+        const r1 = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, modo: 'recientes', limite: 100 });
+        const r = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, modo: 'recientes', limite: 100, antes_de: r1.cuerpo.siguiente });
+        const a = r.cuerpo.pedidos.find((x) => x.referencia.endsWith('a-vendido')), c = r.cuerpo.pedidos.find((x) => x.referencia.endsWith('b-cancelado'));
+        return es(a && igual(a.items, itemsConOpciones) && a.cliente_nombre === PII.nombre && a.cliente_telefono === PII.telefono && a.estado === 'nuevo' && a.estado_pago === 'aprobado' && a.total === 47000 && a.tipo_pedido === 'domicilio' && Number.isInteger(a.numero) && c.estado === 'cancelado', JSON.stringify(a).slice(0, 200));
+      });
+      await T('ver_pedidos: los limites y los datos mal formados se rechazan con 400 sin tocar la base (limite 0, 101, fraccion, texto; modo raro; antes_de 0, negativo, texto; campos de mas)', async () => {
+        const desde = rastro();
+        const casos = [{ limite: 0 }, { limite: 101 }, { limite: 1.5 }, { limite: '5' }, { limite: -1 }, { limite: [5] }, { modo: 'todos' }, { modo: 5 }, { modo: [] }, { modo: {} }, { antes_de: 0 }, { antes_de: -3 }, { antes_de: 'x' }, { antes_de: 1.5 }, { antes_de: 1e30 }, { extra: 1 }, { restaurante_id_2: L.id }];
+        const malos = [];
+        for (const c of casos) { const r = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, ...c }); if (r.status !== 400) malos.push(`${JSON.stringify(c)}:${r.status}`); }
+        const sa = registro.slice(desde).filter((x) => /\/rpc\/sa_/.test(x.url));
+        const nulo = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, limite: null, modo: null, antes_de: null });
+        const uno = await ver({ accion: 'ver_pedidos', restaurante_id: L.id, limite: 1 });
+        return es(malos.length === 0 && sa.length === 0 && nulo.status === 200 && nulo.cuerpo.pedidos.length === 50 && uno.status === 200 && uno.cuerpo.pedidos.length === 1 && uno.cuerpo.hay_mas === true, malos.slice(0, 4).join(' | ') + ' sa:' + sa.length);
+      });
+      await T('ver_menu: categorias, productos y opciones, INCLUSO las inactivas y agotadas, con sus totales', async () => {
+        const r = await ver({ accion: 'ver_menu', restaurante_id: L.id });
+        const m = r.cuerpo.menu || {};
+        return es(r.status === 200 && m.categorias.length === 2 && m.categorias.some((c) => c.id === 'lect-inactiva' && c.activa === false) && m.productos.length === 3 && m.productos.some((p) => p.id === 'lect-p2' && p.disponible === false)
+          && m.productos.some((p) => p.id === 'lect-p3') && m.totales.categorias === 2 && m.totales.productos === 3 && m.truncado === false
+          && (tablaOpciones ? m.opciones.length === 3 && m.opciones.some((o) => o.id === 'extra-apagada' && o.activa === false) && m.totales.opciones === 3 : m.opciones.length === 0),
+          JSON.stringify(m).slice(0, 250));
+      });
+      await T('ver_config: lo del detalle (config publica, vigencia, dominios, miembros con rol y correo, tarifas) mas el horario; de los secretos solo si/no', async () => {
+        const r = await ver({ accion: 'ver_config', restaurante_id: L.id });
+        const x = r.cuerpo.restaurante || {};
+        const dueno = (x.miembros || []).find((m) => m.user_id === uDueno.id);
+        return es(r.status === 200 && x.id === L.id && x.slug === L.slug && x.vigencia && Array.isArray(x.dominios) && Array.isArray(x.tarifas) && dueno && dueno.rol === 'dueno' && dueno.email === uDueno.email
+          && x.horario && 'horarios' in x.horario && 'hora_corte_jornada' in x.horario && x.config && typeof x.config === 'object' && x.secretos.callmebot_apikey === true && x.secretos.wompi_integridad_test === true && x.secretos.wompi_llave_privada_test === true,
+          JSON.stringify(x).slice(0, 250));
+      });
+      await T('ver_resumen: conteos y ventas de la jornada (vendido = pagado y no cancelado) y del mes, y el catalogo', async () => {
+        const r = await ver({ accion: 'ver_resumen', restaurante_id: L.id });
+        const j = (r.cuerpo.resumen || {}).jornada || {}, m = (r.cuerpo.resumen || {}).mes || {}, c = (r.cuerpo.resumen || {}).catalogo || {};
+        return es(r.status === 200 && j.pedidos === TOTAL_JORNADA && j.vendidos === 122 && j.ventas === VENTAS_JORNADA && j.cancelados === 1 && j.por_estado.pendiente_pago === 1 && j.por_estado.nuevo === 1 && j.por_estado.entregado === 121 && j.por_tipo.domicilio === 3 && j.por_tipo.llevar === 121
+          && j.ticket_promedio === Math.round(VENTAS_JORNADA / 122) && m.pedidos >= TOTAL_JORNADA && m.ventas >= VENTAS_JORNADA && m.vendidos >= 122 && c.categorias === 2 && c.productos === 3 && c.productos_disponibles === 2 && c.miembros_activos >= 3
+          && r.cuerpo.resumen.restaurante.id === L.id && r.cuerpo.resumen.restaurante.vigencia, JSON.stringify(r.cuerpo).slice(0, 300));
+      });
+      await T('ids de restaurante MALOS (falta, null, vacio, texto, numero, booleano, lista, objeto, inyeccion, con espacios): 400; uno bien formado que no existe: 404; nada se filtra y el servidor ni llama a la base con los mal formados', async () => {
+        const desde = rastro();
+        const inexistente = '00000000-0000-4000-8000-0000000000dd';
+        const malos = [undefined, null, '', 'x', 7, true, [], [L.id], { id: L.id }, { restaurante_id: L.id }, "' or '1'='1", L.id + "'", L.id + ' ', ' ' + L.id, L.id + '\n', L.id.replace(/-/g, ''), 'x'.repeat(5000), '../' + L.id, L.id + ';drop table pedidos', '00000000-0000-0000-0000-000000000000x'];
+        const fallas = [];
+        for (const a of ['ver_pedidos', 'ver_menu', 'ver_config', 'ver_resumen']) {
+          for (const id of malos) {
+            const cuerpo = { accion: a }; if (id !== undefined) cuerpo.restaurante_id = id;
+            const r = await ver(cuerpo);
+            const t = JSON.stringify(r.cuerpo);
+            if (r.status !== 400 || t.length > 300 || /pedidos"|productos"|miembros"|drop table|1'='1/.test(t.replace(/"error":"[^"]*"/, ''))) fallas.push(`${a}:${String(id).slice(0, 15)}:${r.status}`);
+          }
+          const r404 = await ver({ accion: a, restaurante_id: inexistente });
+          if (r404.status !== 404 || JSON.stringify(r404.cuerpo).length > 200 || JSON.stringify(r404.cuerpo).includes(inexistente)) fallas.push(`${a}:inexistente:${r404.status}`);
+        }
+        const hechas = registro.slice(desde).filter((x) => /\/rpc\/sa_ver_/.test(x.url));
+        // solo los 4 de "no existe" llegaron a la base
+        return es(fallas.length === 0 && hechas.length === 4, fallas.slice(0, 5).join(' | ') + ' sa_ver:' + hechas.length);
+      });
+      await T('campos de mas en cada una de las 4 lecturas (actor, aal, un campo cualquiera): 400, y el servidor no llama a la base', async () => {
+        const desde = rastro();
+        const malos = [];
+        for (const a of ['ver_pedidos', 'ver_menu', 'ver_config', 'ver_resumen']) for (const extra of [{ actor: uSuper2.id }, { aal: 'aal2' }, { limite_total: 1 }, { restaurante: L.id }]) {
+          const r = await ver({ accion: a, restaurante_id: L.id, ...extra });
+          if (r.status !== 400) malos.push(`${a}/${Object.keys(extra)[0]}:${r.status}`);
+        }
+        return es(malos.length === 0 && registro.slice(desde).filter((x) => /\/rpc\/sa_ver_/.test(x.url)).length === 0, malos.join(','));
+      });
+      await T('un id en MAYUSCULAS se acepta (es el mismo id) y el resultado es el mismo', async () => {
+        const a = await ver({ accion: 'ver_menu', restaurante_id: L.id.toUpperCase() });
+        const b = await ver({ accion: 'ver_menu', restaurante_id: L.id });
+        return es(a.status === 200 && igual(a.cuerpo.menu, b.cuerpo.menu), String(a.status));
+      });
+      await T('SOLO SUPERADMIN: dueno, cajero, cocina, sin membresia y un dueno CON MFA (aal2) reciben 403 generico en las 4 lecturas, hasta de su propio restaurante, y no se llama a ninguna funcion de la base', async () => {
+        const desde = rastro();
+        const malas = [];
+        const quienes = { dueno: sesiones.dueno, cajero: sesiones.cajero, cocina: sesiones.cocina, 'sin membresia': sesiones['sin membresia'], 'dueno de otro': sesiones['dueno de otro restaurante'] };
+        quienes['dueno con MFA'] = tMfaL;
+        for (const [q, t] of Object.entries(quienes)) for (const a of ['ver_pedidos', 'ver_menu', 'ver_config', 'ver_resumen']) {
+          const r = await ver({ accion: a, restaurante_id: L.id }, t);
+          if (r.status !== 403 || !igual(r.cuerpo, { error: 'No autorizado' })) malas.push(`${q}/${a}:${r.status}`);
+        }
+        const sa = registro.slice(desde).filter((x) => /\/rpc\/sa_/.test(x.url));
+        const anon = await llamar(null, { accion: 'ver_pedidos', restaurante_id: L.id }, { ip: ipN() });
+        return es(malas.length === 0 && sa.length === 0 && anon.status === 401, malas.join(',') + ' sa:' + sa.length);
+      });
+      await T('las 4 lecturas y la constancia del rechazo NO se pueden llamar directo a la base (ni anon, ni cada usuario con su sesion, ni el propio superadmin desde su navegador); la ayuda interna ni con la llave de servicio', async () => {
+        const malas = [];
+        const quienes = [['anon', { llave: PUB2 }], ['superadmin con su sesion', { llave: PUB2, token: tSuper }], ['dueno', { llave: PUB2, token: sesiones.dueno }]];
+        for (const [nombre, cred] of quienes) for (const [fn, args] of [['sa_ver_pedidos', { p_actor: uSuper.id, p_restaurante: L.id }], ['sa_ver_menu', { p_actor: uSuper.id, p_restaurante: L.id }], ['sa_ver_config', { p_actor: uSuper.id, p_restaurante: L.id }],
+          ['sa_ver_resumen', { p_actor: uSuper.id, p_restaurante: L.id }], ['sa_registrar_rechazo_mfa', { p_actor: uSuper.id }]]) {
+          const r = await rpcComo(fn, args, cred);
+          if (![401, 403, 404].includes(r.status) || /Reservado|"items"|3151112223/.test(r.texto)) malas.push(`${nombre} ${fn}:${r.status}`);
+        }
+        const interna = await rpcSrv('auditar_lectura_superadmin', { p_actor: uSuper.id, p_accion: 'ver_menu', p_restaurante: L.id, p_resumen: {} });
+        if (interna.status < 400) malas.push('auditar_lectura_superadmin con la llave de servicio: ' + interna.status);
+        // con la llave de servicio y un actor que NO es superadmin: 42501 en las 5
+        for (const [fn, args] of [['sa_ver_pedidos', { p_restaurante: L.id }], ['sa_ver_menu', { p_restaurante: L.id }], ['sa_ver_config', { p_restaurante: L.id }], ['sa_ver_resumen', { p_restaurante: L.id }], ['sa_registrar_rechazo_mfa', {}]]) {
+          for (const actor of [uDueno.id, uSin.id, '00000000-0000-4000-8000-0000000000ff']) { const r = await rpcSrv(fn, { p_actor: actor, ...args }); if (!(r.cuerpo && r.cuerpo.code === '42501')) malas.push(`${fn}/${actor.slice(0, 4)}:${r.status}`); }
+        }
+        return es(malas.length === 0, malas.slice(0, 5).join(' | '));
+      });
+      await T('AUDITORIA DE LAS LECTURAS: cada lectura deja su fila (quien, cuando, restaurante, accion) con un resumen de conteos y SIN ningun dato personal, secreto ni token', async () => {
+        const a = (await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_restaurante: L.id, p_limite: 200 })).cuerpo;
+        const filas = a.filter((x) => /^ver_/.test(x.accion));
+        const acciones = new Set(filas.map((x) => x.accion));
+        const texto = JSON.stringify(a);
+        const pedidosJornada = filas.find((x) => x.accion === 'ver_pedidos' && x.resumen.modo === 'jornada');
+        const menu = filas.find((x) => x.accion === 'ver_menu');
+        const prohibidos = [...Object.values(PII), ...Object.values(SENT), ...tokensSeguimiento, 'Producto Uno', 'Hamburguesas'].filter((v) => String(v).length > 5);
+        const fugas = prohibidos.filter((v) => texto.includes(v));
+        return es(['ver_pedidos', 'ver_menu', 'ver_config', 'ver_resumen'].every((x) => acciones.has(x)) && filas.every((x) => x.actor === uSuper.id && x.actor_email === uSuper.email && x.restaurante_id === L.id && x.restaurante_slug === L.slug && x.creado_en)
+          && pedidosJornada && pedidosJornada.resumen.pagina_inicial === true && pedidosJornada.resumen.limite === 50 && pedidosJornada.resumen.devueltos === 50 && menu.resumen.productos === 3 && fugas.length === 0,
+          fugas.join(',') + ' ' + JSON.stringify(filas.map((x) => [x.accion, x.resumen])).slice(0, 250));
+      });
+      await T('LA AUDITORIA NO SE INUNDA: varias paginas y refrescos de la misma lectura dejan UNA fila por (superadmin, accion, restaurante, modo) en la ventana; otro modo u otro restaurante si deja la suya', async () => {
+        const cuenta = async (rid, accion) => (await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_restaurante: rid, p_limite: 200 })).cuerpo.filter((x) => x.accion === accion);
+        const j = (await cuenta(L.id, 'ver_pedidos')).filter((x) => x.resumen.modo === 'jornada').length;
+        const rec = (await cuenta(L.id, 'ver_pedidos')).filter((x) => x.resumen.modo === 'recientes').length;
+        const menus = (await cuenta(L.id, 'ver_menu')).length;
+        for (let i = 0; i < 6; i++) await ver({ accion: 'ver_menu', restaurante_id: L.id });
+        const menus2 = (await cuenta(L.id, 'ver_menu')).length;
+        const en2 = (await cuenta(rB.id, 'ver_menu')).length;
+        await ver({ accion: 'ver_menu', restaurante_id: rB.id });
+        const en2b = (await cuenta(rB.id, 'ver_menu')).length;
+        return es(j === 1 && rec === 1 && menus === 1 && menus2 === 1 && en2 === 0 && en2b === 1, [j, rec, menus, menus2, en2, en2b].join(','));
+      });
+      await T('RECHAZO POR FALTA DE MFA: queda UNA constancia por superadmin y ventana (no una por intento), con solo el nivel, el nombre de una accion conocida y la ventana; nada de lo que mande el cliente', async () => {
+        SA.reiniciarLimite();
+        for (let i = 0; i < 30; i++) await llamar(tSuper1, { accion: i % 2 ? 'guardar_secretos' : 'ver_pedidos', restaurante_id: L.id, valores: { callmebot_apikey: 'NO-DEBE-ESTAR' } }, { ip: ipN() });
+        await llamar(tSuper1, { accion: 'accion-inventada <script>alert(1)</script>' }, { ip: ipN() });
+        await llamar(tSuper2_1, { accion: 'listar_auditoria' }, { ip: ipN() });
+        SA.reiniciarLimite();   // la memoria del servidor se reinicia (otra instancia): la base sigue sin duplicar dentro de la ventana
+        await llamar(tSuper1, { accion: 'ver_pedidos', restaurante_id: L.id }, { ip: ipN() });
+        const todas = (await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_limite: 200 })).cuerpo;
+        const delUno = todas.filter((x) => x.accion === 'rechazo_mfa' && x.actor === uSuper.id), delDos = todas.filter((x) => x.accion === 'rechazo_mfa' && x.actor === uSuper2.id);
+        const f = delUno[0] || {};
+        return es(delUno.length === 1 && delDos.length === 1 && f.restaurante_id === null && f.actor_email === uSuper.email && igual(Object.keys(f.resumen).sort(), ['aal', 'accion_intentada', 'ventana_minutos']) && f.resumen.aal === 'aal1' && f.resumen.ventana_minutos === 15
+          && (f.resumen.accion_intentada === null || ACCIONES.includes(f.resumen.accion_intentada)) && !JSON.stringify(todas).includes('NO-DEBE-ESTAR') && !JSON.stringify(todas).includes('script') && ACCIONES.includes(delDos[0].resumen.accion_intentada),
+          [delUno.length, delDos.length, JSON.stringify(f.resumen)].join(' '));
+      });
+      await T('RECHAZO POR FALTA DE MFA: un nombre de accion inventado (aunque tenga forma de nombre valida) NO llega a la auditoria; si la accion es conocida, si', async () => {
+        const a = await llamar(t3, { accion: 'accion_inventada_xyz' }, { ip: ipN() });
+        const f = (await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_limite: 200 })).cuerpo.filter((x) => x.accion === 'rechazo_mfa' && x.actor === u3.id);
+        await llamar(t4, { accion: 'ver_menu', restaurante_id: L.id }, { ip: ipN() });
+        const g = (await rpcSrv('sa_listar_auditoria', { p_actor: uSuper.id, p_limite: 200 })).cuerpo.filter((x) => x.accion === 'rechazo_mfa' && x.actor === u4.id);
+        return es(a.status === 403 && f.length === 1 && f[0].resumen.accion_intentada === null && g.length === 1 && g[0].resumen.accion_intentada === 'ver_menu', JSON.stringify([f.map((x) => x.resumen), g.map((x) => x.resumen)]));
+      });
+      await T('LAS LECTURAS NO ESCRIBEN: despues de todas las lecturas (buenas, malas, repetidas, paginadas y rechazadas) la base de negocio esta byte por byte igual: pedidos, menu, opciones, categorias, configuracion, contadores, secretos, miembros, dominios, tarifas y Taqueiros', async () => {
+        const despues = await huellaNegocio();
+        return es(despues === antesNegocio, 'la base cambio');
+      });
+      await T('NINGUNA LECTURA DEVUELVE SECRETOS NI TOKENS: ni las claves sembradas en la fila de secretos del restaurante, ni los tokens de seguimiento de sus pedidos, ni nada con pinta de llave, en ninguna respuesta de este grupo', async () => {
+        const todo = respuestas.slice(inicioLecturas).join('\n');
+        const fugas = [...Object.values(SENT), ...tokensSeguimiento.filter((t) => String(t).length > 8)].filter((v) => todo.includes(v));
+        return es(fugas.length === 0 && todo.length > 100000 && !/prv_(test|prod)_|(test|prod)_(integrity|events)_|sb_secret_|"token_seguimiento"|"lat":|"lng":/.test(todo), fugas.length + ' fugas; ' + todo.length + ' caracteres revisados');
+      });
+    }
+
+    if (!quiere('base')) {
+      grupo('taqueiros');
+      await T('TAQUEIROS QUEDO EXACTAMENTE IGUAL (su fila, configuracion, secretos, tarifas, dominios, miembros y pedidos)', async () => es((await huellaTaq()) === taqAntes, 'la huella de Taqueiros cambio'));
+    }
   } finally {
     // ---- limpieza (siempre) ---------------------------------------------------------------------
     globalThis.fetch = fetchReal;

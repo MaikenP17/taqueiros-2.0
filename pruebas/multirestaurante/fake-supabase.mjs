@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { crearBase, sembrar, sql10, REPO } from './sim.mjs';
+import totp from './totp.js';
 
 /* El SQL 18 exige el menu de The Northe Burgers (productos nb-*, SQL 17). Este simulador general NO aplica el 17 (cambiaria el
    menu de Taqueiros que usan casi todas las pruebas), asi que los 13 productos se crean como ANDAMIO, se corre el 18 y se quitan:
@@ -72,6 +73,14 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
     // tabla no existe, el menu sale sin opciones y un pedido con opciones responde un error claro).
     const f18 = process.env.SQL18_ARCHIVO || path.join(REPO, 'supabase', '18-opciones-producto.sql');
     if (!process.env.SQL18_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f18)) await aplicarSql18(db, f18);
+    // SQL 19 (lecturas de "entrar como" y constancia de rechazos por falta de MFA; necesita el 16). SQL19_NO=1 lo omite (para probar el
+    // servidor ANTES de correrlo: las lecturas responden un aviso claro y todo lo demas funciona igual).
+    const f19 = process.env.SQL19_ARCHIVO || path.join(REPO, 'supabase', '19-superadmin-lectura.sql');
+    if (!process.env.SQL19_NO && !process.env.SQL16_NO && !process.env.SQL13_NO && !process.env.SQL12_NO && fs.existsSync(f19)) {
+      const r19 = await db.exec(fs.readFileSync(f19, 'utf8'));
+      const malas19 = r19[r19.length - 1].rows.filter((x) => x.estado !== 'OK');
+      if (malas19.length) throw new Error('SQL 19 con comprobaciones en FALLA: ' + malas19.map((x) => x.verificacion).join(' | '));
+    }
     if (validarConfig === false && !process.env.VALIDAR_CONFIG && !process.env.SQL13_NO && !process.env.SQL12_NO) {
       await db.exec('alter table public.restaurantes disable trigger restaurantes_validar_config');
     }
@@ -81,6 +90,8 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
   const falso = { archivos, cortar: null, antes: null, ignorarBorrados: false, peticiones: [] };   // cortar(req, url) -> true: corta la conexion (simula un fallo)
   const passwords = new Map();   // email -> password
   const tokens = new Map();      // token -> uid
+  const factores = new Map();    // id del factor -> { uid, secreto, verificado }   (MFA TOTP, como /auth/v1/factors)
+  const desafios = new Map();    // id del desafio -> id del factor
   let cola = Promise.resolve();
   const serie = (fn) => { const p = cola.then(fn, fn); cola = p.catch(() => {}); return p; };
 
@@ -89,12 +100,12 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
      'tok_<hex>' (sin una sola 's'), y un servidor que rechazaba tokens por su forma pasaba todas las
      pruebas locales y fallaba con la base real. */
   const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-  const tokenDeSesion = (uid, email) => {
+  const tokenDeSesion = (uid, email, { aal = 'aal1', amr = null } = {}) => {
     const ahora = Math.floor(Date.now() / 1000);
     return b64({ alg: 'ES256', typ: 'JWT', kid: crypto.randomUUID() }) + '.' + b64({
       iss: 'http://localhost/auth/v1', sub: uid, aud: 'authenticated', exp: ahora + 3600, iat: ahora, email,
       phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: { email_verified: true },
-      role: 'authenticated', aal: 'aal1', amr: [{ method: 'password', timestamp: ahora }], session_id: crypto.randomUUID(), is_anonymous: false
+      role: 'authenticated', aal, amr: amr || [{ method: 'password', timestamp: ahora }], session_id: crypto.randomUUID(), is_anonymous: false
     }) + '.' + crypto.randomBytes(64).toString('base64url');
   };
 
@@ -217,11 +228,57 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           await db.query(`delete from auth.users where id = $1`, [m[1]]);
           return enviar(res, 200, {});
         }
+        /* API de administracion de factores MFA (auth.admin.mfa): listar y borrar los de un usuario. Borrar uno verificado cierra sus sesiones. */
+        m = url.pathname.match(/^\/auth\/v1\/admin\/users\/([0-9a-f-]+)\/factors(?:\/([0-9a-f-]+))?$/);
+        if (m && (req.method === 'GET' || req.method === 'DELETE')) {
+          if (ctx.rol !== 'service_role') return enviar(res, 403, { message: 'not admin' });
+          const propios = [...factores.entries()].filter(([, f]) => f.uid === m[1]);
+          if (req.method === 'GET' && !m[2]) return enviar(res, 200, propios.map(([id, f]) => ({ id, factor_type: 'totp', status: f.verificado ? 'verified' : 'unverified' })));
+          if (req.method === 'DELETE' && m[2]) {
+            const f = factores.get(m[2]);
+            if (!f || f.uid !== m[1]) return enviar(res, 404, { code: 404, error_code: 'mfa_factor_not_found', msg: 'MFA factor not found' });
+            factores.delete(m[2]);
+            if (f.verificado) for (const [t, uid] of [...tokens.entries()]) if (uid === m[1]) tokens.delete(t);
+            return enviar(res, 200, { id: m[2] });
+          }
+        }
         if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
           const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
           if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
           const r = await db.query(`select id, email from auth.users where id = $1`, [tokens.get(t)]);
           return enviar(res, 200, r.rows[0]);
+        }
+        /* MFA TOTP, con la forma de Supabase Auth: enrolar -> desafiar -> verificar. Verificar con un codigo valido entrega una sesion NUEVA
+           con aal2 y amr [totp, password]; la sesion aal1 con la que se pidio sigue siendo aal1 (como en Auth real). */
+        if (url.pathname === '/auth/v1/factors' && req.method === 'POST') {
+          const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
+          if (!cuerpo || cuerpo.factor_type !== 'totp') return enviar(res, 400, { code: 400, error_code: 'validation_failed', msg: 'factor_type no soportado' });
+          const id = crypto.randomUUID();
+          const secreto = totp.secretoAleatorio();
+          factores.set(id, { uid: tokens.get(t), secreto, verificado: false });
+          return enviar(res, 200, { id, type: 'totp', friendly_name: cuerpo.friendly_name || '', totp: { qr_code: '', secret: secreto, uri: 'otpauth://totp/falso?secret=' + secreto } });
+        }
+        m = url.pathname.match(/^\/auth\/v1\/factors\/([0-9a-f-]+)\/(challenge|verify)$/);
+        if (m && req.method === 'POST') {
+          const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
+          const f = factores.get(m[1]);
+          if (!f || f.uid !== tokens.get(t)) return enviar(res, 404, { code: 404, error_code: 'mfa_factor_not_found', msg: 'MFA factor not found' });
+          if (m[2] === 'challenge') {
+            const idDesafio = crypto.randomUUID();
+            desafios.set(idDesafio, m[1]);
+            return enviar(res, 200, { id: idDesafio, type: 'totp', expires_at: Math.floor(Date.now() / 1000) + 300 });
+          }
+          if (!cuerpo || desafios.get(cuerpo.challenge_id) !== m[1]) return enviar(res, 400, { code: 400, error_code: 'mfa_challenge_expired', msg: 'MFA challenge has expired' });
+          if (!totp.codigoValido(f.secreto, cuerpo.code, Date.now())) return enviar(res, 400, { code: 400, error_code: 'mfa_verification_failed', msg: 'Invalid TOTP code entered' });
+          desafios.delete(cuerpo.challenge_id);
+          f.verificado = true;
+          const u = (await db.query(`select id, email from auth.users where id = $1`, [f.uid])).rows[0];
+          const ahora = Math.floor(Date.now() / 1000);
+          const nuevo = tokenDeSesion(u.id, u.email, { aal: 'aal2', amr: [{ method: 'totp', timestamp: ahora }, { method: 'password', timestamp: ahora - 5 }] });
+          tokens.set(nuevo, u.id);
+          return enviar(res, 200, { access_token: nuevo, refresh_token: 'r', token_type: 'bearer', expires_in: 3600, user: { id: u.id, email: u.email } });
         }
         if (url.pathname === '/auth/v1/token') {
           const r = await db.query(`select id from auth.users where email = $1`, [cuerpo.email]);
@@ -349,6 +406,12 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
       }
     }).catch((e) => { try { res.writeHead(500); res.end(String(e)); } catch {} });
   });
+
+  /* Gancho de las pruebas: Supabase "valida" un token de forma arbitraria (por ejemplo, con una carga de la que se desconfia: sub
+     de otra persona, aal2 sin amr...). Sirve para probar lo que api/_sesion.js hace con los claims DESPUES de que Auth acepta un token. */
+  falso.registrarToken = (token, uid) => { tokens.set(token, uid); };
+  falso.fabricarToken = (uid, email, opciones) => tokenDeSesion(uid, email, opciones);
+  falso.b64 = b64;
 
   await new Promise((r) => servidor.listen(puerto, r));
   return Object.assign(falso, { db, servidor, cerrar: () => new Promise((r) => { servidor.closeAllConnections?.(); servidor.close(r); }), url: `http://localhost:${puerto}` });
