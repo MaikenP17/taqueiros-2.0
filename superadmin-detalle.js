@@ -469,13 +469,11 @@
         ], function (btn, area) {
           var salida = clonar(base);
           aplicarTextos(salida, [], txt.inputs);
-          COLORES.forEach(function (c) {
-            var v = (colores[c[0]] || "").trim();
-            if (v !== "" && !HEX.test(v)) { v = null; }
-            if (v === null) throw_(area, "El color “" + c[1] + "” debe ser #RRGGBB (por ejemplo #C1272D).");
-            setIn(salida, ["colores", c[0]], v === "" ? undefined : v.toUpperCase());
-          });
-          if (area.firstChild) return;
+          for (var i = 0; i < COLORES.length; i++) {
+            var v = (colores[COLORES[i][0]] || "").trim();
+            if (v !== "" && !HEX.test(v)) { throw_(area, "El color “" + COLORES[i][1] + "” debe ser #RRGGBB (por ejemplo #C1272D)."); return; }
+            setIn(salida, ["colores", COLORES[i][0]], v === "" ? undefined : v.toUpperCase());
+          }
           var zs = zonas.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean);
           if (zs.length > 8 || zs.some(function (x) { return !HEX.test(x); })) { throw_(area, "Los colores de zonas son hasta 8 códigos #RRGGBB separados por coma."); return; }
           setIn(salida, ["colores_zonas"], zs.length ? zs.map(function (x) { return x.toUpperCase(); }) : undefined);

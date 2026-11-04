@@ -229,7 +229,9 @@ async function crearSitio({ falso, manejador }) {
         // al manejador REAL: el cuerpo ya leido se entrega como texto (Vercel lo entrega ya interpretado)
         req.body = cuerpoBytes.length ? cuerpoBytes.toString('utf8') : undefined;
         res.on('finish', () => { entrada.status = res.statusCode; });
-        await manejador(req, adaptar(res));
+        const adaptada = adaptar(res); const jsonOriginal = adaptada.json;
+        adaptada.json = (o) => { entrada.respuesta = JSON.stringify(o); return jsonOriginal(o); };   // lo que el servidor contesto (para buscar secretos en las respuestas)
+        await manejador(req, adaptada);
         return;
       }
       let ruta = decodeURIComponent(url.pathname);
@@ -729,6 +731,540 @@ async function escenario(nombre, fn) {
     await medidas(pg, 390);
     await sleep(150);
     comprobar(await pg.eval(`getComputedStyle(document.querySelector('#sa-lista-cuerpo tbody tr td')).display==='block' && getComputedStyle(document.querySelector('#sa-lista-cuerpo thead')).display==='none' && document.documentElement.scrollWidth<=window.innerWidth`), 'a 390 px la tabla pasa a tarjetas, sin encabezado y sin desborde horizontal');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  /* ======================= 10. el asistente de alta ======================= */
+  const filaDe = async (slug) => (await db.query(`select * from public.restaurantes where slug = $1`, [slug])).rows[0];
+  const irPaso = async (pg, n) => pg.esperar(`function(){var l=document.querySelector('ol.sa-pasos li[aria-current=step]');return !!l&&l.textContent.indexOf('${n}.')===0}`, 6000, 'el paso ' + n);
+  const siguiente = async (pg, n) => { await pg.clic('form button[type=submit]'); await irPaso(pg, n); };
+  const errorDe = async (pg) => pg.eval(`(function(){var e=document.querySelector('form .sa-msj-error');return e?e.textContent:null})()`);
+  /* Recorre el asistente hasta el paso 5 (sin crear). op: nombre, slug, prueba, plan, modalidad, correo, dominio ('propio' + host | 'ninguno'). */
+  async function asistente(pg, op) {
+    await pg.clicTexto('Nuevo restaurante');
+    await pg.existe('#al-nombre');
+    await pg.escribir('#al-nombre', op.nombre);
+    if (op.slug !== undefined) await pg.escribir('#al-slug', op.slug);
+    if (op.prueba) await pg.marcar('#al-prueba', true);
+    await siguiente(pg, 2);
+    if (op.plan) await pg.clic('#al-plan-' + op.plan);
+    if (op.modalidad) await pg.clic('#al-mod-' + op.modalidad);
+    await siguiente(pg, 3);
+    await pg.escribir('#al-correo', op.correo);
+    await siguiente(pg, 4);
+    if (op.host) { await pg.clic('#al-dom-propio'); await pg.escribir('#al-host', op.host); }
+    await siguiente(pg, 5);
+  }
+  const crearAhora = async (pg) => { await pg.marcar('#al-entiendo', true); await pg.clic('#al-crear'); };
+
+  await escenario('10. Alta de un restaurante: validaciones, un solo envio, contrasena temporal una sola vez y errores del servidor', async () => {
+    const pg = await pagina('alta');
+    await entrarConCodigo(pg, uMfa);
+    await pg.clicTexto('Nuevo restaurante');
+    await pg.existe('#al-nombre');
+    await capturarAmbos(pg, 'alta-paso-1-datos');
+
+    // ---- paso 1: validaciones y sugerencia del nombre corto ----
+    await pg.escribir('#al-nombre', 'Casa Rivo Demo ñandú');
+    comprobar(await pg.eval(`document.getElementById('al-slug').value`) === 'casa-rivo-demo-nandu', 'el nombre corto se sugiere desde el nombre (minusculas, sin tildes, con guiones)');
+    comprobar(/NO se podrá cambiar después/.test(await pg.cuerpo()), 'avisa que el nombre corto NO se podra cambiar despues');
+    await pg.escribir('#al-nombre', '');
+    await pg.clic('form button[type=submit]');
+    comprobar(/Escribe el nombre/.test(await errorDe(pg) || ''), 'nombre vacio: error');
+    await pg.escribir('#al-nombre', 'Con <angulo>');
+    await pg.escribir('#al-slug', 'buen-slug');
+    await pg.clic('form button[type=submit]');
+    comprobar(/< ni >/.test(await errorDe(pg) || ''), 'nombre con < o >: error');
+    await pg.escribir('#al-nombre', 'Casa Rivo Demo');
+    for (const [slug, texto] of [['ab--cd', 'nombre corto'], ['-uno', 'nombre corto'], ['a', 'nombre corto'], ['con espacio', 'nombre corto'], ['admin', 'reservado'], ['x'.repeat(41), 'nombre corto']]) {
+      await pg.escribir('#al-slug', slug);
+      await pg.clic('form button[type=submit]');
+      comprobar(new RegExp(texto).test(await errorDe(pg) || ''), `nombre corto "${slug.slice(0, 12)}": se rechaza en pantalla (${texto})`);
+    }
+    await pg.escribir('#al-slug', 'casa-rivo-demo');
+    await pg.marcar('#al-prueba', true);
+    comprobar(/Quedará así: prueba-casa-rivo-demo/.test(await pg.cuerpo()), 'con "es de prueba" muestra el nombre corto final con el prefijo prueba-');
+    await pg.escribir('#al-prefijo', 'Mal Prefijo');
+    await pg.clic('form button[type=submit]');
+    comprobar(/prefijo/i.test(await errorDe(pg) || ''), 'prefijo mal escrito: error');
+    await pg.escribir('#al-prefijo', 'prueba-');
+    await siguiente(pg, 2);
+
+    // ---- paso 2: plan, modalidad, modulos ----
+    comprobar(/400\.000/.test(await pg.cuerpo()) && /2\.500\.000/.test(await pg.cuerpo()) && /800\.000/.test(await pg.cuerpo()) && /40\.000/.test(await pg.cuerpo()) && /150\.000/.test(await pg.cuerpo()) && /100\.000/.test(await pg.cuerpo()), 'los precios de referencia estan a la vista (400.000/40.000, 2.500.000/150.000, 800.000/100.000)');
+    comprobar(/no se guardan ni se cobran desde aquí/.test(await pg.cuerpo()), 'y se aclara que son solo informativos');
+    comprobar(await pg.eval(`['pasarela','seguimiento','comandas','impresion'].every(function(k){return document.getElementById('al-mod-'+k).checked})`) && await pg.eval(`document.getElementById('al-dias').value`) === '14' && await pg.eval(`document.getElementById('al-zona').value`) === 'America/Bogota', 'por defecto: plan Completo con todos los modulos, 14 dias de prueba y America/Bogota');
+    await pg.clic('#al-plan-basico');
+    comprobar(await pg.eval(`['pasarela','seguimiento','comandas','impresion'].every(function(k){return !document.getElementById('al-mod-'+k).checked})`), 'plan Basico: sin pasarela, seguimiento, comandas ni impresion');
+    await pg.clic('#al-plan-comandas');
+    comprobar(await pg.eval(`[document.getElementById('al-mod-comandas').checked,document.getElementById('al-mod-impresion').checked,document.getElementById('al-mod-pasarela').checked,document.getElementById('al-mod-seguimiento').checked].join()`) === 'true,true,false,false', 'plan Solo comandas: comandas e impresion');
+    await pg.clic('#al-mod-unico');
+    await capturarAmbos(pg, 'alta-paso-2-plan');
+    await pg.escribir('#al-dias', '91'); await pg.clic('form button[type=submit]');
+    comprobar(/0 a 90/.test(await errorDe(pg) || ''), 'dias de prueba fuera de rango: error');
+    await pg.escribir('#al-dias', '14'); await pg.escribir('#al-zona', 'Marte/Olimpo mons x'); await pg.clic('form button[type=submit]');
+    comprobar(/zona horaria/.test(await errorDe(pg) || ''), 'zona horaria invalida: error');
+    await pg.escribir('#al-zona', 'America/Bogota');
+    await siguiente(pg, 3);
+
+    // ---- paso 3: dueno ----
+    await pg.escribir('#al-correo', 'correo-malo'); await pg.clic('form button[type=submit]');
+    comprobar(/correo no es válido/.test(await errorDe(pg) || ''), 'correo invalido: error');
+    const correoNuevo = `dueno-nuevo-${sfx}@prueba-pantalla.example.com`;
+    await pg.escribir('#al-correo', correoNuevo);
+    await pg.clicTexto('Comprobar si ya existe');
+    await pg.esperar(`function(){return /todavía no tiene usuario/.test(document.getElementById('al-correo-res').textContent)}`);
+    comprobar(true, 'buscar_usuario: dice que el correo es nuevo y que la contrasena temporal se vera una sola vez');
+    await capturarAmbos(pg, 'alta-paso-3-dueno');
+    await siguiente(pg, 4);
+
+    // ---- paso 4: direccion web ----
+    comprobar(/Vercel/.test(await pg.cuerpo()), 'explica lo que hay que hacer fuera (Vercel)');
+    await pg.clic('#al-dom-subdominio');
+    await pg.escribir('#al-base', 'rivo-prueba.com');
+    comprobar((await pg.texto('#al-sub-vista')).trim() === 'prueba-casa-rivo-demo.rivo-prueba.com' && /DOMINIO_BASE/.test(await pg.cuerpo()) && /comodín/.test(await pg.cuerpo()), 'subdominio: muestra la direccion que le tocaria y explica DOMINIO_BASE y el comodin');
+    await pg.clic('#al-dom-propio');
+    await pg.escribir('#al-host', 'https://malo.com/ruta');
+    await pg.clic('form button[type=submit]');
+    comprobar(/no es válida/.test(await errorDe(pg) || ''), 'direccion con https:// o barras: error');
+    const host = `pedidos-${sfx}.prueba-pantalla.example.com`;
+    await pg.escribir('#al-host', host.toUpperCase());
+    await capturarAmbos(pg, 'alta-paso-4-direccion');
+    await siguiente(pg, 5);
+
+    // ---- paso 5: confirmar, un solo envio ----
+    comprobar(await pg.eval(`document.getElementById('al-crear').disabled`) === true, 'el boton Crear esta bloqueado hasta confirmar que el nombre corto no se cambia');
+    const resumen = await pg.cuerpo();
+    comprobar(/prueba-casa-rivo-demo/.test(resumen) && /Solo comandas/.test(resumen) && /Pago único/.test(resumen) && resumen.includes(correoNuevo) && resumen.includes(host), 'el resumen muestra nombre corto, plan, modalidad, dueno y direccion');
+    await capturarAmbos(pg, 'alta-paso-5-confirmar');
+    await pg.marcar('#al-entiendo', true);
+    bitacoraApi.length = 0;
+    await pg.eval(`(function(){var b=document.getElementById('al-crear');b.click();b.click();b.click();})()`);   // triple clic seguido
+    await pg.existe('#al-copiar-msj', 10000);
+    await sleep(300);
+    comprobar(llamadas('crear_restaurante').length === 1 && llamadas('crear_usuario').length === 1, 'tres clics seguidos: UNA sola creacion del restaurante y UNA del usuario', JSON.stringify(bitacoraApi.map((x) => x.accion)));
+    const fila = await filaDe('prueba-casa-rivo-demo');
+    comprobar(!!fila && fila.estado === 'prueba' && fila.plan === 'comandas' && fila.modalidad_pago === 'unico' && fila.dias_gracia === 5 && fila.zona_horaria === 'America/Bogota' && new Date(fila.vigente_hasta).toISOString().slice(0, 10) === fechaEn(14), 'en la base: estado prueba, plan comandas, pago unico, gracia 5, zona Bogota y vence en 14 dias', JSON.stringify(fila));
+    comprobar(fila && fila.modulos.comandas === true && fila.modulos.impresion === true && fila.modulos.pasarela === false && fila.modulos.seguimiento === false, 'los modulos del plan quedaron guardados');
+    const dom = (await db.query(`select host from public.restaurante_dominios where restaurante_id = $1::uuid`, [fila.id])).rows.map((x) => x.host);
+    comprobar(dom.length === 1 && dom[0] === host, 'el dominio (en minusculas) quedo registrado', dom.join());
+    const mi = (await db.query(`select m.rol, m.activo, u.email from public.miembros m join auth.users u on u.id = m.user_id where m.restaurante_id = $1::uuid`, [fila.id])).rows;
+    comprobar(mi.length === 1 && mi[0].rol === 'dueno' && mi[0].activo && mi[0].email === correoNuevo, 'el dueno quedo como miembro con rol dueno', JSON.stringify(mi));
+
+    // ---- contrasena temporal: una sola vez ----
+    const clave = (await pg.texto('#al-clave')).trim();
+    comprobar(clave.length === 20, 'la contrasena temporal es de 20 caracteres y esta a la vista en un cuadro marcado', clave.length + '');
+    const login = await auth('/token?grant_type=password', { email: correoNuevo, password: clave });
+    comprobar(login.status === 200, 'y esa contrasena SI inicia sesion');
+    comprobar(/una sola vez/i.test(await pg.cuerpo()) && /No se vuelve a ver/.test(await pg.cuerpo()), 'avisa que se muestra una sola vez y no se vuelve a ver');
+    await capturarAmbos(pg, 'alta-paso-6-contrasena-temporal');
+    await pg.clic('#al-copiar-clave');
+    comprobar((await pg.eval('window.__copiado')).includes(clave), '"Copiar" copia la contrasena');
+    await pg.clic('#al-copiar-msj');
+    const mensajes = await pg.eval('window.__copiado');
+    const msj1 = mensajes[mensajes.length - 1];
+    comprobar(msj1.includes(clave) && msj1.includes('https://' + host) && msj1.includes(correoNuevo), 'el mensaje de WhatsApp lleva direccion, correo y la contrasena MIENTRAS esta en pantalla');
+    comprobar((await pg.eval(`JSON.stringify(sessionStorage)+JSON.stringify(localStorage)+document.cookie+location.href`)).indexOf(clave) < 0 && pg.consola.join('\n').indexOf(clave) < 0, 'la contrasena no esta en sessionStorage, localStorage, cookies, URL ni consola');
+    await pg.clic('#al-borrar-clave');
+    comprobar(!(await pg.cuerpo()).includes(clave) && !(await pg.eval('document.documentElement.outerHTML')).includes(clave) && await pg.eval(`!document.getElementById('al-clave')`), 'al borrarla desaparece del texto y del HTML de la pagina');
+    await pg.clic('#al-copiar-msj');
+    const msj2 = (await pg.eval('window.__copiado')).slice(-1)[0];
+    comprobar(!msj2.includes(clave) && /por aparte/.test(msj2) && msj2.includes('https://' + host), 'el mensaje de WhatsApp ya NO lleva la contrasena (dice que se envia por aparte)');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+    const auditoria = (await db.query(`select resumen::text as r from public.auditoria_superadmin where restaurante_id = $1::uuid`, [fila.id])).rows.map((x) => x.r).join('');
+    comprobar(!auditoria.includes(clave), 'la contrasena temporal no esta en la auditoria');
+
+    // la contrasena tambien se borra al salir de la vista
+    await pg.clicTexto('Crear otro');
+    await pg.existe('#al-nombre');
+    comprobar(!(await pg.eval('document.documentElement.outerHTML')).includes(clave), 'al empezar otro alta no queda rastro');
+  });
+
+  await escenario('11. Alta: errores del servidor (nombre corto repetido, dominio repetido), usuario que ya existe y fallo a medias', async () => {
+    const pg = await pagina('alta-errores');
+    await entrarConCodigo(pg, uMfa);
+
+    // 409: nombre corto repetido (se crea 1 sola vez)
+    await asistente(pg, { nombre: 'Repetido', slug: 'pr-activo', correo: `rep-${sfx}@prueba-pantalla.example.com` });
+    bitacoraApi.length = 0;
+    await crearAhora(pg);
+    await pg.esperar(`function(){return !!document.querySelector('#al-crear')&&/Ya existe un restaurante con ese nombre corto/.test(document.body.innerText)}`);
+    comprobar(llamadas('crear_restaurante').length === 1 && llamadas('crear_restaurante')[0].status === 409 && llamadas('crear_usuario').length === 0, '409 por nombre corto repetido: mensaje claro, y NO se crea ningun usuario', JSON.stringify(bitacoraApi.map((x) => x.accion + ':' + x.status)));
+    await capturarAmbos(pg, 'alta-error-nombre-repetido');
+    comprobar(await pg.eval(`!document.getElementById('al-crear').disabled`), 'y el boton vuelve a estar disponible');
+
+    // 409: dominio repetido
+    await pg.clicTexto('Nuevo restaurante');
+    await asistente(pg, { nombre: 'Dominio repetido', slug: 'pr-dom-rep', correo: `domrep-${sfx}@prueba-pantalla.example.com`, host: 'activo.example.com' });
+    await crearAhora(pg);
+    await pg.esperar(`function(){return /dominio ya está en uso/.test(document.body.innerText)}`);
+    comprobar(!(await filaDe('pr-dom-rep')), '409 por dominio repetido: mensaje claro y no queda un restaurante a medias');
+
+    // 400 del servidor: se muestra su mensaje
+    await pg.clicTexto('Nuevo restaurante');
+    await asistente(pg, { nombre: 'Rechazado', slug: 'pr-rechazado', correo: `rech-${sfx}@prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_restaurante', status: 400, cuerpo: { error: 'Nombre del restaurante no valido (prueba)' }, veces: 1 });
+    await crearAhora(pg);
+    await pg.esperar(`function(){return /El servidor rechazó los datos: Nombre del restaurante no valido/.test(document.body.innerText)}`);
+    comprobar(true, '400 del servidor: se muestra su mensaje en español');
+
+    // usuario que ya existe: solo se le da acceso
+    await pg.clicTexto('Nuevo restaurante');
+    await asistente(pg, { nombre: 'Con usuario existente', slug: 'pr-existente', correo: uDueno.email });
+    await pg.clic('#al-copiar-msj').catch(() => {});
+    comprobar(/ya tiene usuario/.test(await pg.cuerpo()), 'el resumen dice que el dueno ya tiene usuario');
+    bitacoraApi.length = 0;
+    await crearAhora(pg);
+    await pg.existe('#al-copiar-msj', 10000);
+    comprobar(llamadas('crear_usuario').length === 0 && llamadas('asignar_miembro').length === 1, 'con un correo que ya existe NO se crea otro usuario: solo asignar_miembro', JSON.stringify(bitacoraApi.map((x) => x.accion)));
+    comprobar(await pg.eval(`!document.getElementById('al-clave')`) && /ya tenía usuario/.test(await pg.cuerpo()), 'y no aparece ninguna contrasena temporal');
+
+    // fallo a medias: el restaurante se crea, el usuario falla, el reintento solo repite el usuario
+    await pg.clicTexto('Nuevo restaurante');
+    await asistente(pg, { nombre: 'A medias', slug: 'pr-a-medias', correo: `medias-${sfx}@prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_usuario', status: 500, cuerpo: { error: 'No se pudo completar la accion' }, veces: 1 });
+    bitacoraApi.length = 0;
+    await crearAhora(pg);
+    await pg.esperar(`function(){return /El restaurante YA se creó, pero el usuario del dueño no/.test(document.body.innerText)}`);
+    comprobar(!!(await filaDe('pr-a-medias')), 'si falla el usuario, el restaurante YA creado se recuerda y se avisa');
+    await pg.clic('#al-crear');
+    await pg.existe('#al-copiar-msj', 10000);
+    comprobar(llamadas('crear_restaurante').length === 1 && llamadas('crear_usuario').length === 2, 'el reintento NO crea otro restaurante: solo repite el usuario', JSON.stringify(bitacoraApi.map((x) => x.accion + ':' + x.status)));
+    const cuantos = (await db.query(`select count(*)::int as n from public.restaurantes where slug = 'pr-a-medias'`)).rows[0].n;
+    comprobar(cuantos === 1, 'y en la base hay un solo restaurante con ese nombre corto');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  /* ======================= 12 a 15. el detalle de un restaurante ======================= */
+  const abrirDetalle = async (pg, nombreVisible) => {
+    await pg.clicTexto('Restaurantes', '.sa-nav button');
+    await pg.existe('#sa-lista-cuerpo tbody tr');
+    await pg.escribir('#sa-buscar', nombreVisible);
+    await pg.clic('#sa-lista-cuerpo tbody tr .sa-nombre-btn');
+    await pg.existe('#sa-tab-resumen');
+    await pg.esperar(`function(){var h=document.querySelector('#sa-contenido h1');return !!h&&h.textContent!=='Cargando…'&&!!document.querySelector('#sa-panel-tab h2')}`, 8000, 'el detalle');
+  };
+  const pestana = async (pg, id) => { await pg.clic('#sa-tab-' + id); await pg.esperar(`function(){return document.getElementById('sa-tab-${id}').getAttribute('aria-selected')==='true'}`); await sleep(60); };
+  const sumarMes = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); const t = Date.UTC(y, m - 1 + n, 1); const ult = new Date(Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + 1, 0)).getUTCDate(); return new Date(Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth(), Math.min(d, ult))).toISOString().slice(0, 10); };
+  const vigenteDe = async (slug) => { const f = await filaDe(slug); return f.vigente_hasta ? new Date(f.vigente_hasta).toISOString().slice(0, 10) : null; };
+
+  await escenario('12. Detalle: resumen y vigencia, registrar pago (confirmacion y un solo envio), suspender, reactivar y cambiar plan', async () => {
+    const pg = await pagina('detalle');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Zeta Activo');
+    comprobar(await pg.texto('#sa-contenido h1') === 'Zeta Activo' && (await pg.eval(`document.querySelectorAll('[role=tab]').length`)) === 7, 'el detalle muestra el nombre y las 7 pestañas');
+    comprobar((await pg.eval(`[...document.querySelectorAll('[role=tab]')].map(function(t){return t.textContent}).join('|')`)) === 'Resumen y vigencia|Dominios|Usuarios|Marca y datos|Secretos|Entrar como|Auditoría', 'pestañas: Resumen y vigencia, Dominios, Usuarios, Marca y datos, Secretos, Entrar como, Auditoría');
+    const t = await pg.cuerpo();
+    comprobar(/Activo/.test(t) && /Básico/.test(t) && /Pago único/.test(t) && /quedan 40 días/.test(t), 'resumen: estado, plan, modalidad y vencimiento');
+    await capturarAmbos(pg, 'detalle-resumen');
+
+    // ---- registrar pago ----
+    await pg.clic('#sa-btn-pago');
+    await pg.existe('#sa-pago-meses');
+    comprobar(/ya venció, los meses se cuentan desde HOY/i.test(await pg.cuerpo()) && /se suman a su fecha de vencimiento actual/.test(await pg.cuerpo()), 'el cuadro de pago explica como cuenta (vencido: desde hoy; vigente: desde su fecha)');
+    await pg.escribir('#sa-pago-meses', '2');
+    const esperada = sumarMes(fechaEn(40), 2);
+    comprobar((await pg.texto('#sa-pago-estimada')).includes('aproximadamente'), 'muestra la nueva fecha estimada');
+    await pg.escribir('#sa-pago-meses', '0'); await pg.clicTexto('Revisar');
+    comprobar(/1 a 36/.test(await pg.cuerpo()) && llamadas('registrar_pago').length === 0, 'meses fuera de rango: error y nada se envia');
+    await pg.escribir('#sa-pago-meses', '2'); await pg.escribir('#sa-pago-monto', '300000'); await pg.escribir('#sa-pago-ref', 'REC-9');
+    await capturarAmbos(pg, 'detalle-pago');
+    await pg.clicTexto('Revisar');
+    await pg.esperar(`function(){return /Confirma el pago/.test(document.body.innerText)}`);
+    comprobar(/2 meses/.test(await pg.cuerpo()) && /300\.000/.test(await pg.cuerpo()), 'segundo paso: confirmacion explicita con meses y monto');
+    await pg.clicTexto('Cancelar');
+    await sleep(200);
+    comprobar(llamadas('registrar_pago').length === 0 && await vigenteDe('pr-activo') === fechaEn(40), 'cancelar NO registra nada');
+    await pg.clic('#sa-btn-pago'); await pg.escribir('#sa-pago-meses', '2'); await pg.escribir('#sa-pago-monto', '300000'); await pg.escribir('#sa-pago-ref', 'REC-9');
+    await pg.clicTexto('Revisar'); await pg.existe('.sa-modal');
+    await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, registrar el pago'})[0];b.click();b.click();b.click();})()`);
+    await pg.esperar(`function(){return /Pago registrado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    comprobar(llamadas('registrar_pago').length === 1, 'confirmar con triple clic: UN solo pago', String(llamadas('registrar_pago').length));
+    comprobar(await vigenteDe('pr-activo') === esperada, 'la vigencia se extendio 2 meses desde su fecha actual', await vigenteDe('pr-activo') + ' vs ' + esperada);
+    const ultimo = JSON.parse(llamadas('registrar_pago')[0].cuerpo);
+    comprobar(ultimo.meses === 2 && ultimo.monto === 300000 && ultimo.referencia === 'REC-9', 'se mandaron meses, monto y referencia');
+
+    // un restaurante vencido cuenta desde HOY; una prueba pasa a activo
+    await abrirDetalle(pg, 'Alfa Vencido');
+    await pg.clic('#sa-btn-pago'); await pg.escribir('#sa-pago-meses', '1'); await pg.clicTexto('Revisar'); await pg.existe('.sa-modal');
+    await pg.clicTexto('Sí, registrar el pago');
+    await pg.esperar(`function(){return /Pago registrado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    comprobar(await vigenteDe('pr-vencido') === sumarMes(fechaEn(0), 1), 'vencido: el mes se cuenta desde HOY, no desde la fecha vieja');
+    await abrirDetalle(pg, 'Casa Prueba');
+    await pg.clic('#sa-btn-pago'); await pg.clicTexto('Revisar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, registrar el pago');
+    await pg.esperar(`function(){return /Pago registrado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    comprobar((await filaDe('pr-prueba')).estado === 'activo', 'una prueba pasa a activo al pagar');
+    // sin vencimiento: no se puede
+    await abrirDetalle(pg, 'taqueiros');
+    comprobar(await pg.eval(`document.getElementById('sa-btn-pago').disabled`) && /no tiene vencimiento/.test(await pg.cuerpo()), 'sin vencimiento: el boton de pago esta apagado y explica por que');
+
+    // ---- suspender y reactivar ----
+    await abrirDetalle(pg, 'Zeta Activo');
+    bitacoraApi.length = 0;
+    await pg.clic('#sa-btn-suspender');
+    await pg.existe('.sa-modal');
+    comprobar(/dejará de recibir pedidos/.test(await pg.cuerpo()), 'suspender pide confirmacion y dice que pasara');
+    await pg.clicTexto('Cancelar'); await sleep(200);
+    comprobar(llamadas('actualizar_restaurante').length === 0 && (await filaDe('pr-activo')).estado === 'activo', 'cancelar no suspende');
+    await pg.clic('#sa-btn-suspender'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, suspender');
+    await pg.esperar(`function(){return document.getElementById('sa-btn-suspender').textContent==='Reactivar'}`, 8000);
+    comprobar((await filaDe('pr-activo')).estado === 'suspendido' && llamadas('actualizar_restaurante').length === 1, 'confirmado: queda suspendido (una sola llamada) y el boton pasa a "Reactivar"');
+    comprobar(/Suspendido/.test(await pg.texto('.sa-cabecera-vista')), 'la cabecera muestra la pastilla Suspendido');
+    await pg.clic('#sa-btn-suspender'); await pg.existe('#sa-reactivar-estado'); await pg.clicTexto('Sí, reactivar');
+    await pg.esperar(`function(){return document.getElementById('sa-btn-suspender').textContent==='Suspender'}`, 8000);
+    comprobar((await filaDe('pr-activo')).estado === 'activo', 'reactivar con confirmacion vuelve a Activo');
+
+    // ---- cambiar plan, modalidad, gracia, zona y vencimiento ----
+    await pg.clic('#sa-c-guardar');
+    await pg.esperar(`function(){return /No cambiaste nada/.test(document.body.innerText)}`);
+    comprobar(true, 'guardar sin cambios: lo dice');
+    await pg.escribir('#sa-c-zona', 'Zona/Mala x'); await pg.clic('#sa-c-guardar');
+    await pg.esperar(`function(){return /zona horaria no parece válida/.test(document.body.innerText)}`);
+    comprobar(true, 'zona invalida: error en pantalla');
+    await pg.escribir('#sa-c-zona', 'America/Bogota');
+    await pg.escribir('#sa-c-plan', 'comandas');
+    comprobar(await pg.eval(`document.getElementById('sa-c-mod-comandas').checked&&document.getElementById('sa-c-mod-impresion').checked&&!document.getElementById('sa-c-mod-pasarela').checked`), 'cambiar el plan ajusta los modulos');
+    await pg.escribir('#sa-c-modalidad', 'mensual'); await pg.escribir('#sa-c-gracia', '9'); await pg.escribir('#sa-c-nombre', 'Zeta Activo Renombrado');
+    bitacoraApi.length = 0;
+    await pg.eval(`(function(){var b=document.getElementById('sa-c-guardar');b.click();b.click();})()`);
+    await pg.esperar(`function(){return document.querySelector('#sa-contenido h1').textContent==='Zeta Activo Renombrado'}`, 8000);
+    const z = await filaDe('pr-activo');
+    comprobar(z.plan === 'comandas' && z.modalidad_pago === 'mensual' && z.dias_gracia === 9 && z.nombre === 'Zeta Activo Renombrado' && z.modulos.comandas === true && z.modulos.pasarela === false, 'plan, modalidad, gracia, nombre y modulos quedan en la base');
+    comprobar(llamadas('actualizar_restaurante').length === 1, 'doble clic en guardar: una sola llamada');
+    const cambios = JSON.parse(llamadas('actualizar_restaurante')[0].cuerpo).cambios;
+    comprobar(!('zona_horaria' in cambios) && !('vigente_hasta' in cambios) && !('estado' in cambios), 'solo se mandan los campos que cambiaron');
+    await pg.marcar('#sa-c-sinvenc', true); await pg.clic('#sa-c-guardar');
+    await pg.esperar(`function(){return /Sin vencimiento/.test(document.querySelector('#sa-panel-tab').innerText)}`, 8000);
+    comprobar(await vigenteDe('pr-activo') === null, '"Sin vencimiento" quita la fecha');
+    await pg.marcar('#sa-c-sinvenc', false); await pg.escribir('#sa-c-fecha', fechaEn(30)); await pg.clic('#sa-c-guardar');
+    await pg.esperar(`function(){return /quedan 30 días/.test(document.querySelector('#sa-panel-tab').innerText)}`, 8000);
+    comprobar(await vigenteDe('pr-activo') === fechaEn(30), 'y se puede poner una fecha nueva');
+    comprobar(pg.errores.length === 0 && await pg.eval('window.__pwn') === undefined, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  await escenario('13. Detalle: dominios y usuarios (con contrasena temporal una sola vez)', async () => {
+    const pg = await pagina('detalle2');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Casa Prueba');
+    await pestana(pg, 'dominios');
+    comprobar(/No tiene dominio propio/.test(await pg.cuerpo()) && /también hay que agregarlo en Vercel/.test(await pg.cuerpo()), 'dominios: dice que no hay y explica lo que falta hacer en Vercel');
+    await pg.escribir('#sa-dom-nuevo', 'https://malo.com'); await pg.clic('#sa-dom-agregar');
+    await pg.esperar(`function(){return /no es válida/.test(document.body.innerText)}`);
+    comprobar(llamadas('agregar_dominio').length === 0, 'direccion invalida: error y nada se envia');
+    await pg.escribir('#sa-dom-nuevo', 'activo.example.com'); await pg.clic('#sa-dom-agregar');
+    await pg.esperar(`function(){return /ya está en uso/.test(document.body.innerText)}`);
+    comprobar(true, 'dominio repetido (409): mensaje claro');
+    await pg.escribir('#sa-dom-nuevo', 'Prueba-Dom.Example.com'); await pg.clic('#sa-dom-agregar');
+    await pg.esperar(`function(){return /prueba-dom\\.example\\.com/.test(document.querySelector('.sa-lista-simple')?document.querySelector('.sa-lista-simple').innerText:'')}`, 8000);
+    comprobar((await db.query(`select host from public.restaurante_dominios where restaurante_id = $1::uuid`, [R.prueba.id])).rows.some((x) => x.host === 'prueba-dom.example.com'), 'agregar: queda en minusculas en la base');
+    await pg.clicTexto('Quitar'); await pg.existe('.sa-modal');
+    comprobar(/dejará de mostrar este restaurante/.test(await pg.cuerpo()), 'quitar pide confirmacion');
+    await pg.clicTexto('Cancelar'); await sleep(150);
+    comprobar(llamadas('quitar_dominio').length === 0, 'cancelar no quita nada');
+    await pg.clicTexto('Quitar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, quitar');
+    await pg.esperar(`function(){return /No tiene dominio propio/.test(document.body.innerText)}`, 8000);
+    comprobar(llamadas('quitar_dominio').length === 1, 'confirmado: se quita');
+
+    await pestana(pg, 'usuarios');
+    comprobar(/Nadie tiene acceso/.test(await pg.cuerpo()), 'usuarios: sin nadie todavia');
+    const nuevoCorreo = `cajero-${sfx}@prueba-pantalla.example.com`;
+    await pg.escribir('#sa-u-correo', nuevoCorreo); await pg.escribir('#sa-u-rol', 'cajero');
+    bitacoraApi.length = 0;
+    await pg.eval(`(function(){var b=document.getElementById('sa-u-ir');b.click();b.click();})()`);
+    await pg.existe('.sa-clave-caja', 8000);
+    comprobar(llamadas('crear_usuario').length === 1, 'doble clic: un solo usuario');
+    const clave = (await pg.texto('.sa-clave-caja .sa-clave-valor')).trim();
+    comprobar(clave.length === 20 && (await auth('/token?grant_type=password', { email: nuevoCorreo, password: clave })).status === 200, 'contrasena temporal de 20 caracteres que sirve para entrar');
+    await capturarAmbos(pg, 'detalle-usuarios-contrasena');
+    comprobar((await db.query(`select rol from public.miembros m join auth.users u on u.id = m.user_id where u.email = $1`, [nuevoCorreo])).rows[0].rol === 'cajero', 'quedo como cajero');
+    await pg.clicTexto('Ya la copié, borrarla');
+    comprobar(!(await pg.eval('document.documentElement.outerHTML')).includes(clave), 'al borrarla desaparece de la pagina');
+    await pg.escribir('#sa-u-correo', nuevoCorreo); await pg.clic('#sa-u-ir');
+    await pg.esperar(`function(){return /Ya existe un usuario con ese correo/.test(document.body.innerText)}`);
+    comprobar(true, 'crear un correo repetido (409): dice que use "Ya tiene cuenta"');
+    await pg.clic('#sa-u-existe'); await pg.escribir('#sa-u-correo', uDueno.email); await pg.escribir('#sa-u-rol', 'cocina');
+    bitacoraApi.length = 0;
+    await pg.clic('#sa-u-ir');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-panel-tab tbody tr').length===2}`, 8000);
+    comprobar(llamadas('crear_usuario').length === 0 && llamadas('asignar_miembro').length === 1, 'dar acceso a alguien que ya tiene cuenta: buscar_usuario + asignar_miembro, sin crear otra cuenta');
+    await pg.clic('#sa-u-existe');   // tras cada accion la pestaña se vuelve a armar en el modo por defecto (usuario nuevo)
+    await pg.escribir('#sa-u-correo', 'nadie-' + sfx + '@prueba-pantalla.example.com'); await pg.clic('#sa-u-ir');
+    await pg.esperar(`function(){return /No existe ningún usuario con ese correo/.test(document.body.innerText)}`);
+    comprobar(true, 'un correo que no existe: lo dice');
+    // cambiar rol y quitar
+    const filaCocina = await pg.eval(`[...document.querySelectorAll('#sa-panel-tab tbody tr')].findIndex(function(tr){return tr.textContent.indexOf(${JSON.stringify(uDueno.email)})>=0})`);
+    await pg.eval(`(function(){var tr=document.querySelectorAll('#sa-panel-tab tbody tr')[${filaCocina}];var s=tr.querySelector('select');s.value='cajero';s.dispatchEvent(new Event('change',{bubbles:true}));[...tr.querySelectorAll('button')].filter(function(b){return b.textContent==='Cambiar rol'})[0].click();})()`);
+    await pg.esperar(`function(){return /Rol cambiado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    comprobar((await db.query(`select rol from public.miembros where user_id = $1::uuid and restaurante_id = $2::uuid`, [uDueno.id, R.prueba.id])).rows[0].rol === 'cajero', 'cambiar el rol (cocina a cajero) llega a la base');
+    await pg.eval(`(function(){var tr=[...document.querySelectorAll('#sa-panel-tab tbody tr')].filter(function(t){return t.textContent.indexOf(${JSON.stringify(uDueno.email)})>=0})[0];[...tr.querySelectorAll('button')].filter(function(b){return b.textContent==='Quitar'})[0].click();})()`);
+    await pg.existe('.sa-modal');
+    await pg.clicTexto('Cancelar'); await sleep(150);
+    comprobar((await db.query(`select count(*)::int as n from public.miembros where user_id = $1::uuid and restaurante_id = $2::uuid`, [uDueno.id, R.prueba.id])).rows[0].n === 1, 'cancelar no quita al usuario');
+    await pg.eval(`(function(){var tr=[...document.querySelectorAll('#sa-panel-tab tbody tr')].filter(function(t){return t.textContent.indexOf(${JSON.stringify(uDueno.email)})>=0})[0];[...tr.querySelectorAll('button')].filter(function(b){return b.textContent==='Quitar'})[0].click();})()`);
+    await pg.existe('.sa-modal'); await pg.clicTexto('Sí, quitar');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-panel-tab tbody tr').length===1}`, 8000);
+    comprobar((await db.query(`select count(*)::int as n from public.miembros where user_id = $1::uuid and restaurante_id = $2::uuid`, [uDueno.id, R.prueba.id])).rows[0].n === 0, 'quitar con confirmacion lo saca de la base (su cuenta sigue existiendo)');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  await escenario('14. Detalle: marca y datos (colores con vista previa de contraste, secciones, tarifas y rechazos del servidor tal cual)', async () => {
+    const pg = await pagina('marca');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Beta Gracia');
+    await pestana(pg, 'marca');
+    const seccion = (nombre) => `document.querySelector('[data-seccion="${nombre}"]')`;
+    const guardar = async (nombre) => { await pg.eval(`${seccion(nombre)}.querySelector('.sa-btn-primario').click()`); };
+    const mensajeDe = (nombre) => pg.eval(`(function(){var e=${seccion(nombre)}.querySelector('[role=alert]');return e?e.textContent:''})()`);
+    const cfg = async () => (await filaDe('pr-gracia')).config;
+
+    // ---- marca ----
+    await pg.escribir('#sa-m-logo', 'Recursos/gracia/logo.png'); await pg.escribir('#sa-m-emoji', '🌮');
+    await pg.escribir('#sa-colt-primario', '#C1272D'); await pg.escribir('#sa-colt-claro', '#F7ECD6'); await pg.escribir('#sa-colt-oscuro', '#1C1210'); await pg.escribir('#sa-colt-acento', '#E3A008'); await pg.escribir('#sa-colt-texto_secundario', '#D9C9A8');
+    const contr = await pg.texto('#sa-contrastes');
+    comprobar(/Texto claro sobre fondo oscuro/.test(contr) && /bien/.test(contr), 'la vista previa de legibilidad calcula el contraste y dice "bien"', contr);
+    comprobar(await pg.eval(`getComputedStyle(document.getElementById('sa-muestra')).backgroundColor`) === 'rgb(28, 18, 16)', 'la muestra pinta el fondo oscuro elegido');
+    await pg.escribir('#sa-colt-claro', '#777777'); await pg.escribir('#sa-colt-oscuro', '#888888');
+    comprobar(/difícil de leer/.test(await pg.texto('#sa-contrastes')), 'un par de colores casi iguales se marca como "difícil de leer"');
+    await pg.escribir('#sa-colt-claro', '#F7ECD6'); await pg.escribir('#sa-colt-oscuro', '#1C1210');
+    await pg.escribir('#sa-m-zonas', '#5C7A3B, #E3A008'); await pg.escribir('#sa-m-tit', 'Bebas Neue'); await pg.escribir('#sa-m-cue', 'Open Sans');
+    await capturarAmbos(pg, 'detalle-marca');
+    await pg.escribir('#sa-colt-primario', '#12345');
+    await guardar('Marca');
+    await pg.esperar(`function(){return /debe ser #RRGGBB/.test(document.body.innerText)}`);
+    comprobar(llamadas('editar_config').length === 0, 'un color mal escrito se rechaza en pantalla y no se manda');
+    await pg.escribir('#sa-colt-primario', '#C1272D');
+    await guardar('Marca');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    let c = (await cfg()).publico.marca;
+    comprobar(c.logo === 'Recursos/gracia/logo.png' && c.emoji === '🌮' && c.colores.primario === '#C1272D' && c.colores.oscuro === '#1C1210' && c.tipografia.titulos === 'Bebas Neue' && c.colores_zonas.length === 2, 'la marca se guarda completa en la base');
+    // la config que ya existia y la pantalla no toca se conserva
+    await db.query(`update public.restaurantes set config = jsonb_set(config, '{publico,marca,icono_192}', '"Recursos/gracia/i192.png"') where id = $1::uuid`, [R.gracia.id]);
+    await abrirDetalle(pg, 'Beta Gracia'); await pestana(pg, 'marca');
+    comprobar(await pg.eval(`document.getElementById('sa-m-logo').value`) === 'Recursos/gracia/logo.png' && await pg.eval(`document.getElementById('sa-colt-primario').value`) === '#C1272D', 'al volver a abrir, los campos traen lo guardado');
+    await pg.escribir('#sa-m-emoji', '🍔'); await guardar('Marca');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    c = (await cfg()).publico.marca;
+    comprobar(c.icono_192 === 'Recursos/gracia/i192.png' && c.emoji === '🍔', 'lo que la pantalla no muestra (icono_192) se conserva al guardar');
+    // rechazo del servidor, tal cual
+    await abrirDetalle(pg, 'Beta Gracia'); await pestana(pg, 'marca');
+    await pg.escribir('#sa-m-logo', 'javascript:alert(1)'); await guardar('Marca');
+    await pg.esperar(`function(){return !!document.querySelector('[data-seccion="Marca"] .sa-msj-error')}`, 8000);
+    const rechazo = await mensajeDe('Marca');
+    comprobar(rechazo.length > 10 && (await cfg()).publico.marca.logo === 'Recursos/gracia/logo.png', 'un logo javascript: lo rechaza el servidor, se muestra su mensaje y nada cambia', rechazo);
+
+    // ---- contacto, ubicacion, domicilio, pwa, wompi, textos ----
+    await pg.escribir('#sa-ct-whatsapp', '573001112233'); await pg.escribir('#sa-ct-ciudad', 'Cúcuta'); await guardar('Contacto');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    comprobar((await cfg()).publico.contacto.whatsapp === '573001112233' && (await cfg()).publico.contacto.ciudad === 'Cúcuta', 'contacto se guarda');
+    await pestana(pg, 'marca');
+    await pg.escribir('#sa-ub-lat', '7.89'); await pg.escribir('#sa-ub-lng', ''); await guardar('Ubicación');
+    await pg.esperar(`function(){return /latitud .* longitud/i.test(document.body.innerText)}`);
+    comprobar(true, 'solo la latitud: error en pantalla');
+    await pg.escribir('#sa-ub-lng', '-72.5'); await guardar('Ubicación');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    comprobar((await cfg()).ubicacion.lat === 7.89 && (await cfg()).ubicacion.lng === -72.5, 'ubicacion se guarda');
+    await pestana(pg, 'marca');
+    await pg.escribir('#sa-dm-factor_recorrido', '5'); await guardar('Domicilio');
+    await pg.esperar(`function(){return !!document.querySelector('[data-seccion="Domicilio"] .sa-msj-error')}`, 8000);
+    comprobar(/factor/i.test(await mensajeDe('Domicilio')) || (await mensajeDe('Domicilio')).length > 5, 'factor de recorrido fuera de 1 a 3: el rechazo del servidor se muestra', await mensajeDe('Domicilio'));
+    await pg.escribir('#sa-dm-factor_recorrido', '1.3'); await pg.escribir('#sa-dm-pin_minimo_metros', '100'); await guardar('Domicilio');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    comprobar((await cfg()).domicilio.factor_recorrido === 1.3, 'domicilio se guarda con un valor valido');
+    await pestana(pg, 'marca');
+    await pg.escribir('#sa-pw-nombre', 'Panel Beta'); await pg.escribir('#sa-pw-nombre_corto', 'X'.repeat(13)); await guardar('App del panel');
+    await pg.esperar(`function(){return !!document.querySelector('[data-seccion="App del panel"] .sa-msj-error')}`, 8000);
+    comprobar((await mensajeDe('App del panel')).length > 5, 'nombre corto de mas de 12 letras: lo rechaza el servidor y se ve su mensaje', await mensajeDe('App del panel'));
+    await pg.escribir('#sa-pw-nombre_corto', 'Beta'); await guardar('App del panel');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    await pestana(pg, 'marca');
+    await pg.escribir('#sa-wp-llave_publica_test', 'pub_test_ABCDEFGHIJ1234'); await guardar('Wompi (llaves públicas)');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    await pestana(pg, 'marca');
+    await pg.escribir('#sa-tx-eslogan', 'Lo mejor de la ciudad'); await guardar('Textos');
+    await pg.esperar(`function(){return /Guardado/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(100);
+    const fin = (await cfg()).publico;
+    comprobar(fin.pwa.nombre === 'Panel Beta' && fin.pwa.nombre_corto === 'Beta' && fin.wompi.llave_publica_test === 'pub_test_ABCDEFGHIJ1234' && fin.textos.eslogan === 'Lo mejor de la ciudad' && fin.marca.colores.primario === '#C1272D', 'app, llave publica y textos se guardan sin tocar lo demas');
+
+    // ---- tarifas ----
+    await pestana(pg, 'marca');
+    await pg.clicTexto('Agregar tramo');
+    await pg.eval(`(function(){var c=document.querySelector('[data-seccion="Tarifas"]');var i=c.querySelectorAll('input');i[0].value='0';i[0].dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await pg.clic('#sa-tarifas-guardar');
+    await pg.esperar(`function(){return /mayor que 0/.test(document.body.innerText)}`);
+    comprobar(llamadas('guardar_tarifas').length === 0, 'un tramo de 0 km se rechaza en pantalla');
+    await pg.eval(`(function(){var c=document.querySelector('[data-seccion="Tarifas"]');var i=c.querySelectorAll('input');function p(e,v){e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));}p(i[0],'2');p(i[1],'5000');})()`);
+    await pg.clicTexto('Agregar tramo');
+    await pg.eval(`(function(){var c=document.querySelector('[data-seccion="Tarifas"]');var i=c.querySelectorAll('input');function p(e,v){e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));}p(i[2],'999');})()`);
+    await pg.clic('#sa-tarifas-guardar');
+    await pg.esperar(`function(){return /Tarifas guardadas/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    const tarifas = (await db.query(`select hasta::float as hasta, precio from public.tarifas_domicilio where restaurante_id = $1::uuid order by hasta`, [R.gracia.id])).rows;
+    comprobar(tarifas.length === 2 && tarifas[0].hasta === 2 && tarifas[0].precio === 5000 && tarifas[1].hasta === 999 && tarifas[1].precio === null, 'tarifas: 2 km a $5.000 y un tramo sin precio (fuera de cobertura)', JSON.stringify(tarifas));
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  await escenario('15. Detalle: secretos de SOLO ESCRITURA (el valor nunca vuelve a aparecer)', async () => {
+    const pg = await pagina('secretos');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Casa Prueba');
+    await pestana(pg, 'secretos');
+    const S1 = 'pub_test_SecretoUnoABCDEF123456', S2 = 'test_integrity_SecretoDosABCDEF123456', S3 = 'callmebot-clave-' + sfx;
+    comprobar(await pg.eval(`[...document.querySelectorAll('[data-puesto]')].every(function(x){return x.dataset.puesto==='no'})`), 'al inicio ningun secreto esta cargado (indicadores "No")');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.autocomplete==='new-password'&&i.spellcheck===false})`) && await pg.eval(`document.querySelectorAll('#sa-panel-tab input[type=password]').length`) === 10, 'los 10 campos son de contrasena, con autocomplete new-password');
+    comprobar(/SOLO ESCRITURA/.test(await pg.cuerpo()) && /OTRO restaurante también se rechaza/.test(await pg.cuerpo()), 'explica que son de solo escritura y que un valor de otro restaurante se rechaza');
+    await capturarAmbos(pg, 'detalle-secretos');
+    await pg.clic('#sa-sec-guardar');
+    await pg.esperar(`function(){return /No escribiste ningún valor/.test(document.body.innerText)}`);
+    comprobar(llamadas('guardar_secretos').length === 0, 'guardar sin escribir nada: error y nada se manda');
+
+    await pg.escribir('#sa-sec-wompi_llave_publica_test', S1); await pg.escribir('#sa-sec-wompi_integridad_test', S2); await pg.escribir('#sa-sec-callmebot_apikey', S3); await pg.escribir('#sa-sec-modo', 'test');
+    await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal');
+    const dialogo = await pg.texto('.sa-modal');
+    comprobar(!dialogo.includes(S1) && !dialogo.includes(S2) && /3 valores|4 valores/.test(dialogo) && /Wompi/.test(dialogo), 'la confirmacion nombra los campos, nunca los valores');
+    await pg.clicTexto('Cancelar'); await sleep(150);
+    comprobar(llamadas('guardar_secretos').length === 0 && await pg.eval(`document.getElementById('sa-sec-wompi_llave_publica_test').value`) === S1, 'cancelar no guarda y no toca lo escrito');
+    await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal');
+    bitacoraApi.length = 0;
+    await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, guardar'})[0];b.click();b.click();})()`);
+    await pg.esperar(`function(){return /Secretos guardados/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
+    await sleep(300);
+    comprobar(llamadas('guardar_secretos').length === 1, 'doble clic al confirmar: un solo guardado');
+    const respuesta = bitacoraApi.filter((x) => x.accion === 'guardar_secretos')[0].respuesta;
+    comprobar(![S1, S2, S3].some((s) => respuesta.includes(s)), 'la respuesta del servidor no trae ningun valor');
+    const dom = await pg.eval('document.documentElement.outerHTML'), texto = await pg.cuerpo();
+    comprobar(![S1, S2, S3].some((s) => dom.includes(s) || texto.includes(s)), 'ningun valor aparece en la pagina (ni texto ni HTML) despues de guardar');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.value===''})`), 'todos los campos quedan vacios');
+    comprobar(await pg.eval(`['wompi_llave_publica_test','wompi_integridad_test','callmebot_apikey'].every(function(k){return document.querySelector('[data-campo='+k+'] [data-puesto]').dataset.puesto==='si'})`) && /Ahora: Pruebas/.test(await pg.cuerpo()), 'los indicadores pasan a "Cargado: Sí" y el modo a Pruebas');
+    comprobar(/Guardado/.test(await pg.texto('#sa-sec-resultado')), 'se muestra el resultado por campo');
+    await capturarAmbos(pg, 'detalle-secretos-guardados');
+    const fila = (await db.query(`select wompi_llave_publica_test, wompi_integridad_test, callmebot_apikey, otros->>'wompi_modo' as modo from public.restaurante_secretos where restaurante_id = $1::uuid`, [R.prueba.id])).rows[0];
+    comprobar(fila.wompi_llave_publica_test === S1 && fila.wompi_integridad_test === S2 && fila.callmebot_apikey === S3 && fila.modo === 'test', 'en la base si quedaron guardados');
+    const todo = JSON.stringify(await pg.almacenamiento()) + pg.consola.join('\n');
+    comprobar(![S1, S2, S3].some((s) => todo.includes(s)), 'ni en sessionStorage, localStorage, cookies, URL ni consola');
+
+    // reemplazar: sin la casilla se rechaza; con la casilla se guarda
+    await pg.escribir('#sa-sec-wompi_llave_publica_test', 'pub_test_OtroValorABCDEF123456'); await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, guardar');
+    await pg.esperar(`function(){return /Ya hay otro valor/.test(document.body.innerText)}`, 8000);
+    comprobar((await db.query(`select wompi_llave_publica_test as v from public.restaurante_secretos where restaurante_id = $1::uuid`, [R.prueba.id])).rows[0].v === S1 && !(await pg.cuerpo()).includes('OtroValor'), 'otro valor en un campo ya cargado: se rechaza (pide marcar "Reemplazar") y no se ve');
+    await pg.escribir('#sa-sec-wompi_llave_publica_test', 'pub_test_OtroValorABCDEF123456'); await pg.marcar('#sa-sec-sobre', true); await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, guardar');
+    await pg.esperar(`function(){return /Secretos guardados/.test(document.getElementById('sa-aviso').textContent)}`, 8000); await sleep(300);
+    comprobar((await db.query(`select wompi_llave_publica_test as v from public.restaurante_secretos where restaurante_id = $1::uuid`, [R.prueba.id])).rows[0].v === 'pub_test_OtroValorABCDEF123456', 'con "Reemplazar" el valor nuevo se guarda');
+
+    // un valor que ya usa OTRO restaurante
+    await abrirDetalle(pg, 'Alfa Vencido'); await pestana(pg, 'secretos');
+    await pg.escribir('#sa-sec-wompi_integridad_test', S2);
+    await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, guardar');
+    await pg.esperar(`function(){return /otro restaurante ya usa ese valor/.test(document.body.innerText)}`, 8000);
+    comprobar(await pg.eval(`document.getElementById('sa-sec-wompi_integridad_test').value===''`) && !(await pg.cuerpo()).includes(S2), 'repetido en otro restaurante (409): se rechaza, se explica y el campo queda vacio');
+    comprobar((await db.query(`select wompi_integridad_test as v from public.restaurante_secretos where restaurante_id = $1::uuid`, [R.vencido.id])).rows[0].v === null, 'y no se guardo nada');
+    // formato malo del servidor
+    await pg.escribir('#sa-sec-callmebot_telefono', 'no-es-telefono'); await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal'); await pg.clicTexto('Sí, guardar');
+    await pg.esperar(`function(){return /solo digitos|solo dígitos/.test(document.body.innerText)}`, 8000);
+    comprobar(await pg.eval(`document.getElementById('sa-sec-callmebot_telefono').value===''`), 'un valor con formato malo (400): se muestra el motivo y el campo se vacia igual');
+    // al salir y volver no hay nada
+    await pestana(pg, 'resumen'); await pestana(pg, 'secretos');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.value===''})`), 'al cambiar de pestaña y volver los campos siguen vacios');
+    const aud = (await db.query(`select resumen::text as r from public.auditoria_superadmin where accion = 'guardar_secretos'`)).rows.map((x) => x.r).join('');
+    comprobar(![S1, S2, S3, 'OtroValor'].some((s) => aud.includes(s)), 'la auditoria no tiene ningun valor de secreto');
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 
