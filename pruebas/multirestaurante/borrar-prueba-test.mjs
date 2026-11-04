@@ -24,7 +24,7 @@ function correr(args, { stdin = '', llave = LLAVE } = {}) {
   return new Promise((ok) => {
     const env = { ...process.env, SUPABASE_URL: falso.url };
     if (llave === null) delete env.SUPABASE_SERVICE_ROLE_KEY; else env.SUPABASE_SERVICE_ROLE_KEY = llave;
-    const h = spawn(process.execPath, [path.join(REPO, 'supabase', 'borrar-restaurante-prueba.mjs'), ...args], { cwd: REPO, env });
+    const h = spawn(process.execPath, [process.env.BORRAR_SCRIPT || path.join(REPO, 'supabase', 'borrar-restaurante-prueba.mjs'), ...args], { cwd: REPO, env });
     let out = '', err = '';
     h.stdout.on('data', (d) => { out += d; }); h.stderr.on('data', (d) => { err += d; });
     h.on('close', (codigo) => ok({ codigo, salida: out + err }));

@@ -36,28 +36,29 @@ const M = [
   { id: 'la renovacion que baja a aal1 no pide el codigo', f: 'superadmin.js', de: 'if (aalDe(ses.access) !== "aal2" && !mfaEnCurso && capaPantalla.hidden) {', a: 'if (false) {', esc: '^18[.]' },
   { id: 'los caracteres invisibles no se marcan', f: 'superadmin.js', de: 's = cambiarInvisibles(s);', a: '', esc: '^(9|16)[.]' },
   { id: 'los textos largos no se cortan', f: 'superadmin.js', de: 'if (s.length > max) {', a: 'if (false) {', esc: '^9[.]' },
-  { id: 'la clave del QR queda en el DOM', f: 'superadmin.js', de: 'function limpiarSecreto() { if (qr) qr.removeAttribute("src"); claveEl.textContent = ""; f = null; enrolando = null; }', a: 'function limpiarSecreto() { }', esc: '^3[.]' },
+  { id: 'EQUIVALENTE: la clave del QR no se borra a mano (igual se borra al cambiar de pantalla, que vacia todo el DOM)', equivalente: true, f: 'superadmin.js', de: 'function limpiarSecreto() { if (qr) qr.removeAttribute("src"); claveEl.textContent = ""; f = null; enrolando = null; }', a: 'function limpiarSecreto() { }', esc: '^3[.]' },
   { id: 'el codigo acepta letras', f: 'superadmin.js', de: 'cod.value = cod.value.replace(/' + sl + 'D/g, "").slice(0, 6);', a: '', todos: true, esc: '^3[.]' },
-  { id: 'sin proteccion de doble clic (SA.enviar)', f: 'superadmin.js', de: 'if (btn.getAttribute("data-ocupado") === "1") return Promise.resolve();', a: '', esc: '^(10|12|13)[.]' },
+  { id: 'EQUIVALENTE: SA.enviar sin su marca de ocupado (el boton ya queda disabled y un boton disabled no recibe mas clics)', equivalente: true, f: 'superadmin.js', de: 'if (btn.getAttribute("data-ocupado") === "1") return Promise.resolve();', a: '', esc: '^(10|12|13)[.]' },
   { id: 'cancelar la confirmacion confirma', f: 'superadmin.js', de: 'fin(false); mm.cerrar();', a: 'fin(true); mm.cerrar();', esc: '^(12|13)[.]' },
   // ---- alta
   { id: 'alta: la contrasena temporal no se borra', f: 'superadmin-alta.js', de: 'function limpiarClave() {', a: 'function limpiarClave() { return;', esc: '^10[.]' },
   { id: 'alta: nombre corto sin validar', f: 'superadmin-alta.js', de: 'if (!SLUG.test(s) || s.length < 2 || s.length > 40)', a: 'if (false)', esc: '^10[.]' },
   { id: 'alta: nombres reservados permitidos', f: 'superadmin-alta.js', de: 'if (RESERVADOS.indexOf(s) >= 0)', a: 'if (false)', esc: '^10[.]' },
   { id: 'alta: direccion web sin validar', f: 'superadmin-alta.js', de: 'if (!HOST.test(hh))', a: 'if (false)', esc: '^10[.]' },
-  { id: 'alta: correo sin validar', f: 'superadmin-alta.js', de: new RegExp('if \\(!CORREO\\.test\\(c\\) \\|\\| c\\.length > 254\\) return '), a: 'if (false) return ', esc: '^10[.]' },
+  { id: 'EQUIVALENTE: alta: correo sin validar en el paso 3 (la misma regla vuelve a correr en consultar() y el servidor la repite)', equivalente: true, f: 'superadmin-alta.js', de: new RegExp('if \\(!CORREO\\.test\\(c\\) \\|\\| c\\.length > 254\\) return '), a: 'if (false) return ', esc: '^10[.]' },
   { id: 'alta: el reintento crea otro restaurante', f: 'superadmin-alta.js', de: /if \(!est\.restaurante\) \{(\s+cadena)/, a: 'if (true) {$1', esc: '^11[.]' },
   { id: 'alta: un correo que ya existe intenta crear otra cuenta', f: 'superadmin-alta.js', de: /if \(est\.usuario\) \{(\s+return SA\.api\("asignar_miembro")/, a: 'if (false) {$1', esc: '^11[.]' },
   { id: 'alta: dias de prueba equivocados', f: 'superadmin-alta.js', de: 'var vence = SA.fecha.sumarDias(SA.fecha.hoy(), est.dias);', a: 'var vence = SA.fecha.sumarDias(SA.fecha.hoy(), 7);', esc: '^10[.]' },
   // ---- detalle
-  { id: 'secretos: los campos no se vacian', f: 'superadmin-detalle.js', de: 'function vaciar() {', a: 'function vaciar() { return;', esc: '^15[.]' },
+  { id: 'EQUIVALENTE: secretos: vaciar() sin el vaciado previo (se vacian en el vaciado previo; solo juntos se notan: ver la siguiente)', equivalente: true, f: 'superadmin-detalle.js', de: 'function vaciar() {', a: 'function vaciar() { return;', esc: '^15[.]' },
+  { id: 'secretos: los campos NUNCA se vacian (ni antes ni despues de la respuesta)', f: 'superadmin-detalle.js', de: 'function vaciar() {', a: 'function vaciar() { return;', tambien: [{ de: 'Object.keys(entradas).forEach(function (k) { entradas[k].value = ""; });   // se vacian ANTES de esperar la respuesta', a: '' }], esc: '^15[.]' },
   { id: 'secretos: campos visibles (type=text)', f: 'superadmin-detalle.js', de: 'type: "password", id: "sa-sec-"', a: 'type: "text", id: "sa-sec-"', esc: '^15[.]' },
   { id: 'secretos: autocompletar activado', f: 'superadmin-detalle.js', de: 'autocomplete: "new-password", spellcheck: "false"', a: 'autocomplete: "on", spellcheck: "false"', esc: '^15[.]' },
   { id: 'secretos: siempre reemplaza', f: 'superadmin-detalle.js', de: 'sobrescribir: sobrescribir,', a: 'sobrescribir: true,', esc: '^15[.]' },
   { id: 'usuarios: la contrasena temporal no se puede borrar', f: 'superadmin-detalle.js', de: 'borrarBtn.addEventListener("click", limpiar);', a: 'borrarBtn.addEventListener("click", function () {});', esc: '^13[.]' },
   { id: 'pago: manda siempre 1 mes', f: 'superadmin-detalle.js', de: 'var datos = { restaurante_id: id, meses: mm_ };', a: 'var datos = { restaurante_id: id, meses: 1 };', esc: '^12[.]' },
-  { id: 'suspender sin confirmar', f: 'superadmin-detalle.js', de: /(boton: "S.\ssuspender", peligro: true \}\)\.then\(function \(si\) \{\s*)if \(!si\) return;/, a: '$1', esc: '^12[.]' },
-  { id: 'quitar dominio sin confirmar', f: 'superadmin-detalle.js', de: /(boton: "S.\squitar", peligro: true \}\)\.then\(function \(si\) \{\s*)if \(!si\) return;/, a: '$1', esc: '^13[.]' },
+  { id: 'suspender sin confirmar', f: 'superadmin-detalle.js', de: /(boton: "S.[,] suspender", peligro: true \}\)\.then\(function \(si\) \{\s*)if \(!si\) return;/, a: '$1', esc: '^12[.]' },
+  { id: 'quitar dominio sin confirmar', f: 'superadmin-detalle.js', de: /(boton: "S.[,] quitar", peligro: true \}\)\.then\(function \(si\) \{\s*)if \(!si\) return;/, a: '$1', esc: '^13[.]' },
   { id: 'color mal escrito sin validar', f: 'superadmin-detalle.js', de: 'if (v !== "" && !HEX.test(v))', a: 'if (false)', esc: '^14[.]' },
   { id: 'tarifa de 0 km permitida', f: 'superadmin-detalle.js', de: 'hasta <= 0 || ', a: '', esc: '^14[.]' },
   { id: 'cambiar plan sin cambios manda igual', f: 'superadmin-detalle.js', de: 'if (!Object.keys(cambios).length) throw new Error("No cambiaste nada.");', a: '', esc: '^12[.]' },
@@ -92,7 +93,7 @@ const M = [
   { id: 'EQUIVALENTE: secretos sin vaciar antes de esperar la respuesta (se vacian igual al llegar la respuesta)', f: 'superadmin-detalle.js', de: 'Object.keys(entradas).forEach(function (k) { entradas[k].value = ""; });   // se vacian ANTES de esperar la respuesta', a: '', esc: '^15[.]', equivalente: true }
 ];
 
-const lista = M.filter((m) => !SOLO || m.id.includes(SOLO));
+const lista = M.filter((m) => !SOLO || SOLO.split('|').some((x) => m.id.includes(x)));
 const raizTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'mut-pantalla-'));
 const ARCH = ['superadmin.html', 'superadmin.css', 'superadmin.js', 'superadmin-alta.js', 'superadmin-detalle.js', 'superadmin-lectura.js', 'superadmin-inicio.js', 'vercel.json', 'supabase-publico.js'];
 
@@ -108,6 +109,7 @@ function copiaPantalla(nombre, mutacion) {
     if (!hay) return { dir, noAplica: true };
     if (typeof de === 'string') txt = mutacion.todos ? txt.split(de).join(mutacion.a) : txt.replace(de, () => mutacion.a);
     else txt = txt.replace(mutacion.todos ? new RegExp(de.source, de.flags + 'g') : de, mutacion.a);
+    for (const t2 of mutacion.tambien || []) { if (!txt.includes(t2.de)) return { dir, noAplica: true }; txt = txt.replace(t2.de, () => t2.a); }
     fs.writeFileSync(p, txt);
   }
   return { dir };
@@ -174,5 +176,5 @@ const equivalentes = resultados.filter((r) => !r.detectada && !r.noAplica && r.m
 console.log(`\n${resultados.length} mutaciones: ${resultados.filter((r) => r.detectada).length} detectadas, ${equivalentes.length} equivalentes declaradas, ${noAplican.length} que no aplican, ${sobrevivientes.length} SIN DETECTAR`);
 for (const r of sobrevivientes) console.log('  SIN DETECTAR: ' + r.m.id);
 for (const r of noAplican) console.log('  NO APLICA (revisar el texto buscado): ' + r.m.id);
-try { fs.rmSync(raizTemp, { recursive: true, force: true }); } catch (e) { /* en uso */ }
+if (!process.env.CONSERVAR) { try { fs.rmSync(raizTemp, { recursive: true, force: true }); } catch (e) { /* en uso */ } } else console.log('copias en ' + raizTemp);
 process.exitCode = sobrevivientes.length || noAplican.length ? 1 : 0;

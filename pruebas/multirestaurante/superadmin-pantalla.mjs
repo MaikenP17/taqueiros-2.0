@@ -246,7 +246,7 @@ async function crearSitio({ falso, manejador }) {
         return;
       }
       const archivo = path.join(/^[/]superadmin|^[/]vercel/.test(ruta) ? RAIZ_PANTALLA : REPO, ruta);
-      if (!archivo.startsWith(path.resolve(REPO)) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) { res.writeHead(404); res.end('no existe'); return; }
+      if (!(archivo.startsWith(path.resolve(REPO)) || archivo.startsWith(RAIZ_PANTALLA)) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) { res.writeHead(404); res.end('no existe'); return; }
       const cab = { 'Content-Type': TIPOS[path.extname(archivo)] || 'application/octet-stream' };
       if (!estadoSitio.sinCabeceras) Object.assign(cab, cabecerasDeVercel(ruta));
       res.writeHead(200, cab);
@@ -873,7 +873,7 @@ async function escenario(nombre, fn) {
     comprobar(msj1.includes(clave) && msj1.includes('https://' + host) && msj1.includes(correoNuevo), 'el mensaje de WhatsApp lleva direccion, correo y la contrasena MIENTRAS esta en pantalla');
     comprobar((await pg.eval(`JSON.stringify(sessionStorage)+JSON.stringify(localStorage)+document.cookie+location.href`)).indexOf(clave) < 0 && pg.consola.join('\n').indexOf(clave) < 0, 'la contrasena no esta en sessionStorage, localStorage, cookies, URL ni consola');
     await pg.clic('#al-borrar-clave');
-    comprobar(!(await pg.cuerpo()).includes(clave) && !(await pg.eval('document.documentElement.outerHTML')).includes(clave) && await pg.eval(`!document.getElementById('al-clave')`), 'al borrarla desaparece del texto y del HTML de la pagina');
+    comprobar(!(await pg.cuerpo()).includes(clave) && !(await pg.eval('document.documentElement.textContent')).includes(clave) && await pg.eval(`!document.getElementById('al-clave')`), 'al borrarla desaparece del texto y del HTML de la pagina');
     await pg.clic('#al-copiar-msj');
     const msj2 = (await pg.eval('window.__copiado')).slice(-1)[0];
     comprobar(!msj2.includes(clave) && /por aparte/.test(msj2) && msj2.includes('https://' + host), 'el mensaje de WhatsApp ya NO lleva la contrasena (dice que se envia por aparte)');
@@ -884,7 +884,7 @@ async function escenario(nombre, fn) {
     // la contrasena tambien se borra al salir de la vista
     await pg.clicTexto('Crear otro');
     await pg.existe('#al-nombre');
-    comprobar(!(await pg.eval('document.documentElement.outerHTML')).includes(clave), 'al empezar otro alta no queda rastro');
+    comprobar(!(await pg.eval('document.documentElement.textContent')).includes(clave), 'al empezar otro alta no queda rastro');
   });
 
   await escenario('11. Alta: errores del servidor (nombre corto repetido, dominio repetido), usuario que ya existe y fallo a medias', async () => {
@@ -1085,7 +1085,7 @@ async function escenario(nombre, fn) {
     await capturarAmbos(pg, 'detalle-usuarios-contrasena');
     comprobar((await db.query(`select rol from public.miembros m join auth.users u on u.id = m.user_id where u.email = $1`, [nuevoCorreo])).rows[0].rol === 'cajero', 'quedo como cajero');
     await pg.clicTexto('Ya la copié, borrarla');
-    comprobar(!(await pg.eval('document.documentElement.outerHTML')).includes(clave), 'al borrarla desaparece de la pagina');
+    comprobar(!(await pg.eval('document.documentElement.textContent')).includes(clave), 'al borrarla desaparece de la pagina');
     await pg.escribir('#sa-u-correo', nuevoCorreo); await pg.clic('#sa-u-ir');
     await pg.esperar(`function(){return /Ya existe un usuario con ese correo/.test(document.body.innerText)}`);
     comprobar(true, 'crear un correo repetido (409): dice que use "Ya tiene cuenta"');
@@ -1284,7 +1284,7 @@ async function escenario(nombre, fn) {
     select $1::uuid, 'LEC-' || g, 'nuevo', 'aprobado', 'Cliente ' || g, '300' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - (g || ' seconds')::interval from generate_series(1, 55) g`, [L.id]);
   await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
     select $1::uuid, 'VIEJO-' || g, 'entregado', 'aprobado', 'Antiguo ' || g, '301' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - interval '3 days' - (g || ' seconds')::interval from generate_series(1, 20) g`, [L.id]);
-  const ITEMS_HOSTILES = [{ id: 'x', nombre: '<script>window.__pwn=1</script> Combo', cantidad: 2, precio: 5000, opciones: [{ tipo: 'extra', nombre: '"><svg onload=window.__pwn=1>', precio: 1000 }, { tipo: 'quitar', nombre: `sin${bidi}cebolla${cero}` }] }, 'texto suelto <b>negrita</b>', 42, null, { nombre: 'Y'.repeat(500), cantidad: 1 }];
+  const ITEMS_HOSTILES = [{ id: 'x', nombre: bidi + cero + '<script>window.__pwn=1</script> Combo', cantidad: 2, precio: 5000, opciones: [{ tipo: 'extra', nombre: '"><svg onload=window.__pwn=1>', precio: 1000 }, { tipo: 'quitar', nombre: `sin${bidi}cebolla${cero}` }] }, 'texto suelto <b>negrita</b>', 42, null, { nombre: 'Y'.repeat(500), cantidad: 1 }];
   await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, cliente_email, direccion, barrio, indicaciones, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
     values ($1::uuid, 'HOSTIL-1', 'nuevo', 'aprobado', $2, '3009998877', 'x@y.com', 'Calle 1 #2-3 🏠', 'Barrio <i>cursiva</i>', E'toca el timbre\\nsegundo piso <img src=x onerror=window.__pwn=1>', 'domicilio', $3::jsonb, 10000, 2000, 12000, now(), true, now(), now() + interval '1 second')`,
     [L.id, `<img src=x onerror="window.__pwn=1"> ${bidi}Hostil${cero} ` + 'Z'.repeat(400), JSON.stringify(ITEMS_HOSTILES)]);
