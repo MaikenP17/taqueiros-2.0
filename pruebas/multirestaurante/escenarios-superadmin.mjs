@@ -998,6 +998,43 @@ export async function correrSuperadmin(opts) {
           return es(malos.length === 0 && ok.status === 200 && ok2.status === 200, malos.slice(0, 4).join(' | ') + ' ' + ok.status + ' ' + ok2.status);
         });
       }
+      if ('cortar' in hooks) {
+        await T('si la base falla al mirar la tabla superadmins: 500 generico para el superadmin con MFA y para el dueno, nunca la accion (falla hacia lo estricto)', async () => {
+          hooks.cortar = (req, url) => url.pathname === '/rest/v1/superadmins';
+          try {
+            const a = await llamar(tSuper, { accion: 'listar_restaurantes' }, { ip: ipN() });
+            const b = await llamar(sesiones.dueno, { accion: 'yo' }, { ip: ipN() });
+            return es(a.status === 500 && igual(a.cuerpo, { error: 'No se pudo comprobar el permiso' }) && b.status === 500 && igual(b.cuerpo, a.cuerpo), JSON.stringify([a.status, a.cuerpo, b.status, b.cuerpo]));
+          } finally { hooks.cortar = null; }
+        });
+      }
+      await T('QUITAR EL FACTOR (como supabase/quitar-mfa.mjs, API de administracion): el token aal2 de ANTES deja de valer como MFA al instante (403 mfa_requerida), aunque Supabase lo siga aceptando hasta que caduque (docs 23.13, R1)', async () => {
+        const uQ = await crearUsuarioAuth('mfa-quitar');
+        sembrarSecreto(uQ.password);
+        await insertar('superadmins', [{ user_id: uQ.id }]);
+        try {
+          const sQ = await elevarAal2(uQ);
+          const antes = await llamar(sQ.token, { accion: 'yo' }, { ip: ipN() });
+          const lf = await fetchReal(`${URL_BASE}/auth/v1/admin/users/${uQ.id}/factors`, { headers: H() });
+          const j = JSON.parse(await lf.text());
+          const lista = Array.isArray(j) ? j : (j.factors || []);
+          let borrados = 0;
+          for (const f of lista) if ((await fetchReal(`${URL_BASE}/auth/v1/admin/users/${uQ.id}/factors/${f.id}`, { method: 'DELETE', headers: H() })).ok) borrados++;
+          // (informativo: si Supabase todavia acepta el token viejo; en Auth real lo acepta hasta que caduca)
+          const vivo = (await fetchReal(`${URL_BASE}/auth/v1/user`, { headers: { apikey: llavePublicable || llaveServicio, Authorization: 'Bearer ' + sQ.token } })).status;
+          const despues = await llamar(sQ.token, { accion: 'yo' }, { ip: ipN() });
+          const estado = await llamar(sQ.token, { accion: 'mi_estado' }, { ip: ipN() });
+          return es(antes.status === 200 && lista.length >= 1 && borrados === lista.length && despues.status === 403 && igual(despues.cuerpo, CUERPO_MFA) && estado.status === 200 && estado.cuerpo.aal === 'aal1',
+            JSON.stringify([antes.status, lista.length, borrados, 'auth/v1/user:' + vivo, despues.status, despues.cuerpo, estado.cuerpo]));
+        } finally {
+          await srv('DELETE', `superadmins?user_id=eq.${uQ.id}`, undefined, 'return=minimal');
+        }
+      });
+      await T('REEMBOLSO: un superadmin SIN MFA (aal1) que no es dueno recibe el mismo 403 que un cajero; con MFA (aal2) pasa el permiso (404 del pedido inexistente); el dueno sigue sin MFA (docs 23.13, R2)', async () => {
+        const pedir = (t) => invocar(api('reembolso'), { host: HOST_TAQUEIROS, ruta: '/api/reembolso', cuerpo: { referencia: 'NO-EXISTE' }, headers: { authorization: 'Bearer ' + t } });
+        const sin = await pedir(tSuper1), con = await pedir(tSuper);
+        return es(sin.status === 403 && /due/.test(sin.cuerpo.error) && !/dos pasos|mfa/i.test(JSON.stringify(sin.cuerpo)) && con.status === 404, JSON.stringify([sin.status, sin.cuerpo, con.status, con.cuerpo]));
+      });
       await T('NO SE EXIGE MFA A NADIE MAS: dueno, cajero y cocina con sesion normal (aal1) siguen leyendo SU restaurante con RLS; el reembolso responde por permisos y no por MFA', async () => {
         const leerCon = async (t, ruta) => { const r = await fetchReal(`${URL_BASE}/rest/v1/${ruta}`, { headers: { apikey: PUB2, Authorization: 'Bearer ' + t } }); return { status: r.status, filas: JSON.parse(await r.text()) }; };
         const malos = [];

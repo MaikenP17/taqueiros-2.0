@@ -1,7 +1,7 @@
 /* =============================================================
    REVISION POR MUTACION DEL PASO 3B PARTE 1  (MFA, lecturas de "entrar como" y su auditoria)
-   Archivos que se rompen a proposito: api/_sesion.js, api/superadmin.js, supabase/19-superadmin-lectura.sql, 19-revertir.sql y el
-   conteo del 16.
+   Archivos que se rompen a proposito: api/_sesion.js, api/superadmin.js, api/reembolso.js, supabase/19-superadmin-lectura.sql,
+   19-revertir.sql y el conteo del 16.
 
      node pruebas/multirestaurante/mutaciones-mfa.mjs                  todas
      node pruebas/multirestaurante/mutaciones-mfa.mjs --solo="aal"     solo las que casen con el nombre
@@ -14,7 +14,7 @@
    Las "equivalentes" (romper la defensa no cambia lo que un atacante puede hacer, porque otra capa lo cubre) estan declaradas con su razon.
 
    Suites: mfa (node --test pruebas/mfa.test.js) | superadmin (superadmin.mjs, con el SQL 19) | sin19 (superadmin.mjs --sin-sql19)
-           | sql19 (sql19.mjs) | sql16 (sql16.mjs)
+           | sql19 (sql19.mjs) | sql16 (sql16.mjs) | quitar (quitar-mfa-test.mjs) | reembolso (servidor.mjs --grupo=reembolso)
 ============================================================= */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,6 +33,7 @@ const m = (nombre, archivo, viejo, nuevo, suites, extra = {}) => M.push({ nombre
 const S19 = 'supabase/19-superadmin-lectura.sql';
 const SES = 'api/_sesion.js';
 const SA = 'api/superadmin.js';
+const RE = 'api/reembolso.js';
 
 // CONTROL: no cambia nada. Las suites tienen que PASAR en la copia; si alguna falla, las demas detecciones no valen.
 m('CONTROL (sin cambios)', SES, 'const UUID =', 'const UUID =', ['mfa', 'superadmin', 'sin19', 'sql19', 'sql16'], { control: true });
@@ -47,8 +48,20 @@ m('AAL: un amr que no es lista se acepta', SES, 'const amr = Array.isArray(carga
 m('AAL: una carga ilegible cuenta como aal2 (falla hacia lo permisivo)', SES, '  } catch (e) {\n    return "aal1";\n  }\n}', '  } catch (e) {\n    return "aal2";\n  }\n}', ['mfa', 'superadmin']);
 m('AAL: un token que no tiene tres partes cuenta como aal2', SES, 'if (partes.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(partes[1])) return "aal1";', 'if (partes.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(partes[1])) return "aal2";', ['mfa']);
 m('AAL: una carga que no es un objeto cuenta como aal2', SES, 'if (!carga || typeof carga !== "object" || Array.isArray(carga)) return "aal1";', 'if (!carga || typeof carga !== "object" || Array.isArray(carga)) return "aal2";', ['mfa']);
-m('AAL: sesionDeToken da siempre aal2', SES, 'return { id, aal: nivelDeGarantia(t, id) };', 'return { id, aal: "aal2" };', ['mfa', 'superadmin']);
+m('AAL: sesionDeToken da siempre aal2', SES, 'return { id, aal };', 'return { id, aal: "aal2" };', ['mfa', 'superadmin']);
 m('AAL: si Auth rechaza el token, se acepta igual leyendo su carga (se confia en un JWT que Auth NO valido)', SES, 'if (resp.status === 400 || resp.status === 401 || resp.status === 403) return null;', 'if (resp.status === 400 || resp.status === 401 || resp.status === 403) { try { const c = JSON.parse(Buffer.from(t.split(".")[1], "base64url").toString("utf8")); return { id: String(c.sub).toLowerCase(), aal: c.aal === "aal2" ? "aal2" : "aal1" }; } catch (e) { return null; } }', ['superadmin']);
+
+// ---- 1b. el factor tiene que seguir existiendo (revision adversaria 3B-1, R1: docs 23.13) ----
+m('FACTOR: no se mira si el usuario todavia tiene el factor (un token aal2 sigue valiendo despues de quitar-mfa)', SES, ' && tieneTotpVerificado(u) ? "aal2"', ' ? "aal2"', ['superadmin', 'quitar']);
+m('FACTOR: un factor SIN verificar cuenta', SES, 'f.factor_type === "totp" && f.status === "verified"', 'f.factor_type === "totp"', ['mfa']);
+m('FACTOR: cualquier tipo de factor cuenta (telefono, webauthn)', SES, 'f.factor_type === "totp" && f.status === "verified"', 'f.status === "verified"', ['mfa']);
+m('FACTOR: si Auth no manda la lista de factores se da por buena', SES, 'return factores.some((f)', 'return !factores.length || factores.some((f)', ['mfa', 'superadmin', 'quitar']);
+m('FACTOR: el factor se busca en la carga del token (que no cambia al borrarlo) y no en la respuesta de Auth', SES, ' && tieneTotpVerificado(u) ? "aal2"', ' && tieneTotpVerificado({ factors: [{ factor_type: "totp", status: "verified" }] }) ? "aal2"', ['superadmin', 'quitar']);
+
+// ---- 1c. reembolso: el superadmin necesita MFA, el dueno no (R2: docs 23.13) ----
+m('REEMBOLSO: el superadmin entra con cualquier aal (sin MFA)', RE, 'return usuario.aal === "aal2" && esSuperadmin(usuario.id);', 'return esSuperadmin(usuario.id);', ['superadmin']);
+m('REEMBOLSO: al dueno tambien se le exige MFA (romperia el panel de los restaurantes)', RE, 'if (filas.length) return true;', 'if (filas.length) return usuario.aal === "aal2";', ['reembolso']);
+m('REEMBOLSO: se vuelve al helper sin aal (nadie es superadmin con MFA)', RE, 'const usuario = await sesionDeSolicitud(req);', 'const s = await sesionDeSolicitud(req); const usuario = s && { id: s.id };', ['superadmin']);
 
 // ---- 2. el orden y el contenido de las respuestas (api/superadmin.js) ----
 m('MFA: la verificacion no existe', SA, '  if (usuario.aal !== "aal2" && pedida !== "mi_estado") {', '  if (false) {', ['superadmin']);
@@ -151,6 +164,13 @@ m('SQL 16: la cuenta de 15 funciones vuelve a contar las del 19 (el 16 no se pue
   "       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno',\n                             'sa_ver_pedidos', 'sa_ver_menu', 'sa_ver_config', 'sa_ver_resumen', 'sa_registrar_rechazo_mfa')),\n    (select string_agg",
   "       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno')),\n    (select string_agg", ['sql19']);
 
+
+// ---- 9. revision adversaria 3B-1: rincones que la lista de arriba no tocaba ----
+m('SQL ver_config: el horario es el de OTRO restaurante', S19, "'minutos_ocultar_terminados', c.minutos_ocultar_terminados)\n                from public.configuracion c where c.restaurante_id = p_restaurante);", "'minutos_ocultar_terminados', c.minutos_ocultar_terminados)\n                from public.configuracion c order by c.restaurante_id = p_restaurante, c.restaurante_id limit 1);", ['sql19', 'superadmin']);
+m('SQL ver_resumen: el mes incluye pedidos de otros restaurantes', S19, "          from public.pedidos p\n          where p.restaurante_id = p_restaurante and p.creado_en >= v_mes_ini and p.creado_en < v_mes_fin);", "          from public.pedidos p\n          where p.creado_en >= v_mes_ini and p.creado_en < v_mes_fin);", ['sql19', 'superadmin']);
+m('SQL ver_resumen: el catalogo cuenta los miembros de todos los restaurantes', S19, "'miembros_activos', (select count(*) from public.miembros x where x.restaurante_id = p_restaurante and x.activo));", "'miembros_activos', (select count(*) from public.miembros x where x.activo));", ['sql19', 'superadmin']);
+m('PERMISO: si la base falla al mirar superadmins, se deja pasar (falla hacia lo permisivo)', SA, "    console.error(\"[Superadmin] No se pudo comprobar el permiso:\", err && err.status);\n    res.status(500).json({ error: \"No se pudo comprobar el permiso\" });\n    return;", "    autorizado = true;", ['superadmin']);
+
 /* ---------------------------------------------------------------------------------------------------- */
 function correr(archivoNodo, args, env, cwd) {
   return new Promise((resolve) => {
@@ -207,7 +227,9 @@ const SUITES = {
   superadmin: (tmp, p) => correr(path.join(tmp, 'pruebas/multirestaurante/superadmin.mjs'), [], { SUPERADMIN_PUERTO: String(p) }, tmp),
   sin19: (tmp, p) => correr(path.join(tmp, 'pruebas/multirestaurante/superadmin.mjs'), ['--sin-sql19'], { SUPERADMIN_PUERTO: String(p) }, tmp),
   sql19: (tmp) => correr(path.join(tmp, 'pruebas/multirestaurante/sql19.mjs'), [], {}, tmp),
-  sql16: (tmp) => correr(path.join(tmp, 'pruebas/multirestaurante/sql16.mjs'), [], {}, tmp)
+  sql16: (tmp) => correr(path.join(tmp, 'pruebas/multirestaurante/sql16.mjs'), [], {}, tmp),
+  quitar: (tmp) => correr(path.join(tmp, 'pruebas/multirestaurante/quitar-mfa-test.mjs'), [], {}, tmp),
+  reembolso: (tmp) => correr(path.join(tmp, 'pruebas/multirestaurante/servidor.mjs'), ['--grupo=reembolso'], {}, tmp)
 };
 
 const lista = M.filter((x) => !solo || x.control || new RegExp(solo, 'i').test(x.nombre));

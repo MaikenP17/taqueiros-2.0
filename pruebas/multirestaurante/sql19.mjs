@@ -229,10 +229,11 @@ async function main() {
 
     // config
     await db.query(`update public.restaurante_secretos set callmebot_apikey = 'SENTINELA-CMB-19', wompi_integridad_test = 'test_integrity_SENTINELA19', otros = '{"wompi_llave_privada_test":"prv_test_SENTINELA19","wompi_modo":"test"}'::jsonb where restaurante_id = $1`, [RA]);
+    await db.query(`update public.configuracion set mensaje_cerrado = 'Cerrado A (sql19)' where restaurante_id = $1`, [RA]);   // el horario tiene que ser el de A, no el de otro
     const cfg = await jr(`select public.sa_ver_config($1::uuid, '${RA}')`);
     const miembros = cfg.miembros.map((x) => x.rol + ':' + x.email).sort();
     prueba('C10 sa_ver_config: config, vigencia, dominios, miembros con rol y correo, tarifas, secretos como si/no y el horario', cfg.id === RA && cfg.slug === 'sql19-a' && cfg.vigencia && Array.isArray(cfg.dominios) && Array.isArray(cfg.tarifas) && miembros.length === 3 && miembros.includes('dueno:' + ids.dueno.slice(-4) + '@t.test')
-      && cfg.horario && 'horarios' in cfg.horario && cfg.horario.hora_corte_jornada && cfg.secretos.callmebot_apikey === true && cfg.secretos.wompi_modo === 'test', JSON.stringify(cfg).slice(0, 250));
+      && cfg.horario && 'horarios' in cfg.horario && cfg.horario.hora_corte_jornada && cfg.horario.mensaje_cerrado === 'Cerrado A (sql19)' && cfg.secretos.callmebot_apikey === true && cfg.secretos.wompi_modo === 'test', JSON.stringify(cfg).slice(0, 250));
 
     // resumen: jornada y mes (mes en la zona del restaurante)
     const res = await jr(`select public.sa_ver_resumen($1::uuid, '${RA}', '${ahora}'::timestamptz)`);
