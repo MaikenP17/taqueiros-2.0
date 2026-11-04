@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es-CO">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0e1014">
+<title>Administración · Rivo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="superadmin.css?v=1">
+<!--
+  PANTALLA DE SUPERADMINISTRACION (docs/multirestaurante.md, seccion 24).
+  Herramienta interna: sin enlaces desde ninguna otra pagina, sin la marca de ningun restaurante.
+  Sin scripts ni estilos escritos en esta pagina (la CSP de vercel.json los prohibe): todo vive en archivos propios.
+  Toda la interfaz se arma desde superadmin*.js con createElement/textContent; nada de lo que llega del servidor se pinta como HTML.
+-->
+</head>
+<body>
+<noscript><p class="sa-noscript">Esta pantalla necesita JavaScript para funcionar.</p></noscript>
+<div id="sa-raiz"></div>
+<div id="sa-aviso" class="sa-aviso-global" role="status" aria-live="polite" hidden></div>
+<div id="sa-modal-raiz"></div>
+<script src="supabase-publico.js?v=2"></script>
+<script src="superadmin.js?v=1"></script>
+<script src="superadmin-alta.js?v=1"></script>
+<script src="superadmin-detalle.js?v=1"></script>
+<script src="superadmin-lectura.js?v=1"></script>
+<script src="superadmin-inicio.js?v=1"></script>
+</body>
+</html>

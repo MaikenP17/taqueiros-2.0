@@ -41,6 +41,8 @@ export async function aplicarSql18(db, archivo, { conSemilla = false } = {}) {
    vieja (defensa en profundidad): la base ya no deja guardar esos datos, pero esas capas tienen que seguir
    defendiendose por si algun dia llegan (por ejemplo, un cambio hecho con el trigger apagado). VALIDAR_CONFIG=1 lo
    fuerza a prender en todas, para ver cuales dependen de ello. */
+export const QR_DE_PRUEBA = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><rect width="200" height="200" fill="#fff"/><path d="M10 10h60v60H10zM130 10h60v60h-60zM10 130h60v60H10z" fill="#000"/><path d="M90 90h20v20H90zM130 130h20v20h-20zM160 160h30v30h-30z" fill="#000"/></svg>';
+
 export async function levantar({ puerto = 54329, migrar = true, validarConfig = true } = {}) {
   const db = await crearBase({ con01y02: true });
   await sembrar(db);
@@ -92,6 +94,7 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
   const tokens = new Map();      // token -> uid
   const factores = new Map();    // id del factor -> { uid, secreto, verificado }   (MFA TOTP, como /auth/v1/factors)
   const desafios = new Map();    // id del desafio -> id del factor
+  const refrescos = new Map();   // refresh token -> { uid, aal }   (renovar la sesion: la pantalla del superadmin lo usa)
   let cola = Promise.resolve();
   const serie = (fn) => { const p = cola.then(fn, fn); cola = p.catch(() => {}); return p; };
 
@@ -260,7 +263,7 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           const id = crypto.randomUUID();
           const secreto = totp.secretoAleatorio();
           factores.set(id, { uid: tokens.get(t), secreto, verificado: false });
-          return enviar(res, 200, { id, type: 'totp', friendly_name: cuerpo.friendly_name || '', totp: { qr_code: '', secret: secreto, uri: 'otpauth://totp/falso?secret=' + secreto } });
+          return enviar(res, 200, { id, type: 'totp', friendly_name: cuerpo.friendly_name || '', totp: { qr_code: QR_DE_PRUEBA, secret: secreto, uri: 'otpauth://totp/falso?secret=' + secreto } });
         }
         m = url.pathname.match(/^\/auth\/v1\/factors\/([0-9a-f-]+)\/(challenge|verify)$/);
         if (m && req.method === 'POST') {
@@ -281,14 +284,54 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           const ahora = Math.floor(Date.now() / 1000);
           const nuevo = tokenDeSesion(u.id, u.email, { aal: 'aal2', amr: [{ method: 'totp', timestamp: ahora }, { method: 'password', timestamp: ahora - 5 }] });
           tokens.set(nuevo, u.id);
-          return enviar(res, 200, { access_token: nuevo, refresh_token: 'r', token_type: 'bearer', expires_in: 3600, user: { id: u.id, email: u.email } });
+          const rf2 = 'rf-' + crypto.randomBytes(12).toString('hex');
+          refrescos.set(rf2, { uid: u.id, aal: 'aal2' });
+          return enviar(res, 200, { access_token: nuevo, refresh_token: rf2, token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: u.id, email: u.email } });
+        }
+        if (url.pathname === '/auth/v1/token' && url.searchParams.get('grant_type') === 'refresh_token') {
+          /* Renovar la sesion (como Auth real): el refresh token se gasta y entrega uno nuevo; la sesion conserva su nivel, pero si el
+             usuario ya no tiene un factor verificado, la sesion aal2 baja a aal1 (docs 23.13 R1). */
+          const rf = refrescos.get(cuerpo && cuerpo.refresh_token);
+          if (!rf) return enviar(res, 400, { code: 400, error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token: Refresh Token Not Found' });
+          refrescos.delete(cuerpo.refresh_token);
+          const u = (await db.query(`select id, email from auth.users where id = $1`, [rf.uid])).rows[0];
+          if (!u) return enviar(res, 400, { code: 400, error_code: 'refresh_token_not_found', msg: 'Invalid Refresh Token' });
+          const aal = rf.aal === 'aal2' && [...factores.values()].some((f) => f.uid === rf.uid && f.verificado) ? 'aal2' : 'aal1';
+          const ahora = Math.floor(Date.now() / 1000);
+          const nuevo = tokenDeSesion(u.id, u.email, aal === 'aal2' ? { aal, amr: [{ method: 'totp', timestamp: ahora }, { method: 'password', timestamp: ahora - 5 }] } : {});
+          tokens.set(nuevo, u.id);
+          const rf2 = 'rf-' + crypto.randomBytes(12).toString('hex');
+          refrescos.set(rf2, { uid: u.id, aal });
+          return enviar(res, 200, { access_token: nuevo, refresh_token: rf2, token_type: 'bearer', expires_in: 3600, expires_at: ahora + 3600, user: { id: u.id, email: u.email } });
         }
         if (url.pathname === '/auth/v1/token') {
           const r = await db.query(`select id from auth.users where email = $1`, [cuerpo.email]);
           if (!r.rows.length || passwords.get(cuerpo.email) !== cuerpo.password) return enviar(res, 400, { error: 'invalid_grant' });
           const t = tokenDeSesion(r.rows[0].id, cuerpo.email);
           tokens.set(t, r.rows[0].id);
-          return enviar(res, 200, { access_token: t, refresh_token: 'r', token_type: 'bearer', expires_in: 3600, user: { id: r.rows[0].id, email: cuerpo.email } });
+          const rf1 = 'rf-' + crypto.randomBytes(12).toString('hex');
+          refrescos.set(rf1, { uid: r.rows[0].id, aal: 'aal1' });
+          return enviar(res, 200, { access_token: t, refresh_token: rf1, token_type: 'bearer', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: r.rows[0].id, email: cuerpo.email } });
+        }
+        /* Cerrar sesion: el token deja de valer (como Auth real, que borra la sesion). */
+        if (url.pathname === '/auth/v1/logout' && req.method === 'POST') {
+          const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          tokens.delete(t);
+          res.writeHead(204); res.end();
+          return;
+        }
+        /* Borrar un factor propio: uno SIN verificar se puede con cualquier sesion; uno verificado exige aal2 (como Auth real). */
+        m = url.pathname.match(/^\/auth\/v1\/factors\/([0-9a-f-]+)$/);
+        if (m && req.method === 'DELETE') {
+          const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+          if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
+          const f = factores.get(m[1]);
+          if (!f || f.uid !== tokens.get(t)) return enviar(res, 404, { code: 404, error_code: 'mfa_factor_not_found', msg: 'MFA factor not found' });
+          let aalToken = 'aal1';
+          try { aalToken = JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString('utf8')).aal; } catch (e) { /* aal1 */ }
+          if (f.verificado && aalToken !== 'aal2') return enviar(res, 401, { code: 401, error_code: 'insufficient_aal', msg: 'AAL2 required to unenroll a verified factor' });
+          factores.delete(m[1]);
+          return enviar(res, 200, { id: m[1] });
         }
 
         // ---------------- REST ----------------
