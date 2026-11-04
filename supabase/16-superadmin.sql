@@ -1337,13 +1337,15 @@ from (values
     null),
 
   -- ---- 3. funciones de superadmin ----
-  ('hay 15 funciones sa_* de superadmin',
+  ('hay 15 funciones sa_* de superadmin (sin contar las 5 que agrega el SQL 19, si ya esta aplicado)',
     (select count(*) = 15 from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.proname like 'sa\_%' escape '\'
-       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno')),
+       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno',
+                             'sa_ver_pedidos', 'sa_ver_menu', 'sa_ver_config', 'sa_ver_resumen', 'sa_registrar_rechazo_mfa')),
     (select string_agg(p.proname, ', ' order by p.proname) from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.proname like 'sa\_%' escape '\'
-       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno'))),
+       and p.proname not in ('sa_texto_raro', 'sa_zona_valida', 'sa_estado_secretos_interno',
+                             'sa_ver_pedidos', 'sa_ver_menu', 'sa_ver_config', 'sa_ver_resumen', 'sa_registrar_rechazo_mfa'))),
 
   ('todas son SECURITY DEFINER con search_path fijo; service_role las ejecuta; anon y authenticated NO',
     (select bool_and(p.prosecdef
