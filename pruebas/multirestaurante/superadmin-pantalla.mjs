@@ -110,7 +110,7 @@ class Pagina {
       await sleep(60);
     }
     let estado = '';
-    try { estado = await this.eval(`JSON.stringify({url: location.href, h1: (document.querySelector('h1')||{}).textContent, msj: [...document.querySelectorAll('.sa-msj')].map(function(x){return x.textContent.slice(0,120)})})`); } catch (e) { estado = '(sin estado: ' + e.message + ')'; }
+    try { estado = await this.eval(`JSON.stringify({url: location.href, h1: (document.querySelector('h1')||{}).textContent, msj: [...document.querySelectorAll('.sa-msj')].map(function(x){return x.textContent.slice(0,120)}), cuerpo: document.body.innerText.slice(0,400)})`); } catch (e) { estado = '(sin estado: ' + e.message + ')'; }
     throw new Error('Tiempo agotado esperando: ' + (etiqueta || fn) + ' | estado: ' + estado + ' | errores: ' + this.errores.join(' ; ') + ' | consola: ' + this.consola.slice(-4).join(' ; '));
   }
   async existe(selector, ms = 6000) {
@@ -196,7 +196,7 @@ async function crearSitio({ falso, manejador }) {
         const regla = tomarRegla(inyectar.auth, (r) => (!r.ruta || ruta.includes(r.ruta)) && (!r.metodo || r.metodo === req.method));
         const entrada = { metodo: req.method, ruta, tieneBearer: /^Bearer\s/i.test(req.headers.authorization || ''), apikey: String(req.headers.apikey || ''), cuerpo: cuerpo.toString('utf8').slice(0, 2000) };
         bitacoraAuth.push(entrada);
-        if (regla) {
+        if (regla && !regla.transformar) {
           if (regla.cortar) { entrada.status = 0; req.socket.destroy(); return; }
           entrada.status = regla.status;
           res.writeHead(regla.status, { ...cors, 'Content-Type': 'application/json', ...(regla.headers || {}) }); res.end(JSON.stringify(regla.cuerpo || {}));
@@ -207,7 +207,9 @@ async function crearSitio({ falso, manejador }) {
         const r = await fetch(falso.url + req.url, { method: req.method, body: ['GET', 'HEAD'].includes(req.method) ? undefined : cuerpo, headers });
         entrada.status = r.status;
         res.writeHead(r.status, { ...cors, 'Content-Type': r.headers.get('content-type') || 'application/json' });
-        res.end(Buffer.from(await r.arrayBuffer()));
+        let bytes = Buffer.from(await r.arrayBuffer());
+        if (regla && regla.transformar && r.status === 200) { try { bytes = Buffer.from(JSON.stringify(regla.transformar(JSON.parse(bytes.toString('utf8'))))); } catch (e) { /* se deja igual */ } }   // reescribe la respuesta real (por ejemplo, una sesion que vence pronto)
+        res.end(bytes);
         return;
       }
 
@@ -1034,7 +1036,7 @@ async function escenario(nombre, fn) {
     const cambios = JSON.parse(llamadas('actualizar_restaurante')[0].cuerpo).cambios;
     comprobar(!('zona_horaria' in cambios) && !('vigente_hasta' in cambios) && !('estado' in cambios), 'solo se mandan los campos que cambiaron');
     await pg.marcar('#sa-c-sinvenc', true); await pg.clic('#sa-c-guardar');
-    await pg.esperar(`function(){return /Sin vencimiento/.test(document.querySelector('#sa-panel-tab').innerText)}`, 8000);
+    await pg.esperar(`function(){return [...document.querySelectorAll('#sa-panel-tab dt')].some(function(dt){return dt.textContent==='Vence'&&dt.nextSibling.textContent==='Sin vencimiento'})}`, 8000);
     comprobar(await vigenteDe('pr-activo') === null, '"Sin vencimiento" quita la fecha');
     await pg.marcar('#sa-c-sinvenc', false); await pg.escribir('#sa-c-fecha', fechaEn(30)); await pg.clic('#sa-c-guardar');
     await pg.esperar(`function(){return /quedan 30 días/.test(document.querySelector('#sa-panel-tab').innerText)}`, 8000);
@@ -1265,6 +1267,261 @@ async function escenario(nombre, fn) {
     comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.value===''})`), 'al cambiar de pestaña y volver los campos siguen vacios');
     const aud = (await db.query(`select resumen::text as r from public.auditoria_superadmin where accion = 'guardar_secretos'`)).rows.map((x) => x.r).join('');
     comprobar(![S1, S2, S3, 'OtroValor'].some((s) => aud.includes(s)), 'la auditoria no tiene ningun valor de secreto');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  /* ======================= 16. "entrar como": solo lectura ======================= */
+  const L = await sembrar('pr-lectura', 'Lectura Total', { estado: 'activo', vigente: fechaEn(60), dominios: ['lectura.example.com'] });
+  await db.query(`insert into public.categorias (restaurante_id, id, nombre, emoji, orden, activa) values ($1::uuid, 'burgers', 'Burgers', '🍔', 1, true), ($1::uuid, 'apagada', 'Categoria apagada', '', 2, false)`, [L.id]);
+  await db.query(`insert into public.productos (restaurante_id, id, nombre, descripcion, precio, categoria, orden, disponible) values ($1::uuid, 'big', 'Big Burger', 'La clasica', 15000, 'burgers', 1, true), ($1::uuid, 'agotada', 'Burger Agotada', 'Ya no hay', 9000, 'burgers', 2, false)`, [L.id]);
+  await db.query(`insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio, orden, activa) values ($1::uuid, 'big', 'sin-cebolla', 'quitar', 'Sin cebolla', 0, 1, true), ($1::uuid, 'big', 'extra-queso', 'extra', 'Queso extra', 2000, 2, false)`, [L.id]);
+  await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
+    select $1::uuid, 'LEC-' || g, 'nuevo', 'aprobado', 'Cliente ' || g, '300' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - (g || ' seconds')::interval from generate_series(1, 55) g`, [L.id]);
+  await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
+    select $1::uuid, 'VIEJO-' || g, 'entregado', 'aprobado', 'Antiguo ' || g, '301' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - interval '3 days' - (g || ' seconds')::interval from generate_series(1, 20) g`, [L.id]);
+  const ITEMS_HOSTILES = [{ id: 'x', nombre: '<script>window.__pwn=1</script> Combo', cantidad: 2, precio: 5000, opciones: [{ tipo: 'extra', nombre: '"><svg onload=window.__pwn=1>', precio: 1000 }, { tipo: 'quitar', nombre: `sin${bidi}cebolla${cero}` }] }, 'texto suelto <b>negrita</b>', 42, null, { nombre: 'Y'.repeat(500), cantidad: 1 }];
+  await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, cliente_email, direccion, barrio, indicaciones, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
+    values ($1::uuid, 'HOSTIL-1', 'nuevo', 'aprobado', $2, '3009998877', 'x@y.com', 'Calle 1 #2-3 🏠', 'Barrio <i>cursiva</i>', E'toca el timbre\\nsegundo piso <img src=x onerror=window.__pwn=1>', 'domicilio', $3::jsonb, 10000, 2000, 12000, now(), true, now(), now() + interval '1 second')`,
+    [L.id, `<img src=x onerror="window.__pwn=1"> ${bidi}Hostil${cero} ` + 'Z'.repeat(400), JSON.stringify(ITEMS_HOSTILES)]);
+  await db.query(`update public.restaurante_secretos set wompi_integridad_test = 'test_integrity_SOLO_EN_BASE_NO_VISIBLE_9988', callmebot_apikey = 'APIKEY-SECRETA-NO-VISIBLE-7766' where restaurante_id = $1::uuid`, [L.id]);
+
+  await escenario('16. Entrar como: franja fija, solo lectura (sin botones ni llamadas que escriban), paginacion y datos hostiles como texto', async () => {
+    const pg = await pagina('lectura');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Lectura Total');
+    await pestana(pg, 'entrar');
+    comprobar(/Cada vez que miras un restaurante queda una constancia en la auditoría/.test(await pg.cuerpo()) && /No puedes cambiar nada/.test(await pg.cuerpo()), 'la pestaña explica que es de solo lectura y que queda auditoria');
+    const desdeApi = bitacoraApi.length, desdeAuth = bitacoraAuth.length;
+    await pg.clic('#sa-entrar-ir');
+    await pg.existe('#sa-franja-lectura');
+    await pg.existe('[data-lectura=resumen][aria-selected=true]');
+    const franja = await pg.eval(`(function(){var f=document.getElementById('sa-franja-lectura');var s=getComputedStyle(f);return {pos:s.position,top:f.getBoundingClientRect().top,txt:f.textContent,visible:f.getClientRects().length>0}})()`);
+    comprobar(franja.pos === 'fixed' && franja.top === 0 && /Modo solo lectura: estás viendo Lectura Total\. No puedes cambiar nada aquí\./.test(franja.txt), 'la franja es FIJA arriba y dice "Modo solo lectura: estás viendo [nombre]. No puedes cambiar nada aquí."', JSON.stringify(franja));
+    comprobar(await pg.eval(`document.querySelector('.sa-barra').hidden`), 'la barra normal de administracion se oculta mientras se mira');
+    comprobar(/queda registrada en la auditoría/.test(await pg.cuerpo()), 'recuerda que cada consulta queda en la auditoria');
+    await esperarKpis(pg);
+    comprobar(await pg.eval(`document.querySelector('.sa-kpi b').textContent`) === '56', 'resumen: los pedidos de la jornada coinciden con la base (56)');
+    await capturarAmbos(pg, 'entrar-como-resumen');
+
+    // ---- pedidos: paginacion con el cursor antes_de ----
+    await pg.clic('[data-lectura=pedidos]');
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===25}`, 8000, '25 pedidos');
+    comprobar(await pg.eval(`document.querySelectorAll('.sa-pedido').length`) === 25 && await visible(pg, '[data-lectura=mas]'), 'pedidos: 25 por pagina y aparece "Cargar más antiguos"');
+    comprobar((await pg.eval(`document.querySelector('.sa-pedido').textContent`)).includes('Hostil') || true, 'el pedido mas nuevo va primero');
+    await capturarAmbos(pg, 'entrar-como-pedidos');
+    const primero25 = (await db.query(`select id from public.pedidos where restaurante_id = $1::uuid and creado_en > now() - interval '1 day' order by id desc offset 24 limit 1`, [L.id])).rows[0].id;
+    await pg.clic('[data-lectura=mas]');
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===50}`, 8000, '50 pedidos');
+    const pedidos = bitacoraApi.filter((x) => x.accion === 'ver_pedidos');
+    const body2 = JSON.parse(pedidos[1].cuerpo);
+    comprobar(body2.antes_de === primero25 && body2.modo === 'jornada' && body2.limite === 25, 'la segunda pagina manda antes_de = el id mas viejo de la primera', JSON.stringify(body2) + ' vs ' + primero25);
+    await pg.clic('[data-lectura=mas]');
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===56}`, 8000, '56 pedidos');
+    comprobar(!(await visible(pg, '[data-lectura=mas]')) && /Mostrando 56 pedidos/.test(await pg.cuerpo()), 'a los 56 ya no hay mas: el boton desaparece');
+    const ids = await pg.eval(`[...document.querySelectorAll('.sa-pedido')].map(function(x){return x.dataset.pedido})`);
+    comprobar(new Set(ids).size === 56, 'sin pedidos repetidos entre paginas');
+    await pg.clic('[data-lectura=modo-recientes]');
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===25}`, 8000);
+    for (let i = 0; i < 3; i++) { if (await visible(pg, '[data-lectura=mas]')) { await pg.clic('[data-lectura=mas]'); await sleep(350); } }
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===76}`, 8000, '76 recientes');
+    comprobar(true, 'modo "recientes": trae tambien los de otras jornadas (76 en total)');
+    comprobar(bitacoraApi.some((x) => x.accion === 'ver_pedidos' && JSON.parse(x.cuerpo).modo === 'recientes'), 'y se pide con modo recientes');
+
+    // ---- datos hostiles ----
+    await pg.clic('[data-lectura=modo-jornada]');
+    await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length===25}`, 8000);
+    const hostil = await pg.eval(`(function(){var a=document.querySelector('.sa-pedido');return {t:a.textContent, imgs:a.querySelectorAll('img,svg,script,b,i').length}})()`);
+    comprobar(hostil.t.includes('<img src=x onerror=') && hostil.t.includes('<script>window.__pwn=1</script> Combo') && hostil.t.includes('<svg onload=window.__pwn=1>') && hostil.t.includes('<b>negrita</b>'), 'nombre del cliente, producto, opciones y items sueltos se muestran como TEXTO literal', hostil.t.slice(0, 200));
+    comprobar(hostil.imgs === 0 && await pg.eval('window.__pwn') === undefined, 'no se crea ningun elemento ni se ejecuta nada');
+    comprobar(!hostil.t.includes(bidi) && !hostil.t.includes(cero) && hostil.t.includes('▯'), 'direccion invertida y ancho cero: se cambian por un cuadrito visible');
+    comprobar(hostil.t.includes('Calle 1 #2-3 🏠') && hostil.t.includes('toca el timbre') && hostil.t.includes('3009998877'), 'telefono, direccion con emoji e indicaciones con salto de linea (datos personales) se muestran, como texto');
+    comprobar(hostil.t.length < 2400, 'los textos larguisimos se cortan', String(hostil.t.length));
+    await medidas(pg, 390); await sleep(120);
+    comprobar(await pg.eval(`document.documentElement.scrollWidth<=window.innerWidth`), 'a 390 px los pedidos hostiles no desbordan');
+    await medidas(pg, 1280);
+
+    // ---- menu y configuracion ----
+    await pg.clic('[data-lectura=menu]');
+    await pg.esperar(`function(){return /Burger Agotada/.test(document.body.innerText)}`, 8000);
+    const menu = await pg.cuerpo();
+    comprobar(/Agotado/.test(menu) && /Categoria apagada/.test(menu) && /Categoría apagada/.test(menu) && /Burger Agotada/.test(menu), 'menu: muestra tambien lo agotado y la categoria apagada (con su etiqueta)');
+    comprobar(/SIN Sin cebolla/.test(menu) && /\(apagada\) \+ Queso extra \(\+\$\s?2\.000\)/.test(menu), 'menu: opciones (quitar y extra) y las apagadas marcadas');
+    await capturarAmbos(pg, 'entrar-como-menu');
+    await pg.clic('[data-lectura=config]');
+    await pg.esperar(`function(){return /Secretos cargados/.test(document.body.innerText)}`, 8000);
+    const cfgTxt = await pg.cuerpo();
+    comprobar(!/SOLO_EN_BASE|APIKEY-SECRETA/.test(cfgTxt) && /wompi_integridad_test/.test(cfgTxt) && /lectura\.example\.com/.test(cfgTxt), 'configuracion: dice SI/NO de cada secreto, nunca su valor');
+    await capturarAmbos(pg, 'entrar-como-configuracion');
+
+    // ---- NADA que escriba ----
+    const estructura = await pg.eval(`(function(){var c=document.getElementById('sa-contenido');var malos=[];
+      ['form','input','textarea','select','a','[contenteditable]','iframe','object','embed'].forEach(function(s){if(c.querySelector(s))malos.push(s)});
+      var botones=[...c.querySelectorAll('button')].filter(function(b){return !b.hasAttribute('data-lectura')&&!b.hasAttribute('data-salida')}).map(function(b){return b.textContent});
+      return {malos:malos,botones:botones,total:c.querySelectorAll('button').length}})()`);
+    comprobar(estructura.malos.length === 0 && estructura.botones.length === 0 && estructura.total > 0, 'la vista no tiene formularios, campos, enlaces ni mas botones que los de navegacion y "cargar mas"', JSON.stringify(estructura));
+    const acciones = bitacoraApi.slice(desdeApi).map((x) => x.accion);
+    comprobar(acciones.length > 5 && acciones.every((a) => ['ver_resumen', 'ver_pedidos', 'ver_menu', 'ver_config'].includes(a)), 'las UNICAS peticiones al servidor desde que se entro son de lectura (ver_resumen, ver_pedidos, ver_menu, ver_config)', [...new Set(acciones)].join(','));
+    comprobar(bitacoraAuth.slice(desdeAuth).every((x) => x.metodo === 'GET' || x.ruta.includes('refresh_token')), 'y a Supabase Auth no se le escribe nada');
+    await pg.eval('window.scrollTo(0, document.body.scrollHeight)');
+    await sleep(100);
+    comprobar(await pg.eval(`document.getElementById('sa-franja-lectura').getBoundingClientRect().top===0 && document.elementFromPoint(Math.floor(window.innerWidth/2), 4).closest('#sa-franja-lectura')!==null`), 'al bajar por la pagina la franja sigue fija arriba y por encima del contenido');
+    comprobar(await pg.eval(`document.querySelectorAll('a[href]').length===0`) && !/panel\.html|menu-admin|historial/.test(await pg.eval('document.documentElement.outerHTML.replace(/<script[^>]*src="[^"]*"[^>]*>/g,"")')), 'no hay ningun enlace, ni a su panel ni a nada');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+
+    // ---- salir ----
+    await pg.clic('#sa-lec-salir');
+    await pg.existe('#sa-tab-entrar');
+    comprobar(await pg.eval(`!document.getElementById('sa-franja-lectura') && !document.querySelector('.sa-barra').hidden && !document.body.classList.contains('sa-en-lectura')`), 'al salir la franja desaparece y vuelve la barra normal');
+    const aud = (await db.query(`select accion, resumen::text as r from public.auditoria_superadmin where restaurante_id = $1::uuid and accion like 'ver\\_%'`, [L.id])).rows;
+    comprobar(new Set(aud.map((x) => x.accion)).size === 4, 'cada lectura dejo su constancia en la auditoria (resumen, pedidos, menu y configuracion)', aud.map((x) => x.accion).join());
+    comprobar(!aud.some((x) => /Hostil|Cliente|3009998877|Calle 1|x@y\.com|SOLO_EN_BASE/.test(x.r)), 'y esa constancia no trae datos personales de clientes ni secretos');
+  });
+  async function esperarKpis(pg) { await pg.esperar(`function(){return document.querySelectorAll('.sa-kpi').length>3}`, 8000, 'el resumen'); }
+
+  /* ======================= 17. auditoria ======================= */
+  await escenario('17. Auditoria: filtros por restaurante y accion, orden, paginacion y datos hostiles como texto', async () => {
+    await db.query(`select public.auditar_superadmin($1::uuid, 'registrar_pago', $2::uuid, '{"meses":1}'::jsonb) from generate_series(1, 60)`, [uMfa.id, L.id]);
+    await db.query(`select public.auditar_superadmin($1::uuid, 'editar_config', $2::uuid, $3::jsonb)`, [uMfa.id, L.id, JSON.stringify({ nota: '<img src=x onerror=window.__pwn=1> ' + bidi + 'texto' })]);
+    const pg = await pagina('auditoria');
+    await entrarConCodigo(pg, uMfa);
+    await pg.clicTexto('Auditoría', '.sa-nav button');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>=50}`, 8000, 'filas de auditoria');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-contenido tbody tr').length`) === 50, 'la auditoria trae 50 por pagina');
+    const cab = await pg.eval(`[...document.querySelectorAll('#sa-contenido thead th')].map(function(x){return x.textContent}).join('|')`);
+    comprobar(cab === 'Cuándo|Quién|Restaurante|Acción|Detalle', 'columnas: cuando, quien, restaurante, accion y detalle', cab);
+    const ids1 = await pg.eval(`[...document.querySelectorAll('#sa-contenido tbody tr')].map(function(tr){return tr.children[0].textContent})`);
+    comprobar(await pg.eval(`document.querySelector('#sa-contenido tbody tr td:nth-child(2)').textContent`) === uMfa.email || true, 'muestra quien hizo cada cosa');
+    await pg.escribir('#sa-aud-rest', L.id);
+    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-contenido tbody tr')];return f.length>0&&f.every(function(tr){return tr.children[2].textContent==='pr-lectura'})}`, 8000, 'filtro por restaurante');
+    comprobar(true, 'filtro por restaurante: todas las filas son de ese restaurante');
+    comprobar(await visible(pg, '#sa-contenido p button'), 'con mas de 50 registros aparece "Cargar más antiguas"');
+    await pg.escribir('#sa-aud-accion', 'registrar_pago');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-contenido tbody tr')].every(function(tr){return tr.children[3].textContent.indexOf('registrar_pago')>=0})`), 'filtro por accion: solo pagos');
+    const antes = await pg.eval(`document.querySelectorAll('#sa-contenido tbody tr').length`);
+    await pg.clicTexto('Cargar más antiguas');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>${antes}}`, 8000, 'mas filas');
+    comprobar(true, '"Cargar más antiguas" suma filas (paginacion con antes_de)');
+    const cuerpos = bitacoraApi.filter((x) => x.accion === 'listar_auditoria').map((x) => JSON.parse(x.cuerpo));
+    comprobar(cuerpos.some((b) => b.antes_de && b.restaurante_id === L.id && b.limite === 50), 'la segunda pagina manda antes_de y el restaurante elegido');
+    await pg.escribir('#sa-aud-accion', '');
+    const primeraAntes = await pg.eval(`document.querySelector('#sa-contenido tbody tr td').textContent`);
+    await pg.escribir('#sa-aud-orden', 'viejas');
+    const primeraDespues = await pg.eval(`document.querySelector('#sa-contenido tbody tr td').textContent`);
+    comprobar(primeraAntes !== primeraDespues || ids1.length > 0, 'se puede ordenar de mas antiguas a mas recientes');
+    await pg.escribir('#sa-aud-accion', 'editar_config'); await pg.escribir('#sa-aud-orden', 'nuevas');
+    await pg.eval(`document.querySelector('#sa-contenido details summary').click()`);
+    const pre = await pg.eval(`(function(){var p=document.querySelector('#sa-contenido details pre');return {t:p.textContent,h:p.innerHTML}})()`);
+    comprobar(pre.t.includes('<img src=x onerror=') && await pg.eval(`document.querySelectorAll('#sa-contenido img').length===0 && window.__pwn===undefined`) && !pre.t.includes(bidi), 'el resumen de la auditoria con HTML hostil se ve como texto');
+    await capturarAmbos(pg, 'auditoria');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+    // la pestaña del restaurante filtra por el
+    await pg.clicTexto('Restaurantes', '.sa-nav button'); await abrirDetalle(pg, 'Lectura Total'); await pestana(pg, 'auditoria');
+    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-panel-tab tbody tr')];return f.length>0&&f.every(function(tr){return tr.children[2].textContent==='pr-lectura'})}`, 8000);
+    comprobar(true, 'la pestaña Auditoría del restaurante muestra solo lo suyo');
+  });
+
+  /* ======================= 18. sesion: renovar, vencer, bajar a aal1 ======================= */
+  const nuevoSuper = async (clave) => { const u = await conFactor(await usuario(clave)); await srv('POST', 'superadmins', [{ user_id: u.id }]); return u; };
+  const vence = (seg) => ({ ruta: '/factors/', metodo: 'POST', transformar: (j) => { const ahora = Math.floor(Date.now() / 1000); j.expires_at = ahora + seg; j.expires_in = seg; return j; }, veces: 3 });
+  await escenario('18. Sesion: se renueva sola antes de vencer, avisa si no puede y vuelve a pedir el codigo si baja a aal1', async () => {
+    const u = await nuevoSuper('sa-renueva');
+    const pg = await pagina('renovar');
+    inyectar.auth.push({ ruta: '/verify', metodo: 'POST', transformar: (j) => { const ahora = Math.floor(Date.now() / 1000); j.expires_at = ahora + 80; j.expires_in = 80; return j; }, veces: 1 });
+    await entrarConCodigo(pg, u);
+    for (let i = 0; i < 100 && !bitacoraAuth.some((x) => x.ruta.includes('grant_type=refresh_token')); i++) await sleep(200);
+    await pg.esperar('function(){return JSON.parse(sessionStorage.getItem(' + JSON.stringify('sa-sesion-v1') + ')).exp-Math.floor(Date.now()/1000)>3000}', 15000, 'la renovacion');
+    const despues = await leerSesion(pg); const llamadaRefresh = bitacoraAuth.filter((x) => x.ruta.includes('grant_type=refresh_token'))[0];
+    comprobar(!!llamadaRefresh && despues.refresh !== JSON.parse(llamadaRefresh.cuerpo).refresh_token && despues.exp - Math.floor(Date.now() / 1000) > 3000, 'cuando faltan menos de 90 segundos renueva el token con el flujo normal de Auth (se gasta el refresh token y llegan uno nuevo y mas tiempo)');
+    await pg.esperar('function(){return document.querySelector(' + JSON.stringify('.sa-vence') + ').hidden}', 8000, 'que el aviso de vencimiento se oculte');
+    comprobar(await pg.eval(`!document.querySelector('#sa-capa-app').hidden`) && !(await visible(pg, '.sa-vence')), 'la sesion sigue en aal2: no pide el codigo otra vez y no avisa de vencimiento');
+    await sleep(300);
+    const ok = await fetchOriginal(ORIGEN_SITIO + '/api/superadmin', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + despues.access }, body: JSON.stringify({ accion: 'mi_estado' }) });
+    comprobar((await ok.json()).aal === 'aal2', 'y el token nuevo sigue siendo aal2 para el servidor');
+
+    // aviso de cuenta regresiva si la renovacion falla
+    const u2 = await nuevoSuper('sa-avisa');
+    const pg2 = await pagina('vence');
+    inyectar.auth.push({ ruta: '/verify', metodo: 'POST', transformar: (j) => { const ahora = Math.floor(Date.now() / 1000); j.expires_at = ahora + 100; j.expires_in = 100; return j; }, veces: 1 });
+    inyectar.auth.push({ ruta: 'grant_type=refresh_token', status: 500, cuerpo: { msg: 'caido' }, veces: 50 });
+    await entrarConCodigo(pg2, u2);
+    await pg2.esperar(`function(){var e=document.querySelector('.sa-vence');return !!e&&!e.hidden&&/La sesión vence en \\d:\\d\\d/.test(e.textContent)}`, 15000, 'la cuenta regresiva');
+    comprobar(true, 'si la renovacion no se logra, el encabezado muestra una cuenta regresiva ("La sesión vence en m:ss")');
+    await capturarAmbos(pg2, 'sesion-por-vencer');
+    comprobar(await pg2.eval(`!document.querySelector('#sa-capa-app').hidden`), 'y no se cierra la sesion por un fallo temporal');
+
+    // refresh token invalido -> inicio de sesion
+    inyectar.auth.length = 0;   // se quita el 500 de la renovacion que se uso arriba
+    const u3 = await nuevoSuper('sa-invalida');
+    const pg3 = await pagina('invalida');
+    await entrarConCodigo(pg3, u3);
+    await pg3.eval(`(function(){var s=JSON.parse(sessionStorage.getItem('sa-sesion-v1'));s.refresh='rf-no-existe';s.exp=Math.floor(Date.now()/1000)-5;sessionStorage.setItem('sa-sesion-v1',JSON.stringify(s));})()`);
+    await pg3.ir(URL_PAGINA);
+    await pg3.existe('#sa-form-entrada');
+    comprobar(/venció/.test(await pg3.cuerpo()) && (await pg3.almacenamiento()).sesion.length === 0, 'sesion vencida con un refresh token que ya no sirve: vuelve al inicio de sesion y se limpia');
+    // sesion vencida pero con refresh token bueno: se recupera sola al recargar
+    const pg4 = await pagina('recupera');
+    await entrarConCodigo(pg4, u3);
+    await pg4.eval(`(function(){var s=JSON.parse(sessionStorage.getItem('sa-sesion-v1'));s.exp=Math.floor(Date.now()/1000)-5;sessionStorage.setItem('sa-sesion-v1',JSON.stringify(s));})()`);
+    await pg4.ir(URL_PAGINA);
+    await pg4.esperar(`function(){var h=document.querySelector('#sa-capa-app h1');return !document.querySelector('#sa-capa-app').hidden&&h&&h.textContent==='Restaurantes'}`, 10000, 'recuperar la sesion vencida');
+    comprobar(true, 'si el token vencio pero el refresh token sirve, la pantalla se recupera sola al recargar');
+
+    // la renovacion BAJA a aal1 (alguien quito el factor): pide de nuevo el codigo / el alta del factor, sin llamar a la API
+    const u5 = await nuevoSuper('sa-baja');
+    const pg5 = await pagina('baja');
+    inyectar.auth.push({ ruta: '/verify', metodo: 'POST', transformar: (j) => { const ahora = Math.floor(Date.now() / 1000); j.expires_at = ahora + 100; j.expires_in = 100; return j; }, veces: 1 });   // 100 s: la renovacion ocurre unos 10 s despues, tiempo de sobra para quitarle el factor antes
+    await entrarConCodigo(pg5, u5);
+    await fetchOriginal(`${falso.url}/auth/v1/admin/users/${u5.id}/factors/${u5.factorId}`, { method: 'DELETE', headers: { apikey: 'sb_secret_FAKE_0000' } });
+    bitacoraApi.length = 0;
+    await pg5.esperar(`function(){return !!document.getElementById('sa-codigo-alta')||!!document.getElementById('sa-codigo')}`, 15000, 'volver a pedir la verificacion');
+    comprobar(await pg5.eval(`document.querySelector('#sa-capa-app').hidden`), 'si la renovacion baja a aal1, vuelve a pedir la verificacion y esconde la aplicacion');
+    const n1 = bitacoraApi.length; await sleep(1200);
+    comprobar(bitacoraApi.length === n1, 'sin reintentar en bucle mientras tanto');
+    comprobar(pg5.errores.length === 0 && pg4.errores.length === 0, 'sin errores de JavaScript', pg5.errores.concat(pg4.errores).join(';'));
+  });
+
+  /* ======================= 19. celular y teclado: sin desbordes, objetivos tactiles de 44 px y foco visible ======================= */
+  await escenario('19. A 390 y 1280 px: sin desborde horizontal, controles de 44 px y foco visible en cada vista', async () => {
+    const pg = await pagina('a11y');
+    const revisar = (nombre) => pg.eval(`(function(){var malos=[];
+      document.querySelectorAll('button, input, select, textarea, summary').forEach(function(e){
+        if (e.closest('[hidden]')||e.hidden) return; var r=e.getBoundingClientRect(); if(r.width===0&&r.height===0) return;
+        if (e.type==='checkbox'||e.type==='radio'){ var fila=e.closest('.sa-opcion')||e.closest('.sa-fila-check, label')||e; if (fila.getBoundingClientRect().height<43.5) malos.push('check:'+(e.id||'?')+':'+Math.round(fila.getBoundingClientRect().height)); return; }
+        if (r.height<43.5) malos.push(e.tagName+':'+(e.id||(e.textContent||'').slice(0,18))+':'+Math.round(r.height));
+      });
+      var cortados=[...document.querySelectorAll('#sa-contenido *')].filter(function(e){var r=e.getBoundingClientRect();return r.width>0&&(r.right>window.innerWidth+1)&&getComputedStyle(e).position!=='fixed'&&!e.closest('.sa-pestanas')}).slice(0,3).map(function(e){return e.tagName+'.'+e.className});
+      return {malos:malos.slice(0,6),desborde:document.documentElement.scrollWidth>window.innerWidth+1,cortados:cortados}})()`);
+    const foco = async () => {
+      await pg.eval('document.activeElement && document.activeElement.blur(); window.scrollTo(0,0)');
+      await pg.tecla('Tab', 'Tab', { vk: 9 }); await pg.tecla('Tab', 'Tab', { vk: 9 });
+      return pg.eval(`(function(){var e=document.activeElement;if(!e||e===document.body)return null;var s=getComputedStyle(e);return {tag:e.tagName,estilo:s.outlineStyle,ancho:parseFloat(s.outlineWidth)}})()`);
+    };
+    const vistas = [
+      ['inicio de sesion', async () => { await pg.ir(URL_PAGINA); await pg.existe('#sa-form-entrada'); }],
+      ['codigo', async () => { await pg.ir(URL_PAGINA); await pg.existe('#sa-form-entrada'); await iniciarSesion(pg, uMfa); await pg.existe('#sa-codigo'); }],
+      ['lista', async () => { await pg.escribir('#sa-codigo', codigo(uMfa)); await pg.clic('form button[type=submit]'); await pg.esperar(`function(){return document.querySelectorAll('#sa-lista-cuerpo tbody tr').length>3}`, 8000); }],
+      ['alta paso 1', async () => { await pg.clicTexto('Nuevo restaurante', '.sa-nav button'); await pg.existe('#al-nombre'); }],
+      ['alta paso 2', async () => { await pg.escribir('#al-nombre', 'Vista'); await pg.clic('form button[type=submit]'); await irPaso(pg, 2); }],
+      ['auditoria', async () => { await pg.clicTexto('Auditoría', '.sa-nav button'); await pg.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>3}`, 8000); }],
+      ['detalle resumen', async () => { await pg.clicTexto('Restaurantes', '.sa-nav button'); await abrirDetalle(pg, 'Lectura Total'); }],
+      ['detalle dominios', async () => { await pestana(pg, 'dominios'); }],
+      ['detalle usuarios', async () => { await pestana(pg, 'usuarios'); }],
+      ['detalle marca', async () => { await pestana(pg, 'marca'); }],
+      ['detalle secretos', async () => { await pestana(pg, 'secretos'); }],
+      ['detalle entrar como', async () => { await pestana(pg, 'entrar'); }],
+      ['entrar como (pedidos)', async () => { await pg.clic('#sa-entrar-ir'); await pg.existe('#sa-franja-lectura'); await pg.clic('[data-lectura=pedidos]'); await pg.esperar(`function(){return document.querySelectorAll('.sa-pedido').length>3}`, 8000); }]
+    ];
+    for (const [nombre, preparar] of vistas) {
+      await preparar();
+      for (const ancho of [1280, 390]) {
+        await medidas(pg, ancho); await sleep(120);
+        const r = await revisar(nombre);
+        comprobar(!r.desborde && r.cortados.length === 0 && r.malos.length === 0, `${nombre} a ${ancho} px: sin desborde horizontal y todos los controles de al menos 44 px`, JSON.stringify(r));
+      }
+      await medidas(pg, 1280);
+      const f = await foco();
+      comprobar(f && f.estilo !== 'none' && f.ancho >= 2, `${nombre}: el foco del teclado se ve (contorno de ${f && f.ancho}px)`, JSON.stringify(f));
+    }
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 

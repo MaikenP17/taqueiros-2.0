@@ -171,10 +171,12 @@
         });
         var sueltos = prods.filter(function (p) { return !usados[p.id]; });
         if (sueltos.length) bloques.push(bloqueCategoria("Sin categoría", sueltos, opsPorProd, false));
-        panel.replaceChildren(
-          m.truncado ? h("div", { class: "sa-msj sa-msj-aviso", texto: "El menú es muy grande: se muestra solo una parte (hay " + t(m.totales && m.totales.productos, 10) + " productos)." }) : null,
-          h("p", { class: "sa-ayuda", texto: "Incluye lo inactivo y lo agotado. " + prods.length + " productos en " + cats.length + " categorías." }),
-          bloques.length ? bloques : h("p", { class: "sa-vacio", texto: "Este restaurante todavía no tiene menú." }));
+        var hijos = [];
+        if (m.truncado) hijos.push(h("div", { class: "sa-msj sa-msj-aviso", texto: "El menú es muy grande: se muestra solo una parte (hay " + t(m.totales && m.totales.productos, 10) + " productos)." }));
+        hijos.push(h("p", { class: "sa-ayuda", texto: "Incluye lo inactivo y lo agotado. " + prods.length + " productos en " + cats.length + " categorías." }));
+        if (bloques.length) bloques.forEach(function (b) { hijos.push(b); });
+        else hijos.push(h("p", { class: "sa-vacio", texto: "Este restaurante todavía no tiene menú." }));
+        panel.replaceChildren.apply(panel, hijos);
       }, function (e) { if (vivo()) fallo(e); });
     }
     function bloqueCategoria(titulo, prods, opsPorProd, inactiva) {
