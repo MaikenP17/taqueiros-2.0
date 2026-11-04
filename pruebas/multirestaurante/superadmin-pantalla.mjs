@@ -44,6 +44,8 @@ const ORIGEN_SUPABASE = `http://${HOST_SUPABASE}:${PUERTO_WEB}`;
 const URL_PAGINA = ORIGEN_SITIO + '/superadmin.html';
 const CARPETA_CAPTURAS = path.join(REPO, 'Recursos', 'NORTHE-NUEVO', 'capturas');
 const CAPTURAR = process.env.CAPTURAS !== '0';
+/* PANTALLA_RAIZ: carpeta con una copia (mutada) de superadmin*.html/js/css y vercel.json; sirve para la revision por mutacion. */
+const RAIZ_PANTALLA = process.env.PANTALLA_RAIZ ? path.resolve(process.env.PANTALLA_RAIZ) : REPO;
 const sfx = crypto.randomBytes(3).toString('hex');
 const CLAVE = 'Clave-de-prueba-' + sfx;
 const SUPABASE_REAL = 'https://pzryobpriyewlxltditw.supabase.co';
@@ -172,7 +174,7 @@ function tomarRegla(lista, pred) {
 
 /* Cabeceras de vercel.json para una ruta exacta, con el dominio de Supabase cambiado por el de la prueba. */
 function cabecerasDeVercel(ruta) {
-  const v = JSON.parse(fs.readFileSync(path.join(REPO, 'vercel.json'), 'utf8'));
+  const v = JSON.parse(fs.readFileSync(path.join(RAIZ_PANTALLA, 'vercel.json'), 'utf8'));
   const salida = {};
   for (const bloque of v.headers || []) {
     if (bloque.source !== ruta) continue;
@@ -243,7 +245,7 @@ async function crearSitio({ falso, manejador }) {
         res.end(`window.SUPABASE_PUBLICO = Object.freeze({ url: ${JSON.stringify(ORIGEN_SUPABASE)}, publishableKey: "sb_publishable_FAKE_0000" });`);
         return;
       }
-      const archivo = path.join(REPO, ruta);
+      const archivo = path.join(/^[/]superadmin|^[/]vercel/.test(ruta) ? RAIZ_PANTALLA : REPO, ruta);
       if (!archivo.startsWith(path.resolve(REPO)) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) { res.writeHead(404); res.end('no existe'); return; }
       const cab = { 'Content-Type': TIPOS[path.extname(archivo)] || 'application/octet-stream' };
       if (!estadoSitio.sinCabeceras) Object.assign(cab, cabecerasDeVercel(ruta));
@@ -408,7 +410,7 @@ async function escenario(nombre, fn) {
     comprobar(/script-src 'self'(;|$)/.test(csp) && !/unsafe-inline|unsafe-eval|\*/.test(csp), 'CSP: script-src solo \'self\', sin unsafe-inline ni unsafe-eval ni comodines', csp);
     comprobar(/style-src 'self'(;|$)/.test(csp), 'CSP: style-src solo \'self\' (sin estilos en linea)', csp);
     comprobar(/img-src 'self' data:(;|$)/.test(csp), 'CSP: img-src \'self\' data:', csp);
-    comprobar(/connect-src 'self' https:\/\/[a-z0-9.-]+\.supabase\.co(;|$)/.test(cab['content-security-policy'] ? (JSON.parse(fs.readFileSync(path.join(REPO, 'vercel.json'), 'utf8')).headers[0].headers.find((h) => h.key === 'Content-Security-Policy').value) : ''),
+    comprobar(/connect-src 'self' https:\/\/[a-z0-9.-]+\.supabase\.co(;|$)/.test(cab['content-security-policy'] ? (JSON.parse(fs.readFileSync(path.join(RAIZ_PANTALLA, 'vercel.json'), 'utf8')).headers[0].headers.find((h) => h.key === 'Content-Security-Policy').value) : ''),
       'CSP (la de vercel.json): connect-src es el propio sitio y el dominio de Supabase, nada mas');
     comprobar(/frame-ancestors 'none'/.test(csp) && /base-uri 'none'/.test(csp) && /form-action 'self'/.test(csp) && /object-src 'none'/.test(csp) && /default-src 'none'/.test(csp), 'CSP: frame-ancestors, base-uri, object-src y default-src en \'none\'; form-action \'self\'', csp);
     comprobar(cab['x-frame-options'] === 'DENY', 'X-Frame-Options: DENY');
@@ -420,11 +422,11 @@ async function escenario(nombre, fn) {
       const rr = await fetchOriginal(ORIGEN_SITIO + '/' + f);
       comprobar(rr.headers.get('cache-control') === 'no-store' && rr.headers.get('x-content-type-options') === 'nosniff' && /noindex/.test(rr.headers.get('x-robots-tag') || ''), `${f}: no-store, nosniff y noindex`);
     }
-    const v = JSON.parse(fs.readFileSync(path.join(REPO, 'vercel.json'), 'utf8'));
+    const v = JSON.parse(fs.readFileSync(path.join(RAIZ_PANTALLA, 'vercel.json'), 'utf8'));
     const fuentes = v.headers.map((b) => b.source).sort();
     const esperadas = ['/superadmin.html', ...ARCHIVOS_PANTALLA.map((f) => '/' + f), '/superadmin.css'].sort();
     comprobar(JSON.stringify(fuentes) === JSON.stringify(esperadas), 'vercel.json: las cabeceras son SOLO para los archivos de la pantalla (ninguna otra ruta, ni /api, ni comodines)', fuentes.join(' '));
-    const antes = JSON.parse(execGit(['show', 'HEAD:vercel.json']));
+    const antes = JSON.parse(execGit(['show', '71be5af:vercel.json']));   // el vercel.json de antes de la pantalla
     comprobar(JSON.stringify(v.rewrites) === JSON.stringify(antes.rewrites) && JSON.stringify(v.redirects) === JSON.stringify(antes.redirects) && JSON.stringify(v.crons) === JSON.stringify(antes.crons) && JSON.stringify(v.functions) === JSON.stringify(antes.functions),
       'vercel.json: rewrites, redirects, crons y functions quedan EXACTAMENTE como estaban');
     for (const pagina of ['/index.html', '/pedido.html', '/panel.html', '/menu-admin.html', '/historial.html', '/sw.js']) {
@@ -435,7 +437,7 @@ async function escenario(nombre, fn) {
     const urlSupabase = /url:\s*"([^"]+)"/.exec(pub)[1];
     comprobar(v.headers[0].headers.find((h) => h.key === 'Content-Security-Policy').value.includes(`connect-src 'self' ${urlSupabase};`), 'la CSP permite conectarse al MISMO Supabase que usa supabase-publico.js', urlSupabase);
 
-    const html = fs.readFileSync(path.join(REPO, 'superadmin.html'), 'utf8');
+    const html = fs.readFileSync(path.join(RAIZ_PANTALLA, 'superadmin.html'), 'utf8');
     comprobar(/<meta name="robots" content="[^"]*noindex/.test(html), 'superadmin.html lleva la etiqueta noindex');
     comprobar(!/<script(?![^>]*\ssrc=)[^>]*>/.test(html) && !/\sstyle\s*=/.test(html) && !/\son[a-z]+\s*=/i.test(html) && !/<style/i.test(html), 'superadmin.html: sin scripts, estilos ni manejadores en linea (la CSP los prohibe)');
     comprobar(!/<a\s/i.test(html) && !/<link[^>]+href="https?:/i.test(html) && !/<script[^>]+src="https?:/i.test(html), 'superadmin.html: sin enlaces ni recursos externos');
@@ -450,7 +452,7 @@ async function escenario(nombre, fn) {
 
     // reglas de codigo de la pantalla
     for (const f of ARCHIVOS_PANTALLA) {
-      const cod = sinComentarios(fs.readFileSync(path.join(REPO, f), 'utf8'));
+      const cod = sinComentarios(fs.readFileSync(path.join(RAIZ_PANTALLA, f), 'utf8'));
       const mal = [/innerHTML/, /outerHTML/, /insertAdjacentHTML/, /document\.write/, /\beval\s*\(/, /new Function/, /localStorage/, /document\.cookie/, /console\./, /sb_secret_/, /service_role(?!_key)/i, /\.setAttribute\(\s*["']style/, /\bstyle\s*=\s*["']/, /\$\{/, /["']srcdoc["']\s*:/, /createContextualFragment/, /DOMParser/, /\.html\s*=/]
         .filter((re) => re.test(cod)).map(String);
       comprobar(mal.length === 0, `${f}: sin innerHTML, eval, localStorage, cookies, console, plantillas ni la llave secreta`, mal.join(' '));
@@ -604,6 +606,9 @@ async function escenario(nombre, fn) {
     await sleep(1500);
     comprobar(bitacoraApi.length === n1 && n1 === 1, 'no se vuelve a llamar a la API mientras se pide el codigo (1 sola llamada, sin bucle)', 'llamadas: ' + bitacoraApi.map((x) => x.accion + ':' + x.status).join(','));
     comprobar(await pg.eval(`document.querySelector('#sa-capa-app').hidden`), 'la aplicacion queda oculta mientras tanto');
+    await pg.eval(`(function(){document.querySelectorAll('#sa-capa-app #sa-contenido button').forEach(function(b){if(b.textContent==='Actualizar')b.click();});})()`);   // aunque algo siga vivo detras (botones, temporizadores), no puede llamar a la API
+    await sleep(500);
+    comprobar(bitacoraApi.length === n1, 'y aunque se pulsen los botones de la aplicacion oculta, no sale ninguna llamada mientras se pide el codigo', bitacoraApi.map((x) => x.accion).join(','));
     await pg.escribir('#sa-codigo', codigo(uMfa));
     await pg.clic('form button[type=submit]');
     await pg.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden&&document.querySelector('#sa-capa-app h1').textContent==='Restaurantes'}`, 8000);

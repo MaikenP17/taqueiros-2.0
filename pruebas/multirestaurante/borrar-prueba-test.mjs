@@ -51,6 +51,7 @@ console.log('--- negativas: no se borra nada');
 const taqAntes = await huella(ID_DEMO);
 const idOtro = await crear('otro-resto');
 const idPagado = await crear('prueba-pagado', { pagado: true });
+const idCorto = await crear('p-corto');
 const idPagadoFecha = await crear('prueba-pendiente-con-fecha');
 await db.query(`update public.pedidos set pagado_en = now() where restaurante_id = $1::uuid`, [idPagadoFecha]);
 
@@ -64,6 +65,8 @@ for (const p of ['--prefijo=', '--prefijo=p-', '--prefijo=prueba', '--prefijo=Pr
   r = await correr(['otro-resto', p, '--aplicar'], { stdin: 'otro-resto\n' });
   T(`prefijo "${p.slice(10)}": se niega (no se puede "apagar" la guarda con un prefijo vacio o raro)`, r.codigo === 2 && await existe('otro-resto'), r.salida);
 }
+r = await correr(['p-corto', '--prefijo=p-', '--aplicar'], { stdin: 'p-corto\n' });
+T('un prefijo de 2 letras (p-) es demasiado corto aunque el nombre lo tenga: se niega', r.codigo === 2 && /prefijo de prueba debe/.test(r.salida) && await existe('p-corto') && await n('productos', idCorto) === 1, r.salida);
 r = await correr(['prueba-', '--aplicar'], { stdin: 'prueba-\n' });
 T('el prefijo solo, sin nombre: se niega', r.codigo === 2, r.salida);
 // el demo con un nombre corto que SI empieza por el prefijo: la guarda por id lo detiene
