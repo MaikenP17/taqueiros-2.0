@@ -3534,7 +3534,7 @@ Hasta la sección 19 el servidor del superadmin dejaba entrar a cualquiera cuyo 
 | Llamar a un endpoint de Auth que diga el nivel | No existe uno que no pase por la sesión del propio usuario; el JWT es la fuente documentada. |
 | Aceptar el `aal` de un campo del cuerpo o de una cabecera | Lo controla el cliente: sería una escotilla. Hay pruebas que mandan `aal: "aal2"` en cabecera y cuerpo y comprueban que no cambia nada. |
 
-**Límites conocidos.** (1) Un token aal2 ya emitido sigue siendo un JWT firmado válido hasta que caduca (1 hora por defecto) aunque después se borre el factor; Supabase documenta que al borrar un factor *verificado* cierra todas las sesiones del usuario, y como `GET /user` comprueba que la sesión siga viva, el token deja de valer; esto último **no lo pude confirmar contra la base real** (el falso lo emula). (2) Si Supabase cambiara el nombre del método en `amr` (hoy `totp`; se acepta también `mfa/totp`), el superadmin quedaría **bloqueado** (falla hacia lo estricto), no abierto: la prueba real (23.9) lo detectaría al instante.
+**Límites conocidos.** (1) ~~Supabase documenta que al borrar un factor verificado cierra todas las sesiones~~ **INCORRECTO en la práctica** (revisión adversaria, 23.13 R1): el código de Supabase Auth **no** cierra las sesiones al borrar un factor, solo las baja a aal1 para el próximo refresco, y el token aal2 ya emitido sigue siendo aceptado por `GET /user` hasta que caduca. **Corregido:** además de los claims, el servidor exige que el usuario **todavía** tenga un factor TOTP verificado (paso 4 de `api/_sesion.js`). (2) Si Supabase cambiara el nombre del método en `amr` (hoy `totp`; se acepta también `mfa/totp`), el superadmin quedaría **bloqueado** (falla hacia lo estricto), no abierto: la prueba real (23.9) lo detectaría al instante.
 
 ### 23.3 Qué responde el servidor (el orden no cambia)
 
@@ -3550,7 +3550,7 @@ Hasta la sección 19 el servidor del superadmin dejaba entrar a cualquiera cuyo 
 
 Un superadmin sin MFA **no aprende nada**: ni siquiera si la acción existe o si el cuerpo es válido (siempre el mismo 403). Los 17 códigos y mensajes de antes no cambian con aal2.
 
-**Sin escotillas.** No hay variable de entorno, parámetro ni cabecera que apague la MFA. **No se exige MFA** al dueño, cajero ni cocina (siguen entrando con contraseña a su panel), ni a ningún otro endpoint (webhook, cron, `crear-pedido`, `generar-firma`, `reembolso`, panel): hay pruebas para cada uno. *Punto a revisar:* `reembolso` acepta a un superadmin como lo hacía antes, **con cualquier aal** (no se tocó a propósito: era una regla de preservación).
+**Sin escotillas.** No hay variable de entorno, parámetro ni cabecera que apague la MFA. **No se exige MFA** al dueño, cajero ni cocina (siguen entrando con contraseña a su panel), ni a ningún otro endpoint (webhook, cron, `crear-pedido`, `generar-firma`, `reembolso`, panel): hay pruebas para cada uno. *Cambiado en la revisión adversaria (23.13 R2):* `reembolso` ya **no** acepta a un superadmin sin MFA: el camino del superadmin exige aal2 (el del dueño no cambia y sigue sin MFA).
 
 ### 23.4 Las 22 acciones de `api/superadmin.js`
 
@@ -3598,7 +3598,7 @@ Funciones y reglas (todas `SECURITY DEFINER`, `search_path` vacío, **sin `EXECU
 
 No hay botón, variable ni parámetro que apague la MFA en el servidor (a propósito). La salida es **borrar los factores de ese usuario** en Supabase Auth; entonces entra solo con su contraseña (aal1) y puede enrolar uno nuevo.
 
-**Lo que está confirmado en la documentación de Supabase:** la API de administración `auth.admin.mfa.deleteFactor` (borra un factor de un usuario y, si estaba verificado, cierra todas sus sesiones) — <https://supabase.com/docs/reference/javascript/auth-admin-deletefactor>. Un usuario solo puede quitar su propio factor (`mfa.unenroll`) si ya está en aal2, es decir, justo lo que perdió.
+**Lo que está confirmado en la documentación de Supabase:** la API de administración `auth.admin.mfa.deleteFactor` (borra un factor de un usuario) — <https://supabase.com/docs/reference/javascript/auth-admin-mfa-deletefactor>. *(Esa página dice además que «cierra todas sus sesiones» si el factor estaba verificado; el código de Supabase Auth no lo hace: ver 23.13 R1.)* Un usuario solo puede quitar su propio factor (`mfa.unenroll`) si ya está en aal2, es decir, justo lo que perdió.
 
 **Lo que NO pude confirmar:** que el Dashboard (Authentication → Users → el usuario) tenga un botón para quitar factores MFA de un usuario; no lo encontré en la documentación oficial, así que **no lo cites como pasos**. (Ojo: lo que sí circula en foros de Supabase sobre «quitar el MFA» es la MFA de la *cuenta del Dashboard de Supabase*, otra cosa distinta: ahí solo ayuda el soporte de Supabase.)
 
@@ -3658,3 +3658,78 @@ Esto **no es código**. Los nombres de pantalla son los de la documentación ofi
 ### 23.12 Qué queda para la parte 2
 
 Revisión de seguridad independiente de esto → `superadmin.html`: inicio de sesión, **activar MFA con QR**, alta de restaurantes con planes, vigencia, dominios, usuarios, secretos de solo escritura y «entrar como» de solo lectura (usando las 4 lecturas de aquí, que ya existen) → ensayo con un segundo restaurante.
+
+### 23.13 Revisión adversaria del 3B-1 (independiente, antes de la parte 2)
+
+Revisión hecha como atacante, **sin tocar la base real ni usar llaves reales**: lectura del código, del código fuente de Supabase Auth (GitHub `supabase/auth`), de la documentación oficial, pruebas locales y mutaciones. Cada hallazgo dice si se **reprodujo** (CONFIRMADO) o es solo posible (PLAUSIBLE).
+
+**Respuesta corta.** No se encontró forma de saltarse la MFA desde fuera, ni de hacerse pasar por superadmin, ni de leer un restaurante sin dejar fila de auditoría, ni de sacar un secreto. Sí se encontraron **dos huecos de severidad media**, ya corregidos: un token con MFA seguía valiendo como MFA **hasta 1 hora** después de quitar el factor (R1), y el reembolso dejaba pasar a un superadmin **sin** MFA (R2).
+
+| # | Severidad | Evidencia | Dónde | Qué pasa | Estado |
+|---|---|---|---|---|---|
+| R1 | **Media** | CONFIRMADO (con el código de antes, el token viejo da **200** después de quitar el factor) | `api/_sesion.js` (`sesionDeToken`) | Borrar el factor (`quitar-mfa.mjs` o `deleteFactor`) **no** invalida el JWT aal2 ya emitido: Supabase Auth solo baja la sesión a aal1 para el próximo refresco (`adminUserDeleteFactor` → `DowngradeSessionsToAAL1`, sin cerrar sesiones) y `GET /user` no compara el `aal` del token con el de la sesión. Quien tuviera ese token seguía siendo superadmin con MFA hasta que caducara (1 h por defecto). La referencia de Supabase dice que «cierra todas las sesiones»; el código no lo hace. | **Corregido**: aal2 exige además que la **misma** respuesta de `GET /auth/v1/user` traiga un factor `totp` en estado `verified` (sin llamadas extra) |
+| R2 | **Media** | CONFIRMADO (con el código de antes, un superadmin aal1 pasaba el permiso: 404 del pedido en vez de 403) | `api/reembolso.js` | Con **solo la contraseña** de un superadmin se podía marcar como reembolsado un pedido cancelado y cobrado de **cualquier** restaurante (por su dominio), sin MFA y sin auditoría. No mueve dinero, pero deja un registro falso («ya se devolvió») que el dueño puede creer. | **Corregido**: el camino del superadmin exige aal2; el del dueño no cambia (sin MFA) |
+| H1 | Baja (pruebas) | CONFIRMADO | `pruebas/multirestaurante/fake-supabase.mjs` | El Supabase falso **borraba los tokens** al quitar un factor (más permisivo que el real) y así escondía R1; tampoco devolvía `factors` en `/auth/v1/user`. | **Corregido**: el falso ahora hace lo mismo que el real |
+| R3 | Baja | PLAUSIBLE (por diseño) | SQL 19, `auditar_lectura_superadmin` | Un superadmin **con MFA** comprometido puede paginar todo el historial de un restaurante en 10 min con **una sola** fila de auditoría (su `devueltos` cuenta solo la 1.ª página). No se esquiva con parámetros (solo cuentan acción, restaurante y modo) ni con carreras (dos peticiones a la vez dejan **dos** filas, no cero), y queda al menos una fila cada 10 min de actividad. Ese mismo atacante ya puede hacer cosas peores que sí quedan registradas. | Aceptado. Mitigación barata para un SQL futuro (19b): incluir `pagina_inicial` en la clave de la ventana (paginar deja una 2.ª fila) |
+| R4 | Baja | CONFIRMADO (conocido) | `api/superadmin.js` | El límite de 10 fallos por IP es en memoria de cada instancia de Vercel: no frena un ataque distribuido. La adivinanza del código TOTP la limita Supabase (15 por minuto por IP, no se puede cambiar). | Aceptado |
+| R5 | Baja | — | `supabase/quitar-mfa.mjs` | `--confirmar` no pide reescribir el correo. Primero se corre sin `--confirmar` (muestra los factores), solo afecta al usuario de ese correo exacto y nunca imprime secretos. | Aceptado |
+| R6 | Informativa | CONFIRMADO | `api/superadmin.js` | La diferencia de milisegundos del superadmin sin MFA **no es explotable**: para verla hay que tener la contraseña de esa misma cuenta, y con ella `mfa_requerida` ya lo dice en el cuerpo (por diseño: la pantalla lo necesita). Nadie puede averiguar si **otra** cuenta es superadmin. | Sin cambio |
+| R7 | Informativa | — | `api/_sesion.js` | `amr` en formato de cadenas (solo con un *custom access token hook*, que no usamos) o una sesión aal2 conseguida con un **código de recuperación** (`mfa/recovery_code`, función experimental de Supabase desde Auth v2.197.0) cuentan como **aal1**: bloquea, no abre. Para recuperar el acceso se usa `quitar-mfa.mjs` (23.8). | Sin cambio |
+| R8 | Informativa | NO CONFIRMADO | Supabase Auth | La página de límites lista `/user` en el grupo de 30 por 5 min por IP; no aclara si cuenta el `GET` que hace el servidor. Si pasara, el servidor responde 500 «No se pudo validar la sesión» (no abre nada). | Vigilar en la parte 2 |
+| R9 | Informativa | — | `pruebas/multirestaurante/totp.js` | El TOTP de pruebas acepta 7–8 dígitos y reusar un código: solo lo usa el falso; en la base real verifica Supabase. | Sin cambio |
+| R10 | Informativa | — | SQL 19 | Datos personales de clientes en `ver_pedidos` y correos de miembros en `ver_config`: por diseño («entrar como»). `items` es JSON que **no es de fiar** (22.17 H10). La jornada usa `America/Bogota` como el panel; el mes, la zona del restaurante. | Reglas para la parte 2 (abajo) |
+
+**Lo que se comprobó y está bien** (sin hallazgo): el token que se decodifica es **byte por byte** el que Auth acaba de aceptar; un token vencido, con la firma cambiada, `alg: none`, de otro proyecto o con el `sub` cambiado no pasa de Auth (401); el de una sesión **cerrada** tampoco: `GET /user` exige que exista la sesión del claim `session_id` (código fuente: `session_not_found`); los claims anidados (`user_metadata.aal`) se ignoran; `aal` se compara exacto. No hay otra ruta hacia `api/superadmin.js` (ni `vercel.json` ni el despachador la alcanzan); todo método que no sea `POST` (también `OPTIONS`, `HEAD`, `PUT`) da 405 antes de mirar nada; un cuerpo roto, vacío o con una acción inventada da el mismo 403 sin MFA. Las 5 funciones del SQL 19: `SECURITY DEFINER`, `search_path` vacío, sin `EXECUTE` para `anon`, `authenticated` ni `PUBLIC`, lo primero es `exigir_superadmin(p_actor)`, sin SQL dinámico; `p_actor` solo lo pone el servidor (desde la sesión); el id del restaurante se valida como UUID antes de llamar a la base; `antes_de` solo filtra dentro del restaurante pedido; no sale ningún secreto ni token de seguimiento. La auditoría sigue de solo agregar con sus 3 disparadores; volver a correr el 16 con el 19 puesto es seguro (pruebas A5 y A6 de `sql19.mjs`) y el 16 sigue independiente del 16b. Las herramientas no imprimen secretos ni códigos y las pruebas reales solo tocan usuarios `@prueba-superadmin.example.com` y restaurantes `mr16-prueba*`.
+
+**Pruebas nuevas** (fallan con el código de antes y pasan con el de ahora): `mfa.test.js` (+1: `tieneTotpVerificado`), `superadmin.mjs` (+2: «quitar el factor» y «reembolso»; también corren **contra la base real** en `probar-superadmin-mfa.mjs`), `quitar-mfa-test.mjs` (la prueba del token viejo ahora exige 403 `mfa_requerida`; antes exigía un 401 que solo pasaba con el falso). Revisión por mutación: ver 23.14.
+
+**Verificación de la documentación de Supabase** (corrige 23.2, 23.8 y 23.9):
+
+| Afirmación | Veredicto |
+|---|---|
+| `aal` vale `aal1`/`aal2`; un JWT sin `aal` está en `aal1` | CONFIRMADA (JWT fields; MFA) |
+| `amr` es una lista de `{ method, timestamp }` con `totp`, `password`… | CONFIRMADA (JWT fields). Formato de cadenas solo con *hooks* (tipos de supabase-js 2.117) |
+| `deleteFactor` borra un factor de un usuario | CONFIRMADA |
+| …y «cierra todas sus sesiones» | **INCORRECTA en la práctica**: lo dice la referencia, pero el código de Auth solo baja la sesión a aal1 y el token sigue vivo hasta caducar (la guía de MFA: baja a aal1 «solo después del intervalo de refresco») → R1 |
+| Un usuario solo quita su propio factor verificado (`unenroll`) estando en aal2 | CONFIRMADA (tipos de supabase-js) |
+| El Dashboard tiene un botón para quitar el MFA de un usuario | NO CONFIRMADA (el artículo «Lost access» es de la cuenta de **Supabase**, no de los usuarios del proyecto) |
+| Límites: token 150 / 5 min por IP; registro y otros 30 / 5 min; verify 30 / 5 min; MFA 15 / min por IP **sin poder cambiarse**; en Authentication → Rate Limits | CONFIRMADA (con ráfagas de 30). Diferencias por plan: NO CONFIRMADA (la página no dice nada) |
+| «Allow new users to sign up» existe y, apagado, solo entran usuarios existentes | CONFIRMADA. Pantalla exacta: NO CONFIRMADA (la doc enlaza a la sección Auth del proyecto) |
+| Largo mínimo y caracteres de la contraseña: proveedor Email | CONFIRMADA |
+| «Confirm email» está en el proveedor Email | CONFIRMADA |
+| TOTP habilitado por defecto y gratis | CONFIRMADA («enabled on all Supabase projects by default»). Nombre exacto del interruptor: NO CONFIRMADO (existe el modo «Verification Disabled») |
+| Protección de contraseñas filtradas: Pro o superior | CONFIRMADA |
+| MFA por teléfono es un complemento de pago | CONFIRMADA (75 USD al mes el primer proyecto) |
+
+**Pasos manuales corregidos para Carlos** (lo demás de 23.9 queda igual):
+
+* **Si pierdes el celular**: 23.8 sigue valiendo. Ahora, en cuanto `quitar-mfa.mjs --confirmar` borra el factor, cualquier token anterior deja de contar como MFA en el servidor **al instante**.
+* **Si sospechas que alguien robó tu sesión o tu contraseña**: (1) borra el factor con `quitar-mfa.mjs`; (2) **cambia la contraseña** (Supabase termina las sesiones al cambiarla, y el servidor rechaza los tokens de sesiones terminadas); (3) vuelve a activar la MFA; (4) revisa la auditoría (`listar_auditoria`) desde la pantalla.
+
+**Reglas de salida y de diseño para la parte 2 (`superadmin.html`)**
+
+1. **Todo dato que venga de la base se pinta como texto** (`textContent`, nunca `innerHTML` ni plantillas con HTML): nombres de restaurantes, productos y opciones, `items` de los pedidos, datos de clientes, correos de miembros y mensajes de error. Enlaces solo a dominios propios y con `rel="noopener"`.
+2. **Sesión en el navegador**: supabase-js con almacenamiento en `sessionStorage` (no `localStorage`), para que cerrar la pestaña cierre la sesión; nunca tokens en cookies propias, en la URL ni en el log. Cabeceras propias para esa página: CSP sin scripts de terceros (salvo supabase-js fijado por versión) y `frame-ancestors 'none'`.
+3. **MFA**: al entrar, llamar a `mi_estado`. Si `aal` es `aal1`: sin factor verificado, mostrar el alta con QR (`mfa.enroll`) y verificar; con factor, pedir el código (`challenge` + `verify`). Si cualquier acción responde 403 con `codigo: "mfa_requerida"`, volver a esa pantalla (sin reintentar en bucle). El secreto del QR no se guarda en ningún lado.
+4. **Alta de restaurantes**: confirmar el slug antes de crear (no se cambia después); la contraseña temporal de `crear_usuario` se muestra **una vez**, en un cuadro que no se puede volver a abrir, y nunca va al log.
+5. **Secretos**: campos de **solo escritura** (`type=password`, `autocomplete=off`); al guardar se limpia el campo y solo se muestra sí/no por secreto (`estado_secretos`).
+6. **«Entrar como»**: una franja fija «Viendo X — solo lectura» y ningún botón que escriba; paginar con `antes_de = siguiente`; avisar si `truncado`.
+7. Repetir las pruebas reales (`probar-superadmin.mjs` y `probar-superadmin-mfa.mjs`) después de cada cambio del servidor.
+
+Sources: [JWT fields](https://supabase.com/docs/guides/auth/jwt-fields) · [MFA](https://supabase.com/docs/guides/auth/auth-mfa) · [TOTP](https://supabase.com/docs/guides/auth/auth-mfa/totp) · [admin deleteFactor](https://supabase.com/docs/reference/javascript/auth-admin-mfa-deletefactor) · [código: adminUserDeleteFactor](https://github.com/supabase/auth/blob/master/internal/api/admin.go) · [código: DowngradeSessionsToAAL1](https://github.com/supabase/auth/blob/master/internal/models/factor.go) · [código: sesión desde el JWT](https://github.com/supabase/auth/blob/master/internal/api/auth.go) · [código: usuario con factores](https://github.com/supabase/auth/blob/master/internal/models/user.go) · [Sessions](https://supabase.com/docs/guides/auth/sessions) · [Rate limits](https://supabase.com/docs/guides/auth/rate-limits) · [General configuration](https://supabase.com/docs/guides/auth/general-configuration) · [Password security](https://supabase.com/docs/guides/auth/password-security) · [MFA por teléfono (precio)](https://supabase.com/docs/guides/platform/manage-your-usage/advanced-mfa-phone) · [Lost access (cuenta de Supabase)](https://supabase.com/docs/guides/troubleshooting/lost-accessforgot-the-mfa-device-nAPT-7) · [Códigos de recuperación](https://supabase.com/docs/reference/javascript/auth-mfa-recovery-codes-verify) · [Auth v2.197.0](https://github.com/supabase/auth/releases/tag/v2.197.0)
+
+### 23.14 Pruebas después de la revisión adversaria
+
+| Batería | Antes | Ahora | Por qué cambia |
+|---|---|---|---|
+| unitarias (`node --test pruebas/*.test.js`) | 171 | **172** | +1 `tieneTotpVerificado` (R1) |
+| `superadmin.mjs` | 81 | **84** | +3: quitar el factor deja el token viejo sin MFA (R1), reembolso de un superadmin sin MFA (R2), la base falla al mirar `superadmins` → 500 (mutación sobreviviente) |
+| `superadmin.mjs --sin-sql19` | 65 | **68** | las mismas 3 (están en el grupo de MFA) |
+| `quitar-mfa-test.mjs` | 11 | **11** | la prueba del token viejo ahora exige 403 `mfa_requerida` (antes un 401 que solo daba el falso) |
+| `sql19.mjs` | 44 | **44** | C10 ahora comprueba que el horario de `ver_config` es el del restaurante pedido (mutación sobreviviente) |
+| `probar-superadmin-mfa.mjs` contra el falso | 31 | **33** | +2 (R1 y R2); el de la base que falla solo corre con el falso |
+| sql16 48, crear-superadmin 13, servidor 262 (despachador 262; 208 con `SQL18_NO=1`), agrupación 32, vista previa 57, front 208, tema claro 43, panel 414, e2e 193, rls 237, endurecer 426, migrar-fotos 126, datos-restaurante 76, config-publica 52, dominios 35, hallazgos 32, planes 11, sim 34, cargar-secretos 25, inspección 6, rebrand 78, textos-visibles 10, opciones 77, comparar-tickets 7 + 3; contra el falso: compatibilidad 26, servidor 249, opciones 38, superadmin 50, aislamiento 252 de 259 | — | **sin cambios** | (las 7 de Realtime siguen fallando con el falso, por diseño) |
+
+*Revisión por mutación* (`node pruebas/multirestaurante/mutaciones-mfa.mjs --paralelo=3`): se agregaron 12 mutaciones (las dos correcciones, el factor sin verificar o de otro tipo, el dueño al que se le exigiera MFA en el reembolso —detectada por `servidor.mjs --grupo=reembolso`—, y rincones que la lista no tocaba: horario, mes y catálogo de **otro** restaurante, y «si la base falla al mirar superadmins, se deja pasar»). Primera pasada: **107 mutaciones, 101 detectadas, 4 equivalentes (las mismas de 23.10), 2 sin detectar** (el horario de otro restaurante y la falla de la base: el código estaba bien, pero ninguna prueba lo vigilaba). Con las dos pruebas nuevas: **0 sin detectar**.
+
+**Contra la base REAL (las corres tú):** `node supabase/probar-superadmin.mjs` → **50**, y `node supabase/probar-superadmin-mfa.mjs` → **33** (antes 31). Las dos nuevas confirman en Supabase real que (1) después de borrar el factor por la API de administración, el token de antes ya no cuenta como MFA, y (2) un superadmin sin MFA no pasa el permiso del reembolso.
