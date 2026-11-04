@@ -1,7 +1,7 @@
 const {
   buscarPedidoPorReferencia, marcarReembolsado, consultarTabla, esSuperadmin
 } = require("./_supabase.js");
-const { usuarioDeSolicitud } = require("./_sesion.js");
+const { sesionDeSolicitud } = require("./_sesion.js");
 const { exigirRestaurante } = require("./_restaurante.js");
 
 /* =============================================================
@@ -14,7 +14,10 @@ const { exigirRestaurante } = require("./_restaurante.js");
 
    QUIEN PUEDE:
      * El DUENO del restaurante de este host (sesion del panel: cabecera
-       Authorization: Bearer <JWT de la sesion>), o un superadmin.
+       Authorization: Bearer <JWT de la sesion>), o un superadmin CON la
+       verificacion en dos pasos (aal2), como en api/superadmin.js: con solo
+       la contrasena de un superadmin no se marca nada (docs 23.13, R2).
+       Al dueno no se le pide MFA.
        Un cajero, la cocina o alguien sin membresia reciben 403.
      * El propio servidor, llamando a registrarReembolso(rid, referencia)
        desde otro modulo.
@@ -55,12 +58,12 @@ async function registrarReembolso(rid, referencia, ahora) {
   return { ok: true, yaRegistrado: false, reembolsado_en: fila.reembolsado_en };
 }
 
-/* true solo si el JWT es de un dueno ACTIVO de ese restaurante o de un superadmin. */
+/* true solo si el JWT es de un dueno ACTIVO de ese restaurante o de un superadmin con MFA (aal2). */
 async function esDuenoOSuperadmin(rid, usuario) {
   const filas = await consultarTabla(rid, "miembros",
     `user_id=eq.${usuario.id}&activo=is.true&rol=eq.dueno&select=rol&limit=1`);
   if (filas.length) return true;
-  return esSuperadmin(usuario.id);
+  return usuario.aal === "aal2" && esSuperadmin(usuario.id);
 }
 
 async function manejador(req, res) {
@@ -73,7 +76,7 @@ async function manejador(req, res) {
   if (!restaurante) return;
 
   try {
-    const usuario = await usuarioDeSolicitud(req);
+    const usuario = await sesionDeSolicitud(req);
 
     if (!usuario) {
       res.status(401).json({ error: "Inicia sesión para continuar" });
