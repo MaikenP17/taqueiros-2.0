@@ -659,6 +659,79 @@ async function escenario(nombre, fn) {
     comprobar(/Cerraste sesión/.test(await pg.cuerpo()), 'avisa que cerraste sesion');
   });
 
+  /* ======================= datos para la lista y el detalle ======================= */
+  const fechaEn = (n) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + n * 86400000));
+  async function sembrar(slug, nombre, { estado = 'activo', vigente = null, gracia = 5, plan = 'completo', modalidad = 'mensual', dominios = [] } = {}) {
+    const r = (await db.query(`select public.sa_crear_restaurante($1::uuid, $2, $3) as r`, [uMfa.id, slug, nombre])).rows[0].r;
+    await db.query(`update public.restaurantes set estado = $2, vigente_hasta = $3::date, dias_gracia = $4, plan = $5, modalidad_pago = $6 where id = $1::uuid`, [r.id, estado, vigente, gracia, plan, modalidad]);
+    for (const d of dominios) await db.query(`insert into public.restaurante_dominios (host, restaurante_id) values ($1, $2::uuid)`, [d, r.id]);
+    return r;
+  }
+  const bidi = String.fromCharCode(0x202e), cero = String.fromCharCode(0x200b);
+  const NOMBRE_HOSTIL = `<img src=x onerror="window.__pwn=1"><script>window.__pwn=1</script> "comillas" 'simples' ${bidi}invertido${cero}cero\nsalto 🌮🔥 ` + 'X'.repeat(600);
+  const R = {};
+  R.prueba = await sembrar('pr-prueba', 'Casa Prueba', { estado: 'prueba', vigente: fechaEn(9) });
+  R.activo = await sembrar('pr-activo', 'Zeta Activo', { estado: 'activo', vigente: fechaEn(40), dominios: ['activo.example.com'], plan: 'basico', modalidad: 'unico' });
+  R.gracia = await sembrar('pr-gracia', 'Beta Gracia', { estado: 'activo', vigente: fechaEn(-2), gracia: 5 });
+  R.vencido = await sembrar('pr-vencido', 'Alfa Vencido', { estado: 'activo', vigente: fechaEn(-20), gracia: 5 });
+  R.susp = await sembrar('pr-susp', 'Omega Suspendido', { estado: 'suspendido', vigente: fechaEn(10) });
+  R.hostil = await sembrar('pr-hostil', 'temporal', { estado: 'activo', vigente: fechaEn(15), plan: 'comandas' });
+  await db.query(`update public.restaurantes set nombre = $2 where id = $1::uuid`, [R.hostil.id, NOMBRE_HOSTIL]);
+
+  /* ======================= 9. la lista ======================= */
+  await escenario('9. Lista: estados con color y texto, vencimiento, filtros, buscador, orden y datos hostiles como texto', async () => {
+    const pg = await pagina('lista');
+    await entrarConCodigo(pg, uMfa);
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-lista-cuerpo tbody tr').length>=7}`, 8000, 'las filas');
+    const filas = await pg.eval(`[...document.querySelectorAll('#sa-lista-cuerpo tbody tr')].map(function(tr){return {slug:tr.querySelector('.sa-mono').textContent, pill:(tr.querySelector('.sa-pill')||{}).className, estado:(tr.querySelector('.sa-pill')||{}).textContent, venc:tr.children[3].textContent, doms:tr.children[4].textContent, plan:tr.children[1].textContent, nombre:tr.querySelector('.sa-nombre-btn').textContent}})`);
+    const de = (slug) => filas.find((f) => f.slug === slug) || {};
+    comprobar(de('pr-prueba').estado === 'En prueba' && de('pr-prueba').pill.includes('sa-pill-prueba') && /Vence el .* · quedan 9 días/.test(de('pr-prueba').venc), 'prueba: pastilla "En prueba" con su color y "quedan 9 días"', JSON.stringify(de('pr-prueba')));
+    comprobar(de('pr-activo').estado === 'Activo' && de('pr-activo').pill.includes('sa-pill-activo') && /quedan 40 días/.test(de('pr-activo').venc), 'activo: pastilla verde y dias restantes', JSON.stringify(de('pr-activo')));
+    comprobar(de('pr-gracia').estado === 'En gracia' && de('pr-gracia').pill.includes('sa-pill-gracia') && /se suspende en 4 días/.test(de('pr-gracia').venc), 'gracia: "En gracia" y cuantos dias faltan para suspender', JSON.stringify(de('pr-gracia')));
+    comprobar(de('pr-vencido').estado === 'Vencido' && de('pr-vencido').pill.includes('sa-pill-vencido') && /hace 20 días/.test(de('pr-vencido').venc), 'vencido: "Vencido" y hace cuantos dias', JSON.stringify(de('pr-vencido')));
+    comprobar(de('pr-susp').estado === 'Suspendido' && de('pr-susp').pill.includes('sa-pill-suspendido') && /Suspendido a mano/.test(de('pr-susp').venc), 'suspendido: "Suspendido" y se aclara que fue a mano', JSON.stringify(de('pr-susp')));
+    const taq = filas.find((f) => /Sin vencimiento/.test(f.venc));
+    comprobar(!!taq, 'un restaurante sin vencimiento se ve como "Sin vencimiento"');
+    comprobar(de('pr-activo').doms.includes('activo.example.com') && /Sin dominio propio/.test(de('pr-prueba').doms), 'dominios: se listan o dice "Sin dominio propio"');
+    comprobar(de('pr-activo').plan.includes('Básico') && de('pr-activo').plan.includes('Pago único') && de('pr-hostil').plan.includes('Solo comandas'), 'plan y modalidad en palabras claras');
+    comprobar(filas.every((f) => !/Demo/.test(f.pill + f.nombre)) && await pg.eval(`!/(^|\\s)Demo(\\s|$)/.test(document.querySelector('#sa-lista-cuerpo').innerText)`), 'no se inventa la etiqueta "Demo" (el servidor no la marca; no hay ids escritos a mano)');
+    const orden = filas.map((f) => f.slug);
+    comprobar(orden.indexOf('pr-vencido') < orden.indexOf('pr-gracia') && orden.indexOf('pr-gracia') < orden.indexOf('pr-prueba') && orden.indexOf('pr-prueba') < orden.indexOf('pr-susp') && orden.indexOf('pr-susp') < orden.indexOf('pr-activo') && filas[filas.length - 1].venc === 'Sin vencimiento', 'orden por vencimiento mas cercano (vencidos primero, sin vencimiento al final)', orden.join(' > '));
+
+    // datos hostiles: texto, nunca HTML
+    const hostil = de('pr-hostil');
+    comprobar(await pg.eval('window.__pwn') === undefined && await pg.eval(`document.querySelectorAll('#sa-lista-cuerpo img, #sa-lista-cuerpo script').length===0`), 'el nombre con <img onerror> y <script> se ve como texto: no se ejecuta ni crea elementos');
+    comprobar(hostil.nombre.includes('<img src=x') && hostil.nombre.includes('<script>'), 'y el texto literal esta visible', hostil.nombre.slice(0, 60));
+    comprobar(!hostil.nombre.includes(bidi) && !hostil.nombre.includes(cero) && hostil.nombre.includes('▯'), 'la marca de derecha a izquierda y el ancho cero se cambian por un cuadrito visible');
+    comprobar(hostil.nombre.length <= 121 && hostil.nombre.includes('🌮'), 'el nombre larguisimo se corta (120) y los emojis se conservan', String(hostil.nombre.length));
+    comprobar(await pg.eval(`document.documentElement.scrollWidth<=window.innerWidth`), 'sin desborde horizontal a 1280 px');
+    await capturarAmbos(pg, 'lista');
+
+    // filtros
+    await pg.clicTexto('En gracia (1)');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-lista-cuerpo tbody tr').length`) === 1, 'filtro por estado: En gracia deja 1 fila');
+    comprobar(await pg.eval(`[...document.querySelectorAll('.sa-chips button')].map(function(b){return b.textContent}).join('|')`) === 'Todos (7)|En prueba (1)|Activos (' + (await pg.eval(`document.querySelectorAll('.sa-chips button')[2].textContent.match(/\\d+/)[0]`)) + ')|En gracia (1)|Vencidos (1)|Suspendidos (1)', 'los filtros muestran cuantos hay de cada estado');
+    await pg.clicTexto('Todos (7)');
+    await pg.escribir('#sa-buscar', 'activo.example');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-lista-cuerpo tbody tr').length`) === 1, 'el buscador encuentra por dominio');
+    await pg.escribir('#sa-buscar', 'ZETA');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-lista-cuerpo tbody tr').length`) === 1, 'el buscador encuentra por nombre sin distinguir mayusculas');
+    await pg.escribir('#sa-buscar', 'pr-gra');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-lista-cuerpo tbody tr').length`) === 1, 'el buscador encuentra por nombre corto');
+    await pg.escribir('#sa-buscar', 'no-existe-xyz');
+    comprobar(/Ningún restaurante coincide/.test(await pg.cuerpo()), 'sin coincidencias lo dice');
+    await pg.escribir('#sa-buscar', '');
+    await pg.escribir('#sa-orden', 'nombre');
+    const porNombre = await pg.eval(`[...document.querySelectorAll('#sa-lista-cuerpo tbody tr .sa-mono')].map(function(x){return x.textContent})`);
+    comprobar(porNombre.indexOf('pr-vencido') < porNombre.indexOf('pr-susp') && porNombre.indexOf('pr-susp') < porNombre.indexOf('pr-activo'), 'orden por nombre: Alfa antes de Omega antes de Zeta', porNombre.join(','));
+
+    // celular: tarjetas
+    await medidas(pg, 390);
+    await sleep(150);
+    comprobar(await pg.eval(`getComputedStyle(document.querySelector('#sa-lista-cuerpo tbody tr td')).display==='block' && getComputedStyle(document.querySelector('#sa-lista-cuerpo thead')).display==='none' && document.documentElement.scrollWidth<=window.innerWidth`), 'a 390 px la tabla pasa a tarjetas, sin encabezado y sin desborde horizontal');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
   /*FIN-ESCENARIOS*/
 
   // ---- resumen ----
