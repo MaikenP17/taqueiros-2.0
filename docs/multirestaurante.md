@@ -3492,3 +3492,169 @@ La primera pasada dejó **7 sobrevivientes**, que se arreglaron y se volvieron a
 3. Imprimir el ticket real en la DIG-POS892: revisar que **"SIN:"** y **"+"** salgan claros y que el pie no se corte.
 4. Vista previa de WhatsApp: pegar `…/?v=3` en un chat.
 5. Con la llave cargada (Read-Host): `probar-compatibilidad` (26), `probar-servidor-multirestaurante` (249; también con `$env:VIA = "despachador"`), `probar-opciones` (38) y `probar-aislamiento` (259; si solo fallan las de Realtime con "sin control positivo", repetir una vez). Quitar la llave: `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+
+---
+
+## 23. Verificación en dos pasos (MFA) obligatoria para el superadmin y lecturas de «entrar como» (SQL 19) — paso 3B, parte 1 de 2
+
+Hasta la sección 19 el servidor del superadmin dejaba entrar a cualquiera cuyo id estuviera en `public.superadmins` y tuviera una sesión válida. Un superadmin ve y administra **todos** los restaurantes: si alguien roba o adivina su contraseña, lo tiene todo. Esta parte hace dos cosas, **solo en el servidor y la base** (la pantalla `superadmin.html` es la parte 2, después de una revisión de seguridad independiente):
+
+1. **MFA obligatoria**: todas las acciones de `api/superadmin.js` exigen que la sesión se haya verificado con un segundo factor TOTP (nivel de garantía **aal2**).
+2. **Lecturas de solo lectura para «entrar como»**: el superadmin puede *mirar* un restaurante (pedidos, menú, configuración, resumen) **sin suplantar a nadie** y sin escribir nada.
+
+**El SQL 19 (`supabase/19-superadmin-lectura.sql`) está escrito y probado en el Supabase falso, pero NO se aplicó a la base real**: lo aplicas tú (23.6). El servidor nuevo funciona igual **antes** de aplicarlo (las lecturas avisan que falta el SQL 19; todo lo demás responde como siempre).
+
+### 23.1 Qué cambió
+
+| Pieza | Cambio |
+|---|---|
+| `api/_sesion.js` | Nuevas `sesionDeToken` / `sesionDeSolicitud` / `nivelDeGarantia`: además del id, dicen el **aal** (`aal1` o `aal2`). `usuarioDeToken` / `usuarioDeSolicitud` siguen devolviendo `{ id }` (reembolso no cambia). |
+| `api/superadmin.js` | Exige aal2 en todo menos `mi_estado`; 5 acciones nuevas (`mi_estado`, `ver_pedidos`, `ver_menu`, `ver_config`, `ver_resumen`: **22 en total**); constancia acotada de los rechazos por falta de MFA. Sigue siendo **una sola función de Vercel (la 7.ª de 12)**; sin dependencias nuevas. |
+| `supabase/19-superadmin-lectura.sql` y `19-revertir.sql` (nuevos, **sin aplicar**) | 5 funciones `sa_*` (`sa_ver_pedidos`, `sa_ver_menu`, `sa_ver_config`, `sa_ver_resumen`, `sa_registrar_rechazo_mfa`) y 1 ayuda interna (`auditar_lectura_superadmin`). Atómico, idempotente, marcadores `-- >>> PASO`, **14 comprobaciones OK/FALLA** (reversa: 5). Necesita el SQL 16; **no** necesita el 16b; el 18 es opcional. |
+| `supabase/16-superadmin.sql` (una comprobación) | «Hay 15 funciones `sa_*`» ya no cuenta las 5 del 19. Sin esto, **volver a correr el 16 con el 19 puesto se habría revertido**. No cambia nada del SQL ya aplicado. |
+| `supabase/quitar-mfa.mjs` (nuevo) | Herramienta de **operador** para borrar los factores MFA de un usuario si pierde el celular (23.7). |
+| `supabase/probar-superadmin.mjs` (ahora con MFA real) y `probar-superadmin-mfa.mjs` (nuevo) | Pruebas contra la base real: enrolan un TOTP **de verdad** por las rutas de Auth y calculan el código con `node:crypto` (23.9). |
+| Pruebas | `pruebas/mfa.test.js` (TOTP contra los vectores del RFC 6238 y lectura del aal), `sql19.mjs`, `mutaciones-mfa.mjs`; el Supabase falso ahora emula `aal1`/`aal2` y `/auth/v1/factors`. |
+
+### 23.2 Cómo se lee el aal — la decisión
+
+**El problema.** `GET /auth/v1/user` (lo que hacía `api/_sesion.js`) devuelve *el usuario*, no *la sesión*: **no dice el aal**. Según la documentación de Supabase, el nivel vive en los claims del JWT de acceso: `aal` (`aal1` o `aal2`; «los JWT sin claim `aal` están en `aal1`») y `amr` (lista de `{ method, timestamp }`, p. ej. `totp`, `password`).
+
+**Lo que se hace** (en este orden, y no en otro):
+
+1. Supabase Auth valida **ese mismo token** (firma, caducidad, sesión viva) con la llamada de siempre. Si no lo valida → `null` → **401**. Un JWT con la carga cambiada, sin firma, con `alg: none` o con el `aal` maquillado **falla aquí**, porque su firma ya no coincide.
+2. **Solo entonces** se lee la carga (base64url) de ese token ya aceptado. No hace falta volver a verificar la firma: es byte por byte el token que Auth acaba de aceptar. El aal **nunca** sale de un cuerpo, cabecera o parámetro que mande el cliente, ni de un token que Auth no haya aceptado.
+3. Defensa en profundidad: es **aal2** solo si (a) el `sub` de la carga es el mismo id que devolvió Auth, (b) `aal` es exactamente `"aal2"` y (c) `amr` es una lista con un método TOTP. **Cualquier otra cosa es aal1** (carga ilegible, claim ausente, tipo raro, `amr` solo con contraseña…): se falla hacia lo estricto. Nunca lanza una excepción.
+
+**Alternativas descartadas.**
+
+| Alternativa | Por qué no |
+|---|---|
+| Verificar el JWT localmente con las claves públicas del proyecto (JWKS) | Habría que traer y cachear claves, soportar su rotación y el algoritmo (ES256/RS256) con `node:crypto`: más código de seguridad propio, y se pierde lo que Auth sí comprueba (que la sesión siga viva y no esté cerrada). El `GET /user` ya hace todo eso. |
+| Llamar a un endpoint de Auth que diga el nivel | No existe uno que no pase por la sesión del propio usuario; el JWT es la fuente documentada. |
+| Aceptar el `aal` de un campo del cuerpo o de una cabecera | Lo controla el cliente: sería una escotilla. Hay pruebas que mandan `aal: "aal2"` en cabecera y cuerpo y comprueban que no cambia nada. |
+
+**Límites conocidos.** (1) Un token aal2 ya emitido sigue siendo un JWT firmado válido hasta que caduca (1 hora por defecto) aunque después se borre el factor; Supabase documenta que al borrar un factor *verificado* cierra todas las sesiones del usuario, y como `GET /user` comprueba que la sesión siga viva, el token deja de valer; esto último **no lo pude confirmar contra la base real** (el falso lo emula). (2) Si Supabase cambiara el nombre del método en `amr` (hoy `totp`; se acepta también `mfa/totp`), el superadmin quedaría **bloqueado** (falla hacia lo estricto), no abierto: la prueba real (23.9) lo detectaría al instante.
+
+### 23.3 Qué responde el servidor (el orden no cambia)
+
+| Situación | Respuesta | Cuenta como intento fallido (429 a los 10) |
+|---|---|---|
+| Sin sesión, token inválido, vencido o manipulado | **401** `{ error: "Inicia sesión para continuar" }` | sí |
+| Sesión válida, **no es superadmin** (dueño, cajero, cocina, sin membresía; con aal1 **o** aal2) | **403** `{ error: "No autorizado" }` — **idéntico** con aal1 y con aal2 (mismo cuerpo, mismas cabeceras, mismas peticiones a Supabase); el aal ni se mira | sí |
+| **Superadmin con aal1** (sin MFA), cualquier acción salvo `mi_estado`, aunque el cuerpo esté roto o la acción no exista | **403** `{ error: "Activa o confirma la verificación en dos pasos", codigo: "mfa_requerida", aal: "aal1" }` | **no** (ya entró con contraseña: no se bloquea a sí mismo) |
+| **Superadmin con aal2** | la acción (con sus 400/404/409 de siempre) | — |
+| `mi_estado` de un superadmin (aal1 o aal2) | **200** `{ ok: true, es_superadmin: true, aal: "aal1"\|"aal2", mfa_requerida: true }` | — |
+| `mi_estado` de quien no es superadmin | el mismo **403 genérico** de arriba (no se filtra quién es superadmin) | sí |
+| Método distinto de POST | 405 | — |
+
+Un superadmin sin MFA **no aprende nada**: ni siquiera si la acción existe o si el cuerpo es válido (siempre el mismo 403). Los 17 códigos y mensajes de antes no cambian con aal2.
+
+**Sin escotillas.** No hay variable de entorno, parámetro ni cabecera que apague la MFA. **No se exige MFA** al dueño, cajero ni cocina (siguen entrando con contraseña a su panel), ni a ningún otro endpoint (webhook, cron, `crear-pedido`, `generar-firma`, `reembolso`, panel): hay pruebas para cada uno. *Punto a revisar:* `reembolso` acepta a un superadmin como lo hacía antes, **con cualquier aal** (no se tocó a propósito: era una regla de preservación).
+
+### 23.4 Las 22 acciones de `api/superadmin.js`
+
+| Acción | aal1 | aal2 |
+|---|---|---|
+| `mi_estado` | 200 (estado) | 200 (estado) |
+| `yo`, `listar_restaurantes`, `detalle_restaurante`, `crear_restaurante`, `actualizar_restaurante`, `registrar_pago`, `editar_config`, `guardar_tarifas`, `agregar_dominio`, `quitar_dominio`, `buscar_usuario`, `crear_usuario`, `asignar_miembro`, `quitar_miembro`, `guardar_secretos`, `estado_secretos`, `listar_auditoria` (las 17 de la sección 19) | 403 `mfa_requerida` | como antes |
+| `ver_pedidos`, `ver_menu`, `ver_config`, `ver_resumen` (nuevas, **necesitan el SQL 19**) | 403 `mfa_requerida` | 200, o 503 «falta aplicar el SQL 19» si aún no está |
+
+### 23.5 Las lecturas de «entrar como»
+
+Todas reciben `restaurante_id` (UUID; en mayúsculas se acepta y se pasa a minúsculas). **Rechazos sin filtrar nada:** id ausente, `null`, vacío, texto, número, booleano, lista, objeto, con espacios, con inyección o sin guiones → **400** con un mensaje fijo (el servidor ni llama a la base); un UUID bien formado que no existe → **404** «No existe ese restaurante». Campos de más → 400.
+
+| Acción | Parámetros | Devuelve |
+|---|---|---|
+| `ver_pedidos` | `modo` `"jornada"` (por defecto: la jornada actual con el corte del restaurante, como el panel) o `"recientes"`; `limite` 1–**100** (50 por defecto); `antes_de` (id) | `{ modo, jornada: {fecha, inicio, fin, hora_corte}\|null, pedidos: [...], devueltos, hay_mas, siguiente }`. Pagina así: pide la siguiente con `antes_de = siguiente`. Cada pedido: 26 campos (id, número, referencia, estado, pago, tipo, **cliente: nombre, teléfono, correo, dirección, barrio, indicaciones**, **items con sus opciones**, subtotal, domicilio, total, distancia, método de pago, fechas, reembolso, impresión). **NO** trae el token de seguimiento ni las coordenadas. |
+| `ver_menu` | — | `{ menu: { categorias, productos, opciones, totales, truncado } }` con **todo, también lo inactivo / agotado / apagado**. Topes: 200 categorías, 1000 productos, 5000 opciones (`truncado: true` si se cortó alguna). Sin el SQL 18, `opciones` sale vacío. |
+| `ver_config` | — | `{ restaurante: {...} }`: lo de `detalle_restaurante` (config pública, vigencia, dominios, **miembros con rol y correo**, tarifas, **secretos como sí/no**) más `horario` (horarios, cerrado temporal, mensaje, corte, minutos de ocultar). |
+| `ver_resumen` | — | `{ resumen: { restaurante, jornada, mes, catalogo } }`: pedidos, vendidos (pago aprobado y no cancelado, la misma definición del panel), ventas, ticket promedio, cancelados, por estado y por tipo; el mes se corta **en la zona horaria del restaurante**; conteos del catálogo. |
+
+**Nunca** devuelven secretos (llaves de Wompi, API key de CallMeBot…) ni tokens: las funciones ni siquiera nombran la tabla de secretos. **Nunca escriben** en tablas de negocio: lo único que escriben es una fila de auditoría.
+
+### 23.6 El SQL 19 — qué correr y qué debes ver
+
+1. **Respaldo** (opcional pero recomendado): `node supabase/exportar-respaldo.mjs`.
+2. Supabase → **SQL Editor → New query** → pega el contenido de `supabase/19-superadmin-lectura.sql` → **«Run without RLS»**.
+3. Debes ver **14 filas, todas `OK`** (la última dice cuántas funciones `sa_*` hay: 20, y cuántos superadmins). Si alguna dice `FALLA`, o el editor muestra `LA MIGRACION 19 SE REVIRTIO`, no quedó nada cambiado: pega el mensaje.
+4. **Reversa** (solo si algo se rompe): `supabase/19-revertir.sql` → **5 filas `OK`**. Borra las 6 funciones y deja intactas las 15 del SQL 16 y **toda** la auditoría. Si algún día también reviertes el 16, hazlo después.
+
+Funciones y reglas (todas `SECURITY DEFINER`, `search_path` vacío, **sin `EXECUTE` para `anon`, `authenticated` ni `PUBLIC`**; solo `service_role`):
+
+- Lo **primero** que hacen es `exigir_superadmin(p_actor)` (42501 si no está en `superadmins`); después validan el restaurante (P0002) y los parámetros (22023).
+- Sin SQL dinámico; sin `insert`/`update`/`delete`/`truncate`/`merge`/`copy`/`execute` (la comprobación final lee el código fuente de cada función para comprobarlo); la ayuda interna `auditar_lectura_superadmin` no la ejecuta nadie, ni el servidor.
+- Orden de aplicación: **después del 16** (y del 18 si lo usas); independiente del 16b.
+
+### 23.7 Auditoría de las lecturas y de los rechazos
+
+**Lecturas.** Cada lectura deja una fila (quién, cuándo, restaurante, acción, `actor_email`, `restaurante_slug`) con un resumen de **solo conteos y parámetros** (`modo`, `limite`, `pagina_inicial`, `devueltos`, `productos`…): jamás nombres, teléfonos, correos de clientes, direcciones, secretos ni tokens (hay pruebas que siembran esos datos y buscan sus huellas en la auditoría).
+
+*Regla contra la inundación:* se registra la **primera** lectura de cada combinación *(superadmin, acción, restaurante, modo)* y **no** las repetidas dentro de **10 minutos** (paginar, refrescar). *Por qué:* paginar 5000 pedidos serían 100 filas sin información nueva; lo que importa es quién miró qué restaurante y cuándo. *Costo asumido:* un superadmin comprometido podría paginar todo el historial de un restaurante en una ventana con una sola constancia. Está acotado por la MFA, por el tope de 100 por página, y porque cada ventana nueva o cada otro restaurante deja su fila; el `devueltos` de esa primera fila no cuenta las páginas siguientes. *(Para revisar con Opus: si se prefiere contar páginas, habría que guardar un contador en otra tabla, porque la de auditoría es de solo agregar.)* Si la auditoría falla, la lectura **no se entrega** (misma transacción).
+
+**Rechazos por falta de MFA.** Un superadmin **real** rechazado por no tener MFA deja **una** fila `rechazo_mfa` por superadmin cada **15 minutos** (la base lo decide, así que vale aunque haya varias instancias de Vercel; el servidor además evita llamarla de más). Guarda solo el nivel (`aal1`), el *nombre* de la acción pedida **si es una acción conocida** (si no, `null`) y la ventana. Los rechazos de quien **no** es superadmin no se registran aquí (siguen contando para el límite de IP y quedan en el log de Vercel sin datos). *Por qué así y no "uno por intento":* una pantalla que reintente llenaría la auditoría de ruido; una por ventana alcanza para ver que *alguien con la contraseña de un superadmin está llamando sin MFA*, que es lo único que interesa. Si el SQL 19 falta, la constancia se omite (solo queda una línea en el log) y la respuesta 403 no cambia.
+
+### 23.8 Si Carlos pierde el celular
+
+No hay botón, variable ni parámetro que apague la MFA en el servidor (a propósito). La salida es **borrar los factores de ese usuario** en Supabase Auth; entonces entra solo con su contraseña (aal1) y puede enrolar uno nuevo.
+
+**Lo que está confirmado en la documentación de Supabase:** la API de administración `auth.admin.mfa.deleteFactor` (borra un factor de un usuario y, si estaba verificado, cierra todas sus sesiones) — <https://supabase.com/docs/reference/javascript/auth-admin-deletefactor>. Un usuario solo puede quitar su propio factor (`mfa.unenroll`) si ya está en aal2, es decir, justo lo que perdió.
+
+**Lo que NO pude confirmar:** que el Dashboard (Authentication → Users → el usuario) tenga un botón para quitar factores MFA de un usuario; no lo encontré en la documentación oficial, así que **no lo cites como pasos**. (Ojo: lo que sí circula en foros de Supabase sobre «quitar el MFA» es la MFA de la *cuenta del Dashboard de Supabase*, otra cosa distinta: ahí solo ayuda el soporte de Supabase.)
+
+**Pasos (herramienta propia, usa la API documentada):**
+
+1. Abre PowerShell en la carpeta del proyecto y carga la llave: `$k = Read-Host "Llave SECRETA" -AsSecureString` y luego `$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password`.
+2. `node supabase/quitar-mfa.mjs tu-correo@dominio.com` — **solo muestra** los factores (tipo, estado, un trozo del id). Debes ver al menos uno.
+3. `node supabase/quitar-mfa.mjs tu-correo@dominio.com --confirmar` — los borra.
+4. `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`.
+5. Inicia sesión solo con la contraseña y vuelve a activar la verificación en dos pasos en cuanto la pantalla del superadmin exista (parte 2).
+
+*Requisito de seguridad:* quien tiene la llave de servicio ya puede hacerlo todo, por eso esto es una herramienta de operador y **no** una acción de la API.
+
+### 23.9 Ajustes manuales de Auth en Supabase (para Carlos; no se tocó la configuración)
+
+Esto **no es código**. Los nombres de pantalla son los de la documentación oficial; donde no pude confirmar un nombre exacto, lo digo.
+
+1. **Límites de intentos.** Dashboard → **Authentication → Rate Limits** (confirmado en la documentación). Defaults: inicio de sesión/token **150 por 5 min por IP**; registro/otros **30 por 5 min por IP**; **verificar o desafiar MFA: 15 por minuto por IP y NO se puede cambiar**. Revisa que no estén en valores enormes. *(La documentación no dice qué límites cambian entre plan gratuito y Pro; no lo pude confirmar.)*
+2. **Cerrar el registro público.** El ajuste se llama **«Allow new users to sign up»**; la documentación lo lista entre las opciones generales de la sección Auth del Dashboard, pero **no da el nombre exacto de la pantalla** (puede estar en *Authentication → Sign In / Providers* o en una pestaña de ajustes generales de Authentication; recórrelas y busca ese nombre — no te lo puedo asegurar). Apágalo: los restaurantes los das de alta tú (el superadmin crea los usuarios con `crear_usuario`, que usa la API de administración y **no** necesita el registro público). Verifica que `crear_usuario` sigue funcionando después de apagarlo (debería).
+3. **Contraseña mínima.** La documentación dice que el largo mínimo y los tipos de caracteres se configuran en los ajustes de Auth del proyecto, en el proveedor **Email** (Authentication → Sign In / Providers → Email); no da un nombre de campo más preciso. Recomendado: **mínimo 12 caracteres** y exigir letras y dígitos. Las contraseñas temporales que genera el servidor (20 caracteres, 4 clases) cumplen cualquier regla razonable.
+4. **Confirmación de correo.** **«Confirm email»**, en el proveedor Email (Authentication → Sign In / Providers → Email). Déjala encendida: `crear_usuario` crea los usuarios ya confirmados por la API de administración, así que no estorba.
+5. **MFA con TOTP habilitado.** La documentación apunta a la sección **Multi-Factor** de Authentication (`/auth/mfa`) y dice que ahí se controla el acceso a las APIs de enrolar, desafiar y verificar; **no dice cuál es el interruptor ni su nombre exacto**. Comprueba que TOTP esté habilitado para enrolar y verificar (por defecto lo está); si no, ni el superadmin podrá activar su MFA y las pruebas reales (`probar-superadmin*.mjs`) fallarán al enrolar.
+6. **Plan gratuito frente a Pro** (lo confirmado): «protección contra contraseñas filtradas» (*leaked password protection*) es **solo Pro o superior**; el TOTP no tiene costo extra en la documentación consultada (la MFA por teléfono sí aparece como complemento aparte; **no la usamos**). Todo lo demás de esta lista existe en el plan gratuito según lo que pude ver, **salvo lo que arriba marqué como no confirmado**.
+
+### 23.10 Pruebas
+
+**Locales (Supabase falso con `aal1`/`aal2` reales y el flujo `/auth/v1/factors`):** el TOTP lo calcula `pruebas/multirestaurante/totp.js` (RFC 6238, sin dependencias, verificado con los vectores oficiales de SHA-1/256/512).
+
+| Batería | Antes | Ahora | Por qué cambia |
+|---|---|---|---|
+| unitarias (`node --test pruebas/*.test.js`) | 155 | **171** | +16 de `mfa.test.js`: vectores RFC 6238 (6), base32/TOTP (3), lectura del aal (4) y «sin escotillas» (3: el servidor no lee ninguna variable de entorno ni más cabeceras que las de la IP) |
+| `superadmin.mjs` | 50 | **81** | los 50 de antes (ahora con sesiones aal2 reales; el de «17 acciones» pasó a 22) + 13 de MFA + 18 de lecturas/auditoría |
+| `superadmin.mjs --sin-sql19` | — | **65** | nuevo: el servidor nuevo contra una base sin el SQL 19 (50 + 13 MFA + 2) |
+| `sql19.mjs` | — | **44** | nuevo: SQL 19, reversa, permisos por rol, lecturas, no-escritura, auditoría |
+| `quitar-mfa-test.mjs` | — | **11** | nuevo: la recuperación de 23.8 de punta a punta (TOTP real, borrar el factor, sesión aal2 cerrada, vuelve a entrar con uno nuevo) |
+| `sql16.mjs` (48), `crear-superadmin-test` (13), servidor (262 / 208 sin SQL 18 / despachador), agrupación, vista previa, front, tema claro, panel, e2e, rls, endurecer, migrar-fotos, datos-restaurante, config-publica, dominios, hallazgos, planes, sim, cargar-secretos, inspección, rebrand, textos-visibles, opciones, comparar-tickets | — | **sin cambios** | |
+| contra el falso: `probar-compatibilidad` / `probar-servidor` / `probar-opciones` / `probar-superadmin` / `probar-aislamiento` | 26 / 249 / 38 / 50 / 252 de 259 | **26 / 249 / 38 / 50 / 252 de 259** | sin cambios (las 7 de Realtime fallan en el falso por diseño) |
+| `probar-superadmin-mfa.mjs` contra el falso | — | **31** | nuevo (12 de MFA + 18 de lecturas + Taqueiros intacto) |
+
+*Revisión por mutación* (`node pruebas/multirestaurante/mutaciones-mfa.mjs --paralelo=3`, ~5 min): **95 mutaciones: 91 detectadas, 4 equivalentes declaradas, 0 sin detectar** (más el control: la copia limpia pasa todas las suites). Cubre la lectura del aal (no mirar el claim, no comparar el `sub`, no exigir TOTP en `amr`, fallar hacia aal2 ante una carga ilegible, confiar en un JWT que Auth rechazó), el orden y el código de las respuestas, la «escotilla» por variable de entorno o por cabecera, el no-superadmin que se distingue por su aal, la constancia del rechazo, los límites y la validación de cada lectura, `exigir_superadmin`, los permisos, la ventana de auditoría (sin ventana, 1 s, 30 min, sin modo, sin restaurante, sin superadmin), los datos personales en la auditoría, el corte de la jornada, el mes en la zona del restaurante y la reversa. Una primera pasada dejó **1 sobreviviente** (`sa_registrar_rechazo_mfa` guardando el nivel que mande el cliente): la prueba E9 estaba mal escrita (usaba un usuario que no era superadmin); se corrigió la prueba, no el código. Equivalentes declaradas: (1) comparar el `sub` sin pasarlo a minúsculas (Auth ya lo entrega en minúsculas); (2) aceptar un `amr` que no es lista (`.some()` falla y el `catch` devuelve aal1); (3) no poder reiniciar la memoria del límite (solo cambia lo que la prueba reinicia; la base deduplica por su cuenta); (4) tomar el actor del cuerpo (el campo se rechaza antes con 400 y la función SQL vuelve a exigir superadmin).
+
+**Contra la base REAL (las corres tú, con la llave cargada por `Read-Host`; ninguna toca el demo ni tu cuenta):**
+
+1. Antes, aplica el **SQL 19** (23.6). Sin él, `probar-superadmin-mfa.mjs` se detiene con un mensaje claro y no hace nada.
+2. `node supabase/probar-superadmin.mjs` → **50 PASAN, 0 FALLAN** y «Limpieza: todo lo creado se borró». (Ahora cada superadmin de prueba usa un TOTP real, así que **esto ya prueba que el proyecto tiene la MFA habilitada**.)
+3. `node supabase/probar-superadmin-mfa.mjs` → **31 PASAN, 0 FALLAN** y la misma limpieza. Crea usuarios `@prueba-superadmin.example.com` y restaurantes `mr16-prueba*` (con 125 pedidos de prueba), enrola factores TOTP reales, comprueba aal1 → 403 `mfa_requerida`, aal2 → pasa, y las lecturas con su auditoría sin datos personales. Los secretos TOTP y los tokens viven solo en memoria. Lo único que **no** se borra son unas pocas filas de auditoría (de solo agregar, con slug `mr16-prueba…`: se ignoran).
+
+### 23.11 Riesgos conocidos y para revisar con Opus 5.5 (esfuerzo High)
+
+1. **Lectura del aal** (23.2): ¿es suficiente confiar en que `GET /auth/v1/user` valida el mismo token que luego se decodifica? ¿Conviene además verificar por JWKS? ¿Qué pasa con tokens aal2 emitidos antes de borrar un factor?
+2. **Enumeración de superadmins**: el 403 genérico es idéntico (cuerpo, cabeceras, peticiones), pero **el tiempo de respuesta** de un superadmin sin MFA incluye (una vez por ventana) la llamada de la constancia a la base: diferencia medible en milisegundos. Y `mi_estado` es la única acción que responde distinto a un superadmin con aal1 (por diseño).
+3. **Fugas en las lecturas**: `ver_pedidos` devuelve `items` tal cual los guardó el servidor (JSON que **no es de fiar**, docs 22.17 H10: la pantalla debe pintarlo como texto) y datos personales de clientes (por diseño: es «entrar como»). `ver_config` devuelve la config pública completa (incluidas las llaves públicas de Wompi, que no son secretos).
+4. **Auditoría**: una sola constancia por ventana de 10 min (23.7); `reembolso` sigue aceptando a un superadmin con cualquier aal; la constancia de rechazo no incluye IP.
+5. **Límite de intentos en memoria**: sigue siendo por instancia de Vercel (frena pruebas a mano, no un ataque distribuido). La MFA de Supabase tiene su propio límite fijo (15 por minuto por IP).
+6. **Carlos queda sin acceso a la API hasta la parte 2**: su cuenta (`themaikenpro@gmail.com`) no tiene MFA todavía y ahora la API la rechaza con `mfa_requerida`. Es lo que se pidió; la pantalla de la parte 2 trae el alta del factor con QR.
+
+### 23.12 Qué queda para la parte 2
+
+Revisión de seguridad independiente de esto → `superadmin.html`: inicio de sesión, **activar MFA con QR**, alta de restaurantes con planes, vigencia, dominios, usuarios, secretos de solo escritura y «entrar como» de solo lectura (usando las 4 lecturas de aquí, que ya existen) → ensayo con un segundo restaurante.
