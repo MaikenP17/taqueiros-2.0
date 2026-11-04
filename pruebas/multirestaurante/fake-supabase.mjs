@@ -228,7 +228,9 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           await db.query(`delete from auth.users where id = $1`, [m[1]]);
           return enviar(res, 200, {});
         }
-        /* API de administracion de factores MFA (auth.admin.mfa): listar y borrar los de un usuario. Borrar uno verificado cierra sus sesiones. */
+        /* API de administracion de factores MFA (auth.admin.mfa): listar y borrar los de un usuario. Como Auth REAL (adminUserDeleteFactor:
+           borra el factor y DowngradeSessionsToAAL1): NO cierra las sesiones ni invalida los tokens ya emitidos; un JWT aal2 viejo sigue
+           siendo aceptado por /auth/v1/user hasta que caduca. Antes el falso borraba esos tokens y escondia ese hueco (docs 23.13, R1). */
         m = url.pathname.match(/^\/auth\/v1\/admin\/users\/([0-9a-f-]+)\/factors(?:\/([0-9a-f-]+))?$/);
         if (m && (req.method === 'GET' || req.method === 'DELETE')) {
           if (ctx.rol !== 'service_role') return enviar(res, 403, { message: 'not admin' });
@@ -238,7 +240,6 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
             const f = factores.get(m[2]);
             if (!f || f.uid !== m[1]) return enviar(res, 404, { code: 404, error_code: 'mfa_factor_not_found', msg: 'MFA factor not found' });
             factores.delete(m[2]);
-            if (f.verificado) for (const [t, uid] of [...tokens.entries()]) if (uid === m[1]) tokens.delete(t);
             return enviar(res, 200, { id: m[2] });
           }
         }
@@ -246,7 +247,9 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
           const t = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
           if (!tokens.has(t)) return enviar(res, 401, { message: 'invalid JWT' });
           const r = await db.query(`select id, email from auth.users where id = $1`, [tokens.get(t)]);
-          return enviar(res, 200, r.rows[0]);
+          // como Auth real: el usuario trae sus factores MFA ("factors", omitido si no tiene ninguno)
+          const propios = [...factores.entries()].filter(([, f]) => f.uid === tokens.get(t)).map(([id, f]) => ({ id, factor_type: 'totp', status: f.verificado ? 'verified' : 'unverified' }));
+          return enviar(res, 200, r.rows[0] && propios.length ? { ...r.rows[0], factors: propios } : r.rows[0]);
         }
         /* MFA TOTP, con la forma de Supabase Auth: enrolar -> desafiar -> verificar. Verificar con un codigo valido entrega una sesion NUEVA
            con aal2 y amr [totp, password]; la sesion aal1 con la que se pidio sigue siendo aal1 (como en Auth real). */

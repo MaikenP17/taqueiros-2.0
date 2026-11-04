@@ -46,6 +46,11 @@
        3. Defensa en profundidad: aal2 solo si (a) "sub" de la carga es el id que Auth devolvio, (b) aal es exactamente
           "aal2" y (c) "amr" trae un metodo TOTP. Cualquier duda (carga ilegible, claim ausente, otro tipo) es aal1: se
           falla hacia lo mas estricto, nunca hacia lo mas permisivo.
+       4. Y el usuario que devolvio Auth TODAVIA tiene un factor TOTP verificado ("factors" de la misma respuesta de
+          /auth/v1/user: sin llamadas extra). Por que: borrar un factor (supabase/quitar-mfa.mjs, deleteFactor) NO cierra
+          las sesiones ni invalida el token ya emitido; Supabase solo las baja a aal1 para el PROXIMO refresco, y el JWT
+          viejo sigue diciendo aal2 hasta que caduca (1 hora por defecto). Sin esta comprobacion, quien tuviera ese token
+          seguiria siendo superadmin con MFA hasta una hora despues de quitarle el factor (docs seccion 23.13, R1).
      No hay variable de entorno, parametro ni cabecera que cambie esto.
 ============================================================= */
 
@@ -81,6 +86,12 @@ function nivelDeGarantia(token, idValidado) {
   } catch (e) {
     return "aal1";
   }
+}
+
+/* true solo si el usuario que devolvio /auth/v1/user tiene AHORA un factor TOTP verificado (Auth omite "factors" si no hay). */
+function tieneTotpVerificado(usuario) {
+  const factores = usuario && Array.isArray(usuario.factors) ? usuario.factors : [];
+  return factores.some((f) => f && typeof f === "object" && f.factor_type === "totp" && f.status === "verified");
 }
 
 /* Quien es el dueno de un JWT de sesion y su nivel: { id, aal } o null si el token no es valido. */
@@ -119,7 +130,8 @@ async function sesionDeToken(token) {
   try { u = JSON.parse(texto); } catch (e) { return null; }
   if (!(u && typeof u.id === "string" && UUID.test(u.id))) return null;
   const id = u.id.toLowerCase();
-  return { id, aal: nivelDeGarantia(t, id) };
+  const aal = nivelDeGarantia(t, id) === "aal2" && tieneTotpVerificado(u) ? "aal2" : "aal1";
+  return { id, aal };
 }
 
 /* Quien es el dueno de un JWT de sesion: { id } o null si no es valido (lo que usan todos los endpoints menos el superadmin). */
@@ -140,4 +152,4 @@ async function sesionDeSolicitud(req) {
   return token ? sesionDeToken(token) : null;
 }
 
-module.exports = { usuarioDeToken, usuarioDeSolicitud, tokenDeSolicitud, sesionDeToken, sesionDeSolicitud, nivelDeGarantia };
+module.exports = { usuarioDeToken, usuarioDeSolicitud, tokenDeSolicitud, sesionDeToken, sesionDeSolicitud, nivelDeGarantia, tieneTotpVerificado };

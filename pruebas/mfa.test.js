@@ -4,13 +4,14 @@
      1. TOTP (pruebas/multirestaurante/totp.js) contra los vectores del RFC 6238, Apendice B, para SHA-1, SHA-256 y SHA-512.
         Es lo que las pruebas contra la base REAL usan para sacar el codigo de 6 digitos de un secreto base32.
      2. nivelDeGarantia (api/_sesion.js): el aal se lee SOLO de la carga de un token ya validado, y ante cualquier duda es aal1.
+     3. tieneTotpVerificado (api/_sesion.js): ademas, el usuario tiene que tener AHORA un factor TOTP verificado (docs 23.13, R1).
 
    USO:   node --test pruebas/mfa.test.js
 ============================================================= */
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const T = require("./multirestaurante/totp.js");
-const { nivelDeGarantia, tokenDeSolicitud } = require("../api/_sesion.js");
+const { nivelDeGarantia, tokenDeSolicitud, tieneTotpVerificado } = require("../api/_sesion.js");
 
 /* ---------- 1. TOTP: vectores del RFC 6238 ---------- */
 const SEMILLA_SHA1 = Buffer.from("12345678901234567890");
@@ -100,6 +101,17 @@ test("tokens ilegibles o con otra forma: aal1 y nunca una excepcion", () => {
   }
   // la carga viene de lo que el cliente mande: un "aal":"aal2" dentro de otro campo no cuenta
   assert.equal(nivelDeGarantia(token({ sub: ID, user_metadata: { aal: "aal2" }, app_metadata: { aal: "aal2", amr: [{ method: "totp" }] } }), ID), "aal1");
+});
+
+test("tieneTotpVerificado: solo con un factor totp en estado verified (como lo devuelve /auth/v1/user); lo demas es false", () => {
+  assert.equal(tieneTotpVerificado({ id: "x", factors: [{ id: "f", factor_type: "totp", status: "verified" }] }), true);
+  assert.equal(tieneTotpVerificado({ id: "x", factors: [{ factor_type: "phone", status: "verified" }, { factor_type: "totp", status: "verified" }] }), true);
+  for (const u of [null, undefined, {}, { factors: null }, { factors: [] }, { factors: "totp" }, { factors: { factor_type: "totp", status: "verified" } },
+    { factors: [{ factor_type: "totp", status: "unverified" }] }, { factors: [{ factor_type: "phone", status: "verified" }] },
+    { factors: [{ factor_type: "webauthn", status: "verified" }] }, { factors: [{ factor_type: "TOTP", status: "verified" }] },
+    { factors: [{ factor_type: "totp", status: "Verified" }] }, { factors: [null, "totp", 7, ["totp", "verified"]] }]) {
+    assert.equal(tieneTotpVerificado(u), false, JSON.stringify(u));
+  }
 });
 
 test("tokenDeSolicitud sigue igual (la MFA no cambio como se lee la cabecera)", () => {

@@ -4,7 +4,8 @@
      node pruebas/multirestaurante/quitar-mfa-test.mjs
 
    De punta a punta: un superadmin enrola y verifica un TOTP real (aal2), pierde el factor (el script lo borra) y vuelve a entrar:
-   sin --confirmar no se borra nada; con --confirmar se borran los factores y se cierran las sesiones aal2; la contrasena sigue
+   sin --confirmar no se borra nada; con --confirmar se borran los factores y el token aal2 que ya existia deja de contar como MFA
+   al instante (Supabase no lo invalida; el servidor mira que el factor siga existiendo); la contrasena sigue
    valiendo (aal1) y el servidor lo trata como superadmin SIN MFA (403 mfa_requerida) hasta que enrole uno nuevo. Nunca imprime
    llaves, contrasenas ni secretos.
 ============================================================= */
@@ -73,8 +74,12 @@ prueba('una llave pegada dos veces se rechaza', doble.codigo === 2 && /DOS veces
 
 const hecho = await correr([email, '--confirmar']);
 prueba('con --confirmar borra el factor, lo dice, y sin datos sensibles', hecho.codigo === 0 && /borrado/.test(hecho.salida) && /Listo/.test(hecho.salida) && ![LLAVE, clave, secreto, tAal2].some((s) => hecho.salida.includes(s)), hecho.salida);
+// Supabase NO invalida el token aal2 ya emitido al borrar el factor (solo baja la sesion a aal1 para el proximo refresco): el
+// servidor tiene que dejar de tratarlo como MFA al instante porque el factor ya no existe (docs 23.13, R1).
 const tras = await llamar(tAal2, 'yo');
-prueba('la sesion aal2 anterior se cierra (Supabase cierra las sesiones al borrar un factor verificado)', tras.status === 401, JSON.stringify(tras));
+const trasEstado = await llamar(tAal2, 'mi_estado');
+prueba('el token aal2 de ANTES de quitar el factor deja de valer como MFA al instante: 403 mfa_requerida (no 200), aunque Supabase lo siga aceptando',
+  tras.status === 403 && tras.cuerpo.codigo === 'mfa_requerida' && trasEstado.status === 200 && trasEstado.cuerpo.aal === 'aal1', JSON.stringify([tras, trasEstado]));
 const t1 = await entrar();
 const sinMfa = await llamar(t1, 'listar_restaurantes');
 const estado = await llamar(t1, 'mi_estado');

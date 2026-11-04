@@ -9,7 +9,11 @@
    Usa la API de administracion de Auth documentada por Supabase (auth.admin.mfa.deleteFactor):
        GET    /auth/v1/admin/users/{id}/factors
        DELETE /auth/v1/admin/users/{id}/factors/{factor_id}
-   Al borrar un factor verificado, Supabase cierra todas las sesiones de ese usuario.
+   OJO: aunque la documentacion de Supabase dice que borrar un factor verificado "cierra las sesiones", el codigo de Supabase Auth
+   NO las cierra: solo las baja a aal1 para el proximo refresco, y el token aal2 ya emitido sigue valiendo en Supabase hasta que
+   caduca. Por eso api/_sesion.js exige ademas que el factor SIGA existiendo: en cuanto este script lo borra, ese token deja de
+   contar como MFA en api/superadmin.js (docs seccion 23.13, R1). Si sospechas que robaron una sesion, ademas cierra todas las
+   sesiones del usuario (docs 23.13).
 
    USO (PowerShell, desde la raiz del repo)
      $k = Read-Host "Llave SECRETA (UNA sola vez: clic derecho O Ctrl+V)" -AsSecureString
