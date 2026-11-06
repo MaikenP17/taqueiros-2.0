@@ -7,7 +7,9 @@
    SE NIEGA A BORRAR (siempre, sin opcion para saltarselo)
      * el restaurante demo (id 00000000-0000-4000-8000-000000000001);
      * un restaurante cuyo nombre corto NO empiece por el prefijo de prueba (por defecto "prueba-"; se cambia con --prefijo=xxx-);
-     * un restaurante que tenga CUALQUIER pedido pagado (estado_pago aprobado o con fecha de pago): eso es dinero real;
+     * un restaurante que tenga CUALQUIER pedido pagado (estado_pago aprobado o con fecha de pago): eso es dinero real. Se le
+       pregunta a la base con un filtro (no se revisa una lista: Supabase corta cada consulta en 1000 filas) y el borrado de
+       pedidos tambien excluye los pagados;
      * un nombre corto mal formado, o un prefijo demasiado corto o sin guion final.
 
    QUE HACE (y que no)
@@ -86,7 +88,7 @@ async function contar(tabla, id) {
   const r = await rest("GET", `${tabla}?restaurante_id=eq.${id}&select=restaurante_id&limit=${TOPE}`);
   if (r.status >= 300) return { error: `HTTP ${r.status}` };
   const n = JSON.parse(r.texto || "[]").length;
-  return { n, tope: n >= TOPE };
+  return { n, tope: n >= 1000 };   // Supabase devuelve como mucho 1000 filas por consulta: desde ahi el numero es "o mas"
 }
 
 async function principal() {
@@ -99,15 +101,20 @@ async function principal() {
   if (r.id === ID_DEMO) return salir(2, "NO se borra: ese es el restaurante demo.");
   if (r.slug !== slug || r.slug.indexOf(prefijo) !== 0) return salir(2, "NO se borra: el nombre corto no coincide con el prefijo de prueba.");
 
-  const pedidos = await rest("GET", `pedidos?restaurante_id=eq.${r.id}&select=estado_pago,pagado_en&limit=${TOPE}`);
-  if (pedidos.status >= 300) return salir(1, `No pude comprobar si tiene pedidos pagados (HTTP ${pedidos.status}). No se borra nada.`);
-  const listaPedidos = JSON.parse(pedidos.texto || "[]");
-  if (listaPedidos.length >= TOPE) return salir(2, `NO se borra: tiene ${TOPE} pedidos o mas; un restaurante de prueba no deberia.`);
-  if (listaPedidos.some((p) => p.estado_pago === "aprobado" || p.pagado_en)) return salir(2, "NO se borra: este restaurante tiene pedidos PAGADOS (dinero real). Este script no los toca.");
+  /* Pedidos pagados: se le PREGUNTA a la base con un filtro (limit=1), no se revisa una lista. Supabase devuelve como mucho
+     1000 filas por consulta ("Max rows"): con mas pedidos, una lista dejaba sin mirar a los pagados (docs 24.13, R3). */
+  for (const filtro of ["estado_pago=eq.aprobado", "pagado_en=not.is.null"]) {
+    const p = await rest("GET", `pedidos?restaurante_id=eq.${r.id}&${filtro}&select=restaurante_id&limit=1`);
+    if (p.status >= 300) return salir(1, `No pude comprobar si tiene pedidos pagados (HTTP ${p.status}). No se borra nada.`);
+    let filas;
+    try { filas = JSON.parse(p.texto || "null"); } catch (e) { filas = null; }
+    if (!Array.isArray(filas)) return salir(1, "La base contesto algo raro al buscar pedidos pagados. No se borra nada.");
+    if (filas.length) return salir(2, "NO se borra: este restaurante tiene pedidos PAGADOS (dinero real). Este script no los toca.");
+  }
 
   console.log(`Restaurante: ${r.nombre} (${r.slug}), estado ${r.estado}, id ${r.id.slice(0, 8)}...`);
   const cuentas = [];
-  for (const t of TABLAS.concat(EN_CASCADA)) { const c = await contar(t, r.id); cuentas.push([t, c]); console.log(`  ${t.padEnd(24)} ${c.error ? "(no se pudo contar: " + c.error + ")" : c.n + " fila(s)"}${EN_CASCADA.includes(t) ? "  (cae en cascada)" : ""}`); }
+  for (const t of TABLAS.concat(EN_CASCADA)) { const c = await contar(t, r.id); cuentas.push([t, c]); console.log(`  ${t.padEnd(24)} ${c.error ? "(no se pudo contar: " + c.error + ")" : c.n + (c.tope ? " o mas" : "") + " fila(s)"}${EN_CASCADA.includes(t) ? "  (cae en cascada)" : ""}`); }
   if (!aplicar) { console.log("\nSimulacion: no se borro nada. Para borrar de verdad vuelve a correr con --aplicar."); return 0; }
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -115,7 +122,9 @@ async function principal() {
   if (escrito !== slug) return salir(2, "No coincide: no se borro nada.");
 
   for (const t of TABLAS) {
-    const d = await rest("DELETE", `${t}?restaurante_id=eq.${r.id}`, { Prefer: "return=minimal" });
+    // pedidos: el borrado mismo excluye los pagados (si uno se pagara justo ahora, queda, y el borrado del restaurante falla sin tocarlo)
+    const extra = t === "pedidos" ? "&estado_pago=neq.aprobado&pagado_en=is.null" : "";
+    const d = await rest("DELETE", `${t}?restaurante_id=eq.${r.id}${extra}`, { Prefer: "return=minimal" });
     if (d.status >= 300) return salir(1, `Fallo al borrar ${t} (HTTP ${d.status}). Se detuvo; el restaurante sigue existiendo (algo ya borrado no se recupera). Mira el mensaje: ${d.texto.slice(0, 200)}`);
     console.log(`  borrado ${t}`);
   }

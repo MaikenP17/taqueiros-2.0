@@ -162,9 +162,14 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
     const where = [];
     for (const [k, v] of url.searchParams) {
       if (['select', 'order', 'limit', 'offset'].includes(k)) continue;
-      const m = v.match(/^(eq|neq|like|in|is|lt|lte|gt|gte)\.(.*)$/);
+      const m = v.match(/^(not\.)?(eq|neq|like|in|is|lt|lte|gt|gte)\.(.*)$/);
       if (!m) throw Object.assign(new Error('filtro no soportado: ' + k + '=' + v), { code: 'PGRST100' });
-      const [, op, val] = m;
+      const [, neg, op, val] = m;
+      if (neg) {   // como PostgREST: "not." niega el filtro (solo se usa con is: pagado_en=not.is.null)
+        if (op !== 'is') throw Object.assign(new Error('filtro no soportado: ' + k + '=' + v), { code: 'PGRST100' });
+        where.push(`${q(k)} is not ${val === 'null' ? 'null' : val}`);
+        continue;
+      }
       if (op === 'eq') { params.push(val); where.push(`${q(k)}::text = $${params.length}`); }
       else if (op === 'neq') { params.push(val); where.push(`${q(k)}::text <> $${params.length}`); }
       else if (op === 'like') { params.push(val.replace(/\*/g, '%')); where.push(`${q(k)}::text like $${params.length}`); }
@@ -360,7 +365,11 @@ export async function levantar({ puerto = 54329, migrar = true, validarConfig = 
             let sqlTxt = `select ${cols} from public.${q(tabla)}` + filtros(url, params);
             const ord = url.searchParams.get('order');
             if (ord) { const [c, d] = ord.split('.'); sqlTxt += ` order by ${q(c)} ${d === 'desc' ? 'desc' : 'asc'}`; }
-            if (url.searchParams.get('limit')) sqlTxt += ` limit ${Number(url.searchParams.get('limit'))}`;
+            // falso.maxFilas imita el "Max rows" de Supabase (1000 por defecto en un proyecto real): ningun GET devuelve mas filas,
+            // aunque pida un limit mayor. Sin definir (lo de siempre en las pruebas) no hay tope.
+            const lim = url.searchParams.get('limit') ? Number(url.searchParams.get('limit')) : Infinity;
+            const tope = Math.min(lim, falso.maxFilas > 0 ? falso.maxFilas : Infinity);
+            if (tope !== Infinity) sqlTxt += ` limit ${tope}`;
             const rows = await enRol(ctx, async (tx) => (await tx.query(sqlTxt, params)).rows);
             return comoObjeto(req, res, 200, rows);
           }

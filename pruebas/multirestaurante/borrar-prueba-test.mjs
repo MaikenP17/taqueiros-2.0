@@ -78,6 +78,15 @@ r = await correr(['prueba-pagado', '--aplicar'], { stdin: 'prueba-pagado\n' });
 T('con un pedido pagado (aprobado): se niega y no borra nada', r.codigo === 2 && /PAGADOS/.test(r.salida) && await existe('prueba-pagado') && await n('pedidos', idPagado) === 2, r.salida);
 r = await correr(['prueba-pendiente-con-fecha', '--aplicar'], { stdin: 'prueba-pendiente-con-fecha\n' });
 T('con un pedido que tiene fecha de pago (aunque diga pendiente): se niega', r.codigo === 2 && /PAGADOS/.test(r.salida) && await existe('prueba-pendiente-con-fecha'), r.salida);
+// R3 (docs 24.13): Supabase devuelve como mucho 1000 filas por consulta ("Max rows"). Con 1001 pedidos sin pagar y el PAGADO
+// al final, una guarda que solo mira la lista devuelta no lo ve.
+const idMuchos = await crear('prueba-muchos', { pendiente: false });
+await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total) select $1::uuid, 'M-' || g, 'pendiente_pago', 'pendiente', 'C', '3000000000', 'llevar', '[]'::jsonb, 1000, 0, 1000 from generate_series(1, 1001) g`, [idMuchos]);
+await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en) values ($1::uuid, 'M-pagado', 'nuevo', 'aprobado', 'C', '3000000000', 'llevar', '[]'::jsonb, 1000, 0, 1000, now())`, [idMuchos]);
+falso.maxFilas = 1000;
+r = await correr(['prueba-muchos', '--aplicar'], { stdin: 'prueba-muchos\n' });
+falso.maxFilas = 0;
+T('con mas de 1000 pedidos (Supabase solo devuelve 1000 por consulta) y uno PAGADO al final: se niega y no borra nada', r.codigo === 2 && /PAGADOS/.test(r.salida) && await existe('prueba-muchos') && await n('pedidos', idMuchos) === 1002 && await n('producto_opciones', idMuchos) === 1, r.salida.slice(-400));
 r = await correr(['prueba-no-existe']);
 T('un nombre corto que no existe: lo dice (codigo 2)', r.codigo === 2 && /No existe/.test(r.salida), r.salida);
 r = await correr(['prueba-Mal_Formado']);
