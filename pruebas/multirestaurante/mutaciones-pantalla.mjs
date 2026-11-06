@@ -81,13 +81,23 @@ const M = [
   // ---- borrar-restaurante-prueba.mjs
   { id: 'borrar: acepta el demo', t: 'borrar', de: 'if (r.id === ID_DEMO) return salir(2, "NO se borra: ese es el restaurante demo.");', a: '' },
   { id: 'borrar: sin exigir el prefijo de prueba', t: 'borrar', de: 'slug.indexOf(prefijo) !== 0 || slug === prefijo', a: 'false', todos: true },
-  { id: 'borrar: ignora los pedidos pagados', t: 'borrar', de: 'listaPedidos.some((p) => p.estado_pago === "aprobado" || p.pagado_en)', a: 'false' },
-  { id: 'borrar: ignora la fecha de pago', t: 'borrar', de: ' || p.pagado_en)', a: ')' },
+  { id: 'borrar: ignora los pedidos pagados', t: 'borrar', de: 'if (filas.length) return salir(2,', a: 'if (false) return salir(2,' },
+  { id: 'borrar: ignora la fecha de pago', t: 'borrar', de: '["estado_pago=eq.aprobado", "pagado_en=not.is.null"]', a: '["estado_pago=eq.aprobado"]' },
+  { id: 'borrar: revisa solo la lista devuelta (Supabase la corta en 1000 filas; 24.13 R3)', t: 'borrar', de: '&${filtro}&select=restaurante_id&limit=1', a: '&select=estado_pago,pagado_en&limit=5000', tambien: [{ de: 'if (filas.length) return salir(2,', a: 'if (filas.some((x) => x.estado_pago === "aprobado" || x.pagado_en)) return salir(2,' }] },
+  { id: 'EQUIVALENTE: borrar: el DELETE de pedidos sin excluir los pagados (la guarda de antes ya se nego; solo cubre un pago que llegue en ese mismo instante)', equivalente: true, t: 'borrar', de: '"&estado_pago=neq.aprobado&pagado_en=is.null"', a: '""' },
   { id: 'borrar: no pide escribir el nombre', t: 'borrar', de: 'if (escrito !== slug)', a: 'if (false)' },
-  { id: 'borrar: borra filas de OTROS restaurantes', t: 'borrar', de: '`${t}?restaurante_id=eq.${r.id}`, { Prefer: "return=minimal" }', a: '`${t}?restaurante_id=neq.${r.id}`, { Prefer: "return=minimal" }' },
+  { id: 'borrar: borra filas de OTROS restaurantes', t: 'borrar', de: '`${t}?restaurante_id=eq.${r.id}${extra}`', a: '`${t}?restaurante_id=neq.${r.id}${extra}`' },
   { id: 'borrar: borra de verdad sin --aplicar', t: 'borrar', de: 'const aplicar = args.includes("--aplicar");', a: 'const aplicar = true;' },
   { id: 'borrar: acepta un prefijo de 2 letras', t: 'borrar', de: 'prefijo.length < 4', a: 'prefijo.length < 0' },
   { id: 'borrar: se olvida de los pedidos', t: 'borrar', de: '"producto_opciones", "pedidos", ', a: '"producto_opciones", ' },
+  // ---- revision adversaria (docs 24.13)
+  { id: 'R1: la pantalla arranca en cualquier direccion (sin sus cabeceras)', f: 'superadmin-inicio.js', de: 'if (window.location.pathname !== "/superadmin.html") { window.location.replace("/superadmin.html"); return; }', a: '', esc: '^20[.]' },
+  { id: 'R1: la pantalla arranca dentro de un marco', f: 'superadmin-inicio.js', de: 'if (enMarco) return;', a: '', esc: '^20[.]' },
+  { id: 'EQUIVALENTE: R2: sin descartar la respuesta vieja de buscar_usuario (el paso 3 vuelve a comprobar el correo escrito)', equivalente: true, f: 'superadmin-alta.js', de: 'if (correo.value.trim().toLowerCase() !== c) return;', a: '', esc: '^20[.]' },
+  { id: 'R2: la respuesta vieja de buscar_usuario decide el dueno (sin descartarla ni volver a comprobar)', f: 'superadmin-alta.js', de: 'if (correo.value.trim().toLowerCase() !== c) return;', a: '', tambien: [{ de: 'if (est.usuario !== undefined && est.usuarioDe === c) return null;', a: 'if (est.usuario !== undefined) return null;' }], esc: '^20[.]' },
+  { id: 'R2: las tres defensas quitadas (asigna la cuenta equivocada)', f: 'superadmin-alta.js', de: 'if (correo.value.trim().toLowerCase() !== c) return;', a: '', tambien: [{ de: 'if (est.usuario !== undefined && est.usuarioDe === c) return null;', a: 'if (est.usuario !== undefined) return null;' }, { de: 'if (est.usuario && est.usuarioDe !== est.correo) throw', a: 'if (false) throw' }], esc: '^20[.]' },
+  { id: 'I: textContent cambiado por innerHTML escrito con corchetes (esquiva la revision de codigo)', f: 'superadmin.js', de: 'else if (k === "texto") el.textContent = v;', a: 'else if (k === "texto") el["inner" + "HTML"] = v;', esc: '^(1|9|16|17)[.]' },
+  { id: 'I: los nodos de texto sueltos como HTML (alias de insertAdjacentHTML)', f: 'superadmin.js', de: 'else el.appendChild(document.createTextNode(String(hijo)));', a: 'else { var _m = "insertAdjacent" + "HTML"; el[_m]("beforeend", String(hijo)); }', esc: '^(1|9|16|17)[.]' },
   // ---- equivalentes declaradas (se corren igual: si alguna se detecta, mejor)
   { id: 'EQUIVALENTE: SA.apiLectura sin su lista blanca (no hay ninguna llamada que escriba desde esa vista; es defensa en profundidad)', f: 'superadmin.js', de: 'if (ACCIONES_LECTURA.indexOf(accion) < 0) return Promise.reject(new Error("Acci', a: 'if (false) return Promise.reject(new Error("Acci', esc: '^16[.]', equivalente: true },
   { id: 'EQUIVALENTE: secretos sin vaciar antes de esperar la respuesta (se vacian igual al llegar la respuesta)', f: 'superadmin-detalle.js', de: 'Object.keys(entradas).forEach(function (k) { entradas[k].value = ""; });   // se vacian ANTES de esperar la respuesta', a: '', esc: '^15[.]', equivalente: true }
@@ -124,6 +134,7 @@ function copiaBorrar(nombre, mutacion) {
   if (mutacion) {
     if (!txt.includes(mutacion.de)) return { dir, noAplica: true };
     txt = mutacion.todos ? txt.split(mutacion.de).join(mutacion.a) : txt.replace(mutacion.de, () => mutacion.a);
+    for (const t2 of mutacion.tambien || []) { if (!txt.includes(t2.de)) return { dir, noAplica: true }; txt = txt.replace(t2.de, () => t2.a); }
   }
   fs.writeFileSync(p, txt);
   return { dir, script: p };
