@@ -3733,3 +3733,142 @@ Sources: [JWT fields](https://supabase.com/docs/guides/auth/jwt-fields) · [MFA]
 *Revisión por mutación* (`node pruebas/multirestaurante/mutaciones-mfa.mjs --paralelo=3`): se agregaron 12 mutaciones (las dos correcciones, el factor sin verificar o de otro tipo, el dueño al que se le exigiera MFA en el reembolso —detectada por `servidor.mjs --grupo=reembolso`—, y rincones que la lista no tocaba: horario, mes y catálogo de **otro** restaurante, y «si la base falla al mirar superadmins, se deja pasar»). Primera pasada: **107 mutaciones, 101 detectadas, 4 equivalentes (las mismas de 23.10), 2 sin detectar** (el horario de otro restaurante y la falla de la base: el código estaba bien, pero ninguna prueba lo vigilaba). Con las dos pruebas nuevas: **0 sin detectar**.
 
 **Contra la base REAL (las corres tú):** `node supabase/probar-superadmin.mjs` → **50**, y `node supabase/probar-superadmin-mfa.mjs` → **33** (antes 31). Las dos nuevas confirman en Supabase real que (1) después de borrar el factor por la API de administración, el token de antes ya no cuenta como MFA, y (2) un superadmin sin MFA no pasa el permiso del reembolso.
+
+
+---
+
+## 24. La pantalla de superadministración (`superadmin.html`) — paso 3B, parte 2 de 2
+
+La parte 1 (sección 23) dejó el servidor listo: 22 acciones en `api/superadmin.js`, MFA obligatoria (aal2) y las lecturas de «entrar como». Esta parte es **la pantalla** con la que Carlos opera todo sin escribir comandos: entrar y activar la verificación en dos pasos, ver los restaurantes, darlos de alta, cobrar, suspender, cargar secretos y mirar un restaurante en solo lectura. **No hay SQL nuevo, ni cambios en `api/`, ni funciones nuevas de Vercel** (siguen 7 de 12).
+
+### 24.1 Qué es y cómo se llega
+
+* **Dirección:** `/superadmin.html` del mismo despliegue (por ejemplo `https://taqueiros-2-0.vercel.app/superadmin.html`). **Ninguna otra página enlaza a ella** (una prueba lo comprueba en todos los archivos del sitio, el service worker y `api/`) y lleva `noindex`.
+* **Archivos:** `superadmin.html` (solo el esqueleto), `superadmin.css`, y cinco scripts propios: `superadmin.js` (núcleo: sesión, MFA, cliente de la API, lista y auditoría), `superadmin-alta.js` (asistente de alta), `superadmin-detalle.js` (las pestañas del restaurante), `superadmin-lectura.js` («entrar como») y `superadmin-inicio.js` (arranque). Reutiliza `supabase-publico.js` (URL y llave **publicable**; la secreta no llega nunca al navegador).
+* **Sin dependencias:** HTML/CSS/JS puro. **No usa `supabase-js`**: el inicio de sesión, la renovación del token y la MFA hablan con las rutas de Supabase Auth por `fetch` (`/token`, `/user`, `/factors`, `…/challenge`, `…/verify`, `/logout`). *Por qué:* así la política de seguridad puede ser `script-src 'self'` (nada de CDN ni de scripts en línea) y no hay una librería de terceros en la página que maneja todos los restaurantes.
+* **Aspecto:** oscuro y sobrio, sin la marca de ningún restaurante. Usa la tipografía del sistema a propósito (la política de seguridad no permite cargar fuentes de terceros).
+
+### 24.2 Entrar y activar la verificación en dos pasos (paso a paso)
+
+1. Abre `/superadmin.html`, escribe tu correo y tu contraseña. Si la contraseña es mala, o si el usuario existe pero **no es superadmin**, el mensaje es **exactamente el mismo** («No pudimos iniciar sesión con esos datos…») y a un no-superadmin se le cierra la sesión sin pistas.
+2. **Primera vez (sin factor):** la pantalla pide el alta de la verificación: instala **Google Authenticator, Microsoft Authenticator o Authy** en el celular, escanea el QR (o escribe la clave a mano; hay botón «Copiar clave») y escribe el número de 6 dígitos. El QR es un `<img>` con el SVG que devuelve Supabase (nunca se inyecta como HTML); la clave y el QR se borran de la pantalla al terminar y no se guardan en ningún lado.
+3. **Las veces siguientes:** pide el código de la app (campo numérico de 6 dígitos con `autocomplete="one-time-code"`).
+4. Con aal2 confirmado por el servidor (`mi_estado`) se carga la lista. **Nada de administración se pide antes** (una prueba lo exige).
+5. **Sesión:** vive en `sessionStorage` (se pierde al cerrar la pestaña; nunca en `localStorage`, cookies ni URL). El token se renueva solo cuando faltan menos de 90 s; si la renovación baja a aal1 vuelve a pedir el código. Si no puede renovar, el encabezado muestra «La sesión vence en m:ss». «Cerrar sesión» cierra la sesión en Supabase y vacía todo.
+6. **Errores del servidor:** `mfa_requerida` → pantalla del código **sin reintentar en bucle** (mientras se pide el código la pantalla no llama a la API aunque se pulsen botones); `401` → inicio de sesión; `429` → aviso y espera (no vuelve a llamar hasta que pase `Retry-After`).
+7. **Si pierdes el celular:** el enlace «Perdí mi celular» explica que **no se recupera desde la pantalla** (a propósito) sino con `node supabase/quitar-mfa.mjs` (pasos de 23.8).
+
+### 24.3 Mapa de la pantalla: qué botón usa qué acción
+
+| Pantalla | Botón o sección | Acción del servidor |
+|---|---|---|
+| Entrar | Después de la contraseña / el código | `mi_estado` (la única que acepta aal1) |
+| Restaurantes | Lista, «Actualizar» | `listar_restaurantes` |
+| Nuevo restaurante | «Comprobar si ya existe» (paso 3) | `buscar_usuario` |
+| | «Crear restaurante» (paso 5) | `crear_restaurante`, luego `crear_usuario` (o `asignar_miembro` si el correo ya existe) |
+| Detalle | Abrir un restaurante | `detalle_restaurante` |
+| Resumen y vigencia | «Registrar pago» | `registrar_pago` |
+| | «Suspender» / «Reactivar», «Guardar cambios» (plan, modalidad, módulos, gracia, zona, vencimiento, nombre) | `actualizar_restaurante` |
+| Dominios | Agregar / Quitar | `agregar_dominio` / `quitar_dominio` |
+| Usuarios | Crear usuario nuevo | `crear_usuario` |
+| | Ya tiene cuenta / Cambiar rol | `buscar_usuario` + `asignar_miembro` |
+| | Quitar | `quitar_miembro` |
+| Marca y datos | Marca, Contacto, Ubicación, Domicilio, App del panel, Wompi (llaves públicas), Textos | `editar_config` (cada tarjeta manda **su sección completa**) |
+| | Tarifas de domicilio | `guardar_tarifas` |
+| Secretos | «Guardar secretos» | `guardar_secretos` (el sí/no sale de `detalle_restaurante`) |
+| Entrar como | Resumen / Pedidos / Menú / Configuración | `ver_resumen` / `ver_pedidos` (con `antes_de`) / `ver_menu` / `ver_config` |
+| Auditoría | Global y pestaña de cada restaurante | `listar_auditoria` (con `restaurante_id` y `antes_de`) |
+
+No se usan `yo` ni `estado_secretos` (el detalle ya trae lo mismo). **No se cambió ninguna acción del servidor.** Lo único que el servidor no hace y la pantalla resuelve: el filtro por *acción* de la auditoría se aplica en el navegador sobre las filas ya cargadas (el servidor filtra por restaurante y pagina por `antes_de`).
+
+### 24.4 Dar de alta un restaurante, paso a paso
+
+En «Nuevo restaurante» (seis pasos; nada se crea hasta el 5):
+
+1. **Datos.** Nombre y *nombre corto* (se sugiere desde el nombre y se puede editar). **El nombre corto no se puede cambiar después sin trabajo técnico** (la pantalla lo avisa y exige confirmarlo en el paso 5). Casilla «Es un restaurante de prueba»: antepone un prefijo (`prueba-` por defecto) para poder encontrarlo y borrarlo luego (24.9).
+2. **Plan y modalidad.** Plan (Básico, Completo, Solo comandas) con los **precios de referencia a la vista** (solo texto; el servidor no los usa), módulos resultantes (editables), modalidad mensual o pago único, días de prueba (14 por defecto), días de gracia (5) y zona horaria (America/Bogota).
+3. **Dueño.** Su correo; «Comprobar si ya existe» (`buscar_usuario`). Si ya tiene cuenta, solo se le da acceso (no se toca su contraseña).
+4. **Dirección web.** Tres opciones: *dominio propio* (se registra al crear), *subdominio automático* (solo muestra la dirección `nombre-corto.tudominio.com` que le tocaría; **hoy `DOMINIO_BASE` está vacía**, así que no funciona hasta configurarla) o *decidirlo después*.
+5. **Confirmar.** Resumen y casilla «entiendo que el nombre corto no se podrá cambiar». El botón se bloquea mientras trabaja (un triple clic crea **un solo** restaurante). Si algo falla a medias (por ejemplo el usuario), recuerda lo ya hecho y el botón reintenta **solo lo que falta**.
+6. **Entrega.** La **contraseña temporal** (20 caracteres) se muestra **una sola vez**, en un cuadro marcado, con «Copiar»; se borra sola a los 3 minutos, al pulsar «Ya la copié» o al salir de la vista, y no queda en el DOM, el almacenamiento, la consola ni la auditoría. Botón «Copiar mensaje para WhatsApp» (dirección, panel, correo y la contraseña **solo mientras sigue en pantalla**; después el mensaje dice que se envía por aparte).
+
+**Lo que se hace FUERA de la pantalla (Vercel y DNS):**
+
+* *Dominio propio:* Vercel → Project → Settings → Domains → agregar la dirección; crear en el DNS el registro que Vercel indique; esperar a que Vercel lo marque válido. **Comprobar:** abrir la dirección en el navegador; si ves el menú del restaurante, funciona.
+* *Subdominio automático:* registro comodín `*.tudominio.com` en el DNS; agregar `*.tudominio.com` en Vercel → Domains; variable `DOMINIO_BASE=tudominio.com` (solo Production) en Vercel → Settings → Environment Variables y **volver a desplegar**. Comprobar abriendo `nombre-corto.tudominio.com`.
+* Después: colores, tarifas y llaves de Wompi/CallMeBot en el detalle del restaurante; el webhook de Wompi de **ese** restaurante apunta al mismo `/api/webhook-wompi` (19.6 paso 7).
+
+### 24.5 Cambiar planes, cobrar y suspender
+
+* **Planes** (decisión final, solo como referencia en pantalla): Básico $400.000 único o $40.000/mes (menú con pedido a WhatsApp, sin pasarela, seguimiento ni panel de comandas); Completo $2.500.000 único o $150.000/mes; Solo comandas $800.000 único o $100.000/mes (el menú como extra: $200.000 único o $20.000/mes). Cada plan fija los **módulos** por defecto (`pasarela`, `seguimiento`, `comandas`, `impresion`); hoy el sistema **aplica de verdad** la pasarela y el seguimiento (`api/_publico.js`, `index.html`, `pedido.html`); comandas e impresión quedan anotados.
+* **Registrar pago:** meses (1 a 36), monto, referencia y nota opcionales. La pantalla explica cómo cuenta (*vencido o en gracia: desde hoy; vigente: se suma a su fecha*), muestra la nueva fecha estimada y pide una confirmación aparte; un doble clic registra **un** pago. Una prueba pasa a activo. Para un restaurante **sin vencimiento** el botón está apagado: primero ponle una fecha en «Cambiar plan y vigencia».
+* **Pago único:** al cobrarlo, marca «Sin vencimiento» en «Cambiar plan y vigencia».
+* **Suspender / Reactivar:** con confirmación; reactivar deja elegir Activo o En prueba. Un suspendido a mano sigue suspendido aunque pague (19.3).
+* **Colores de estado:** prueba (azul), activo (verde), gracia (ámbar), vencido (rojo), suspendido (rosa), siempre con su texto.
+
+### 24.6 «Entrar como» (solo lectura)
+
+Desde la pestaña «Entrar como» → «Mirar este restaurante». Una **franja fija** arriba dice «Modo solo lectura: estás viendo [nombre]. No puedes cambiar nada aquí.» y la vista **no contiene ningún formulario, campo de texto, enlace ni botón que escriba**: solo botones de navegación y «Cargar más». Solo llama a `ver_resumen`, `ver_pedidos` (jornada o recientes, 25 por página, con `antes_de`), `ver_menu` (con lo inactivo y agotado) y `ver_config`; la función `SA.apiLectura` rechaza cualquier otra acción. Nombres de clientes, direcciones, productos y opciones (los `items` de un pedido llegan **sin sanear**, 22.17 H10) se pintan como texto; los caracteres invisibles y de dirección se cambian por un cuadrito visible. No abre el panel real ni usa la sesión de nadie. Cada consulta deja una constancia en la auditoría (solo conteos, sin datos de clientes; una por ventana de 10 minutos, 23.7).
+
+### 24.7 Modelo de seguridad
+
+| Capa | Qué hace |
+|---|---|
+| **Cabeceras** (`vercel.json`, solo para `/superadmin.html` y sus 6 archivos) | CSP `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' <Supabase>; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'` (sin `unsafe-inline` ni `unsafe-eval`), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Permissions-Policy` y `Cross-Origin-Opener-Policy`. Los scripts y el CSS reciben las 4 últimas. **Ninguna otra ruta** (ni `/api`) recibe nada de esto; los `rewrites`, `redirects`, `crons` y `functions` quedan idénticos. Si cambia el proyecto de Supabase hay que cambiar su dirección **también** en la CSP (una prueba compara `vercel.json` con `supabase-publico.js`). |
+| **Nada de HTML con datos** | Todo se arma con `createElement` y `textContent`; no existe `innerHTML`, `eval`, `document.write`, `localStorage`, `document.cookie` ni `console.*` en ningún `superadmin*.js` (prueba de código). |
+| **Sesión** | `sessionStorage` por pestaña; sin tokens en URL, cookies ni consola. |
+| **Solo escritura** | Los secretos nunca se leen: la pantalla solo sabe «Cargado: Sí/No». Al guardar (y aunque falle) los campos se vacían, no se muestran valores ni en la respuesta, el DOM, el almacenamiento, la consola ni la auditoría; un valor que otro restaurante ya usa se rechaza. |
+| **Confirmaciones** | Pago, suspender, quitar dominio, quitar usuario y guardar secretos piden confirmación explícita; los botones se bloquean mientras envían. |
+| **El servidor manda** | Aunque la pantalla se saltara una regla, `api/superadmin.js` vuelve a exigir sesión, superadmin y aal2 **en cada petición** (23.3) y la base valida todo. |
+
+**¿Qué pasa si `/superadmin.html` se abre desde el dominio de un restaurante?** Todos los dominios del despliegue sirven los mismos archivos estáticos, así que `https://pedidos.restaurante.com/superadmin.html` **carga la pantalla** (es solo código, **ninguna información**: la lista de restaurantes solo llega con sesión de superadmin + MFA). `api/superadmin.js` es global y no mira el dominio, de modo que también funcionaría desde ahí, con las mismas exigencias. Riesgos reales: (1) una pantalla de acceso de administración visible bajo un dominio ajeno; (2) `sessionStorage` es por origen y por pestaña: una sesión abierta *en ese dominio* sería accesible solo para scripts de ese mismo origen (hoy las páginas públicas no corren scripts de terceros). **Recomendación (no implementada, para no arriesgar los dominios existentes):** entrar siempre por una sola dirección (`taqueiros-2-0.vercel.app` o un dominio exclusivo de administración) y, cuando exista ese dominio, hacer que `/superadmin.html` responda 404 en los demás (una regla de `rewrites` con condición `has`/`missing` sobre `host`).
+
+### 24.8 Si se pierde el celular
+
+No se arregla desde la pantalla. Pasos (23.8): (1) `$k = Read-Host "Llave SECRETA" -AsSecureString` y `$env:SUPABASE_SERVICE_ROLE_KEY = …`; (2) `node supabase/quitar-mfa.mjs tu-correo` (solo muestra); (3) `node supabase/quitar-mfa.mjs tu-correo --confirmar`; (4) `Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY`; (5) entra solo con la contraseña y activa la verificación con el celular nuevo. Si sospechas que robaron tu sesión: borra los factores, **cambia la contraseña** y revisa la auditoría.
+
+### 24.9 Limpiar un restaurante de prueba
+
+No existía una forma segura (ni la API ni la pantalla pueden borrar restaurantes, a propósito). Nuevo: `supabase/borrar-restaurante-prueba.mjs`, herramienta de operador:
+
+```powershell
+$k = Read-Host "Llave SECRETA" -AsSecureString
+$env:SUPABASE_SERVICE_ROLE_KEY = [System.Net.NetworkCredential]::new('', $k).Password
+node supabase/borrar-restaurante-prueba.mjs prueba-casa-rivo              # SIMULA: cuenta las filas y no borra nada
+node supabase/borrar-restaurante-prueba.mjs prueba-casa-rivo --aplicar    # pide escribir el nombre corto completo
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+**Se niega siempre** a: el demo (por su id `00000000-0000-4000-8000-000000000001`), un restaurante cuyo nombre corto no empiece por el prefijo de prueba (`prueba-`; se cambia con `--prefijo=xxx-`, mínimo 4 caracteres y terminado en guion), y cualquiera con **pedidos pagados** (`estado_pago` aprobado o con fecha de pago). Solo borra filas con `restaurante_id` de ese restaurante y su fila; **no** toca la auditoría, los usuarios de Authentication ni las fotos del almacenamiento. Pruebas: `node pruebas/multirestaurante/borrar-prueba-test.mjs` (31 comprobaciones).
+
+### 24.10 Pruebas
+
+| Batería | Cómo | Resultado |
+|---|---|---|
+| Navegador de la pantalla (Chrome + el manejador real de `api/superadmin.js` + el Supabase falso con MFA) | `node pruebas/multirestaurante/superadmin-pantalla.mjs` | **353** comprobaciones (19 escenarios: cabeceras y código, inicio de sesión, MFA, mfa_requerida/401/429, sesión, lista, alta, errores del alta, detalle, dominios y usuarios, marca, secretos, entrar como, auditoría, renovación de sesión, 390/1280 px y foco) |
+| Borrado de pruebas | `node pruebas/multirestaurante/borrar-prueba-test.mjs` | **31 comprobaciones** |
+| Revisión por mutación | `node pruebas/multirestaurante/mutaciones-pantalla.mjs --paralelo=3` | **61 mutaciones: 55 detectadas, 6 equivalentes declaradas con su razón (4 son defensas repetidas en dos capas y 2 son «vaciar dos veces»), 0 sin detectar; la primera pasada dejó 15 sin detectar: 9 eran el script de borrado (el arnés no usaba la copia mutada), 2 regex mal escritas, 1 dato de prueba sin invisibles y 1 comprobación que fallaba al azar (la contraseña temporal con `&` salía escapada en `outerHTML`: ahora se busca en `textContent`)** |
+| Las de siempre | ver 24.11 | sin cambios, salvo lo explicado |
+
+Capturas (390 y 1280 px) en `Recursos/NORTHE-NUEVO/capturas/superadmin-*.png` (carpeta ignorada por git; se regeneran con la prueba).
+
+### 24.11 Decisiones, riesgos conocidos y pendientes
+
+**Decisiones donde el pedido no definía algo:** (1) sin `supabase-js`: Auth por `fetch` (política de seguridad estricta); (2) cinco scripts en vez de uno (cada uno es una parte de la pantalla y las cabeceras cubren todos); (3) la etiqueta «Demo» **no se muestra**: el servidor no marca al demo y no se escriben ids a mano (un restaurante sin vencimiento dice «Sin vencimiento»); (4) el usuario del dueño se crea al **confirmar** (paso 5), no en el 3, porque `crear_usuario` necesita que el restaurante exista; (5) los módulos de cada plan viven en la pantalla (`superadmin-alta.js`) y se mandan al servidor; los precios son solo texto; (6) cada tarjeta de «Marca y datos» manda su sección completa conservando lo que la pantalla no muestra; (7) `vigente_hasta` del alta se calcula como hoy (Bogotá) + días de prueba y se manda como fecha.
+
+**Riesgos y pendientes:**
+* Las **cabeceras** se comprobaron con las pruebas locales; la comprobación real es con `curl` en producción (24.12).
+* La pantalla es **tan segura como la cuenta**: MFA activa, contraseña larga y única, y los ajustes manuales de Supabase de 23.9 / 23.13 (cerrar el registro público, contraseña mínima de 12, revisar los límites de Auth).
+* `crear_usuario` entrega la contraseña temporal en la respuesta (una vez, `no-store`): quien tenga el token de superadmin la ve; no hay cambio forzado de contraseña.
+* El filtro por acción de la auditoría solo ve las filas ya cargadas.
+* **Siguiente:** revisión de seguridad independiente de la pantalla (Opus 5.5, esfuerzo High), ensayo con un segundo restaurante real (decidir antes la dirección web), el Plan Básico y la preparación de producción.
+
+### 24.12 Después del despliegue (sin credenciales)
+
+```powershell
+curl.exe -s -I https://taqueiros-2-0.vercel.app/superadmin.html          # 200 y las cabeceras de 24.7
+curl.exe -s -I https://taqueiros-2-0.vercel.app/index.html               # SIN esas cabeceras
+curl.exe -s -o NUL -w "%{http_code}" -X POST https://taqueiros-2-0.vercel.app/api/superadmin                       # 401
+curl.exe -s -o NUL -w "%{http_code}" -X POST -H "Authorization: Bearer falso" https://taqueiros-2-0.vercel.app/api/superadmin   # 401
+curl.exe -s -o NUL -w "%{http_code}" https://taqueiros-2-0.vercel.app/api/superadmin                               # 405
+```

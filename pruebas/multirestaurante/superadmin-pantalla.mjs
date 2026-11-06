@@ -128,15 +128,20 @@ class Pagina {
     return this.eval(`(function(){var e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(valor)};
       e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
   }
+  /* Esconde el aviso (toast) de la accion anterior: si no, una espera de "Pago registrado" podia dar por buena la del pago de antes. */
+  async sinAviso() { try { await this.eval("(function(){var a=document.getElementById('sa-aviso');if(a)a.hidden=true;})()"); } catch (e) { /* aun cargando */ } }
   async clic(selector) {
+    await this.sinAviso();
     await this.existe(selector);
     return this.eval(`(function(){var e=document.querySelector(${JSON.stringify(selector)});if(!e)throw new Error('no existe');e.click();return true;})()`);
   }
   async marcar(selector, valor = true) {
+    await this.sinAviso();
     await this.existe(selector);
     return this.eval(`(function(){var e=document.querySelector(${JSON.stringify(selector)});if(e.checked!==${valor}){e.click();}return e.checked;})()`);
   }
   async clicTexto(texto, selector = 'button') {
+    await this.sinAviso();
     return this.eval(`(function(){var b=[...document.querySelectorAll(${JSON.stringify(selector)})].filter(function(x){return x.textContent.trim()===${JSON.stringify(texto)}&&!x.hidden})[0];if(!b)throw new Error('no hay boton ${texto.replace(/'/g, '')}');b.click();return true;})()`);
   }
   async texto(selector) { return this.eval(`(function(){var e=document.querySelector(${JSON.stringify(selector)});return e?e.textContent:null;})()`); }
@@ -602,6 +607,7 @@ async function escenario(nombre, fn) {
     await pg.clicTexto('Actualizar');
     await pg.existe('#sa-codigo');
     comprobar(/código de tu app/.test(await pg.cuerpo()), 'aparece la pantalla del codigo con una explicacion');
+    await capturarAmbos(pg, 'error-pide-codigo-a-mitad-de-sesion');
     const n1 = bitacoraApi.length;
     await sleep(1500);
     comprobar(bitacoraApi.length === n1 && n1 === 1, 'no se vuelve a llamar a la API mientras se pide el codigo (1 sola llamada, sin bucle)', 'llamadas: ' + bitacoraApi.map((x) => x.accion + ':' + x.status).join(','));
@@ -637,6 +643,7 @@ async function escenario(nombre, fn) {
     await pg.clicTexto('Actualizar');
     await pg.esperar(`function(){return /Demasiados intentos/.test(document.getElementById('sa-aviso').textContent)&&!document.getElementById('sa-aviso').hidden}`);
     comprobar(true, 'se muestra el aviso de espera');
+    await capturarAmbos(pg, 'error-demasiados-intentos');
     await sleep(200);
     await pg.clicTexto('Actualizar');
     await sleep(300);
@@ -846,7 +853,7 @@ async function escenario(nombre, fn) {
     await capturarAmbos(pg, 'alta-paso-5-confirmar');
     await pg.marcar('#al-entiendo', true);
     bitacoraApi.length = 0;
-    await pg.eval(`(function(){var b=document.getElementById('al-crear');b.click();b.click();b.click();})()`);   // triple clic seguido
+    await pg.sinAviso(); await pg.eval(`(function(){var b=document.getElementById('al-crear');b.click();b.click();b.click();})()`);   // triple clic seguido
     await pg.existe('#al-copiar-msj', 10000);
     await sleep(300);
     comprobar(llamadas('crear_restaurante').length === 1 && llamadas('crear_usuario').length === 1, 'tres clics seguidos: UNA sola creacion del restaurante y UNA del usuario', JSON.stringify(bitacoraApi.map((x) => x.accion)));
@@ -984,7 +991,7 @@ async function escenario(nombre, fn) {
     comprobar(llamadas('registrar_pago').length === 0 && await vigenteDe('pr-activo') === fechaEn(40), 'cancelar NO registra nada');
     await pg.clic('#sa-btn-pago'); await pg.escribir('#sa-pago-meses', '2'); await pg.escribir('#sa-pago-monto', '300000'); await pg.escribir('#sa-pago-ref', 'REC-9');
     await pg.clicTexto('Revisar'); await pg.existe('.sa-modal');
-    await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, registrar el pago'})[0];b.click();b.click();b.click();})()`);
+    await pg.sinAviso(); await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, registrar el pago'})[0];b.click();b.click();b.click();})()`);
     await pg.esperar(`function(){return /Pago registrado/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
     comprobar(llamadas('registrar_pago').length === 1, 'confirmar con triple clic: UN solo pago', String(llamadas('registrar_pago').length));
     comprobar(await vigenteDe('pr-activo') === esperada, 'la vigencia se extendio 2 meses desde su fecha actual', await vigenteDe('pr-activo') + ' vs ' + esperada);
@@ -1033,7 +1040,7 @@ async function escenario(nombre, fn) {
     comprobar(await pg.eval(`document.getElementById('sa-c-mod-comandas').checked&&document.getElementById('sa-c-mod-impresion').checked&&!document.getElementById('sa-c-mod-pasarela').checked`), 'cambiar el plan ajusta los modulos');
     await pg.escribir('#sa-c-modalidad', 'mensual'); await pg.escribir('#sa-c-gracia', '9'); await pg.escribir('#sa-c-nombre', 'Zeta Activo Renombrado');
     bitacoraApi.length = 0;
-    await pg.eval(`(function(){var b=document.getElementById('sa-c-guardar');b.click();b.click();})()`);
+    await pg.sinAviso(); await pg.eval(`(function(){var b=document.getElementById('sa-c-guardar');b.click();b.click();})()`);
     await pg.esperar(`function(){return document.querySelector('#sa-contenido h1').textContent==='Zeta Activo Renombrado'}`, 8000);
     const z = await filaDe('pr-activo');
     comprobar(z.plan === 'comandas' && z.modalidad_pago === 'mensual' && z.dias_gracia === 9 && z.nombre === 'Zeta Activo Renombrado' && z.modulos.comandas === true && z.modulos.pasarela === false, 'plan, modalidad, gracia, nombre y modulos quedan en la base');
@@ -1055,6 +1062,7 @@ async function escenario(nombre, fn) {
     await abrirDetalle(pg, 'Casa Prueba');
     await pestana(pg, 'dominios');
     comprobar(/No tiene dominio propio/.test(await pg.cuerpo()) && /también hay que agregarlo en Vercel/.test(await pg.cuerpo()), 'dominios: dice que no hay y explica lo que falta hacer en Vercel');
+    await capturarAmbos(pg, 'detalle-dominios');
     await pg.escribir('#sa-dom-nuevo', 'https://malo.com'); await pg.clic('#sa-dom-agregar');
     await pg.esperar(`function(){return /no es válida/.test(document.body.innerText)}`);
     comprobar(llamadas('agregar_dominio').length === 0, 'direccion invalida: error y nada se envia');
@@ -1077,7 +1085,7 @@ async function escenario(nombre, fn) {
     const nuevoCorreo = `cajero-${sfx}@prueba-pantalla.example.com`;
     await pg.escribir('#sa-u-correo', nuevoCorreo); await pg.escribir('#sa-u-rol', 'cajero');
     bitacoraApi.length = 0;
-    await pg.eval(`(function(){var b=document.getElementById('sa-u-ir');b.click();b.click();})()`);
+    await pg.sinAviso(); await pg.eval(`(function(){var b=document.getElementById('sa-u-ir');b.click();b.click();})()`);
     await pg.existe('.sa-clave-caja', 8000);
     comprobar(llamadas('crear_usuario').length === 1, 'doble clic: un solo usuario');
     const clave = (await pg.texto('.sa-clave-caja .sa-clave-valor')).trim();
@@ -1231,7 +1239,7 @@ async function escenario(nombre, fn) {
     comprobar(llamadas('guardar_secretos').length === 0 && await pg.eval(`document.getElementById('sa-sec-wompi_llave_publica_test').value`) === S1, 'cancelar no guarda y no toca lo escrito');
     await pg.clic('#sa-sec-guardar'); await pg.existe('.sa-modal');
     bitacoraApi.length = 0;
-    await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, guardar'})[0];b.click();b.click();})()`);
+    await pg.sinAviso(); await pg.eval(`(function(){var b=[...document.querySelectorAll('.sa-modal button')].filter(function(x){return x.textContent==='Sí, guardar'})[0];b.click();b.click();})()`);
     await pg.esperar(`function(){return /Secretos guardados/.test(document.getElementById('sa-aviso').textContent)}`, 8000);
     await sleep(300);
     comprobar(llamadas('guardar_secretos').length === 1, 'doble clic al confirmar: un solo guardado');

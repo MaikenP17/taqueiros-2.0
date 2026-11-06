@@ -225,8 +225,10 @@ prueba('6b ningun boton del tema claro pasa a --rojo-brillo (daria menos de 4.5:
 const sw = leer('sw.js');
 prueba('7a sw.js documenta el cambio de la v13 (hoy va en la v14 de las opciones de producto) (mismos archivos de logo con otro contenido: hay que invalidar la cache de /Recursos)', /const VERSION = "v14";/.test(sw) && /v13: estilo claro/.test(sw) && /Recursos\/logo\/northe-logo\.png/.test(sw), '');
 const vj = fs.readFileSync(path.join(REPO, 'vercel.json'), 'utf8');
+/* Desde la pantalla de superadmin (docs 24) vercel.json tiene cabeceras, pero SOLO 'Cache-Control: no-store' y SOLO para /superadmin*: nunca una cache larga ni nada sobre /Recursos. */
+const cacheControlDeVercel = (txt) => (JSON.parse(txt).headers || []).flatMap((b) => b.headers.filter((h) => /^cache-control$/i.test(h.key)).map((h) => ({ ruta: b.source, valor: h.value })));
 prueba('7b ni vercel.json ni el sitio publico ponen cache larga ni "immutable" a /Recursos (el logo con el mismo nombre no se queda pegado) y el sitio publico no registra el service worker',
-  !/Cache-Control|immutable|max-age/i.test(vj) && !/serviceWorker/.test(index + pedido + leer('restaurante-publico.js')), '');
+  !/immutable|max-age/i.test(vj) && cacheControlDeVercel(vj).every((c) => c.valor === 'no-store' && /^[/]superadmin/.test(c.ruta)) && !/serviceWorker/.test(index + pedido + leer('restaurante-publico.js')), '');
 const doc = leer('docs/multirestaurante.md');
 const d14 = doc.slice(doc.indexOf('### 20.14'), doc.indexOf('## 21.'));
 prueba('7c docs 20.14 documenta el estilo, el interruptor TEMA_CLARO y como apagarlo, los archivos tocados, como se genero el logo y los iconos, como repetirlo y el riesgo del segundo restaurante',
