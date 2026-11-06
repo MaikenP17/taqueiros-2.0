@@ -167,6 +167,8 @@ table.sa-tabla { width: 100%; border-collapse: collapse; }
 .sa-clave-valor { font-family: var(--mono); font-size: 1.25rem; letter-spacing: .06em; word-break: break-all; padding: 10px 12px; background: #0e1014; border-radius: 8px; margin: 8px 0; user-select: all; }
 .sa-qr { display: block; width: 220px; height: 220px; background: #fff; padding: 8px; border-radius: 8px; margin: 10px 0; }
 .sa-codigo-entrada { font-family: var(--mono); font-size: 1.6rem; letter-spacing: .4em; text-align: center; }
+/* Campos de secretos (R9): son de texto para que el gestor de contrasenas no los vea como contrasenas, pero se muestran ocultos. */
+input[data-secreto] { -webkit-text-security: disc; text-security: disc; }
 .sa-secreto-fila { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--borde); }
 @media (min-width: 760px) { .sa-secreto-fila { grid-template-columns: 220px 120px 1fr; align-items: center; } }
 

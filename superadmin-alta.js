@@ -51,7 +51,9 @@
       plan: "completo", modalidad: "mensual", dias: 14, gracia: 5, zona: "America/Bogota", modulos: Object.assign({}, REFERENCIA.completo.modulos),
       correo: "", usuario: undefined,           // undefined = sin comprobar; null = no existe; {id,email} = existe
       dominioModo: "ninguno", dominioBase: "", host: "", entiendo: false,
-      restaurante: null, usuarioCreado: false, dominioPuesto: false, clave: null, temporizador: null, restante: 0
+      /* restaurante: lo que el SERVIDOR devolvio al crearlo (nombre, slug, dominios...). usuarioConfirmado: el correo que el servidor confirmo.
+         El mensaje de WhatsApp y el resumen final se arman SOLO con esos dos (R7), nunca con lo que quedo escrito en los pasos. */
+      restaurante: null, usuarioCreado: false, usuarioConfirmado: null, dominioPuesto: false, clave: null, vigia: null, motivoBorrado: "", liberarVista: null, aviso: null
     };
     var cuerpo = h("div");
     var area = h("div");
@@ -60,9 +62,9 @@
 
     function limpiarClave() {
       est.clave = null;
-      if (est.temporizador) { clearInterval(est.temporizador); est.temporizador = null; }
+      if (est.vigia) { est.vigia.cancelar(); est.vigia = null; }
     }
-    SA.alSalirDeVista(function () { limpiarClave(); cuerpo.replaceChildren(); });
+    SA.alSalirDeVista(function () { limpiarClave(); if (est.liberarVista) { est.liberarVista(); est.liberarVista = null; } cuerpo.replaceChildren(); });
 
     function slugFinal() {
       var s = est.slug.trim();
@@ -75,9 +77,17 @@
       return "";
     }
 
+    /* Con el restaurante YA creado (y el usuario pendiente) los pasos se pueden VER, no cambiar: son botones que abren la vista de solo lectura. */
     function encabezadoPasos() {
+      var puedeVer = !!est.restaurante && !est.usuarioCreado && est.paso !== 6;
       return h("ol", { class: "sa-pasos", "aria-label": "Pasos" }, PASOS.map(function (nom, i) {
-        return h("li", { "aria-current": est.paso === i + 1 ? "step" : null, class: est.paso > i + 1 ? "sa-hecho" : null, texto: (i + 1) + ". " + nom });
+        var n = i + 1, etiqueta = n + ". " + nom;
+        var contenidoLi = etiqueta;
+        if (puedeVer && n !== est.paso && n < 6) {
+          contenidoLi = h("button", { type: "button", class: "sa-paso-ver", "data-paso": String(n), "aria-label": "Ver el paso " + etiqueta + (n === 3 || n === 5 ? "" : " (solo lectura: ya se creó)"), texto: etiqueta });
+          contenidoLi.addEventListener("click", function () { est.paso = n; pintar(); });
+        }
+        return h("li", { "aria-current": est.paso === n ? "step" : null, class: est.paso > n ? "sa-hecho" : null }, contenidoLi);
       }));
     }
     function campo(id, etiqueta, input, ayuda) {
@@ -89,7 +99,7 @@
       var s = h("button", { type: "submit", class: "sa-btn sa-btn-primario", texto: textoSig || "Siguiente" });
       return h("div", { class: "sa-acciones" }, atras ? a : null, s);
     }
-    function conFormulario(paso, hijos, validar) {
+    function conFormulario(paso, hijos, validar, destino) {
       var msj = h("div", { role: "alert" });
       var form = h("form", { novalidate: true }, hijos, msj);
       form.addEventListener("submit", function (ev) {
@@ -98,11 +108,31 @@
         SA.enviar(btn, msj, function () {
           return Promise.resolve(validar()).then(function (error) {
             if (error) { msj.replaceChildren(h("div", { class: "sa-msj sa-msj-error", texto: error })); return; }
-            est.paso = paso + 1; pintar();
+            est.paso = destino || paso + 1; pintar();
           });
         });
       });
       return form;
+    }
+
+    /* ---------------- pasos ya ejecutados: SOLO LECTURA, con lo que el servidor confirmo (R7) ---------------- */
+    function lineasConfirmadas(paso) {
+      var r = est.restaurante || {};
+      var plan = SA.etiquetas.plan[r.plan] || t(r.plan, 20), modalidad = SA.etiquetas.modalidad[r.modalidad_pago] || t(r.modalidad_pago, 20);
+      var mods = r.modulos && typeof r.modulos === "object" ? Object.keys(NOMBRE_MODULO).filter(function (k) { return r.modulos[k] === true; }).map(function (k) { return NOMBRE_MODULO[k]; }).join(", ") : "";
+      var doms = Array.isArray(r.dominios) ? r.dominios.map(function (d) { return t(d, 120); }).join(", ") : "";
+      if (paso === 1) return [["Nombre", r.nombre], ["Nombre corto", r.slug]];
+      if (paso === 2) return [["Plan", plan], ["Modalidad", modalidad], ["Módulos", mods || "Ninguno"], ["Vigente hasta", r.vigente_hasta ? SA.fecha.corta(r.vigente_hasta) : "Sin vencimiento"], ["Días de gracia", String(r.dias_gracia)], ["Zona horaria", r.zona_horaria]];
+      if (paso === 3) return [["Dueño", est.usuarioConfirmado ? est.usuarioConfirmado.email : est.correo]];
+      return [["Dirección web registrada", doms || "Ninguna por ahora"]];
+    }
+    function pasoBloqueado(paso) {
+      var volver = h("button", { type: "button", class: "sa-btn", id: "al-volver-resumen", texto: est.usuarioCreado ? "Volver a la entrega" : "Volver al resumen" });
+      volver.addEventListener("click", function () { est.paso = est.usuarioCreado ? 6 : 5; pintar(); });
+      return h("div", { "data-bloqueado": String(paso) },
+        h("div", { class: "sa-msj sa-msj-aviso", role: "status", texto: "Este paso ya se ejecutó en el servidor: “" + t(est.restaurante.nombre, 80) + "” ya está creado, así que aquí no se puede cambiar nada. Lo que ves es lo que el servidor confirmó." }),
+        h("dl", { class: "sa-datos sa-tarjeta" }, lineasConfirmadas(paso).map(function (x) { return h("div", null, h("dt", { texto: x[0] }), h("dd", { texto: t(x[1], 300) })); })),
+        h("div", { class: "sa-acciones" }, volver));
     }
 
     /* ---------------- paso 1 ---------------- */
@@ -222,11 +252,13 @@
         });
       }
       comprobar.addEventListener("click", function () { SA.enviar(comprobar, areaC, consultar); });
+      var recuperando = !!est.restaurante && !est.usuarioCreado;   // el restaurante ya existe y solo falta su dueño: este es el UNICO paso que aun se puede corregir
       return conFormulario(3, [
+        recuperando ? h("div", { class: "sa-msj sa-msj-aviso", role: "status", texto: "“" + t(est.restaurante.nombre, 80) + "” ya está creado; solo falta el usuario del dueño. Aquí puedes corregir su correo." }) : null,
         h("p", { texto: "El dueño es quien entra al panel del restaurante a cargar su menú. Escribe su correo." }),
         campo("al-correo", "Correo del dueño", correo, "A este correo se le crea el usuario (no se le envía nada: tú le entregas los datos)."),
         h("p", null, comprobar), areaC, res,
-        botonesNav(true)
+        botonesNav(!recuperando, null, recuperando ? "Guardar y volver al resumen" : null)
       ], function () {
         var c = correo.value.trim().toLowerCase();
         if (!CORREO.test(c) || c.length > 254) return "El correo no es válido.";
@@ -236,7 +268,7 @@
         return consultar().then(function () {
           return est.usuario !== undefined && est.usuarioDe === c ? null : "El correo cambió mientras se comprobaba. Pulsa Siguiente otra vez.";
         }, function (e) { return e.message; });
-      });
+      }, recuperando ? 5 : undefined);
     }
 
     /* ---------------- paso 4 ---------------- */
@@ -291,16 +323,27 @@
 
     /* ---------------- paso 5 ---------------- */
     function paso5() {
+      var recuperando = !!est.restaurante;   // el restaurante YA existe en el servidor: solo falta el usuario del dueno
       var ref = REFERENCIA[est.plan];
       var chk = h("input", { id: "al-entiendo", type: "checkbox", checked: est.entiendo ? true : null });
       chk.addEventListener("change", function () { est.entiendo = chk.checked; crear.disabled = !chk.checked; });
-      var crear = h("button", { type: "button", class: "sa-btn sa-btn-primario", id: "al-crear", texto: est.restaurante ? "Terminar lo que falta" : "Crear restaurante", disabled: !est.entiendo });
+      var crear = h("button", { type: "button", class: "sa-btn sa-btn-primario", id: "al-crear", texto: recuperando ? "Reintentar crear el usuario" : "Crear restaurante", disabled: recuperando ? null : !est.entiendo });
       var msj = h("div", { role: "alert" });
-      var atras = h("button", { type: "button", class: "sa-btn", texto: "Atrás", disabled: !!est.restaurante });
-      atras.addEventListener("click", function () { est.paso = 4; pintar(); });
+      if (est.aviso) { msj.appendChild(h("div", { class: "sa-msj sa-msj-error", texto: est.aviso })); est.aviso = null; }
+      var atras = recuperando
+        ? h("button", { type: "button", class: "sa-btn", id: "al-cambiar-correo", texto: "Cambiar el correo del dueño" })
+        : h("button", { type: "button", class: "sa-btn", id: "al-atras", texto: "Atrás" });
+      atras.addEventListener("click", function () { est.paso = recuperando ? 3 : 4; pintar(); });
       var host = hostFinal();
       var vence = SA.fecha.sumarDias(SA.fecha.hoy(), est.dias);
       crear.addEventListener("click", function () { SA.enviar(crear, msj, ejecutar); });
+      if (recuperando) {
+        return h("div", null,
+          h("div", { class: "sa-msj sa-msj-aviso", role: "status", texto: "El restaurante YA está creado en el servidor y no se puede cambiar desde este asistente. Falta crear el usuario del dueño." }),
+          h("dl", { class: "sa-datos sa-tarjeta", "data-confirmado": "1" }, lineasConfirmadas(1).concat(lineasConfirmadas(2), lineasConfirmadas(4)).map(function (x) { return dato(x[0], x[1]); })),
+          h("dl", { class: "sa-datos sa-tarjeta" }, dato("Dueño (falta crear)", est.correo + (est.usuario ? " (ya tiene usuario: solo se le dará acceso)" : " (usuario nuevo)"))),
+          msj, h("div", { class: "sa-acciones" }, atras, crear));
+      }
       return h("div", null,
         h("dl", { class: "sa-datos sa-tarjeta" },
           dato("Nombre", est.nombre), dato("Nombre corto", slugFinal()), dato("Plan", ref.nombre + " (referencia " + SA.pesos(est.modalidad === "unico" ? ref.unico : ref.mensual) + (est.modalidad === "unico" ? " pago único)" : " al mes)")),
@@ -323,24 +366,40 @@
           cadena = cadena.then(function () {
             var datos = { slug: slugFinal(), nombre: est.nombre, plan: est.plan, modalidad_pago: est.modalidad, dias_gracia: est.gracia, modulos: est.modulos, zona_horaria: est.zona, vigente_hasta: vence };
             if (est.dominioModo === "propio") datos.dominio = est.host;
-            return SA.api("crear_restaurante", datos).then(function (r) { est.restaurante = r.restaurante; SA.lista = null; });
-          }).catch(function (e) { throw new Error(traducirAlta(e)); });
+            return SA.api("crear_restaurante", datos).then(function (r) {
+              est.restaurante = r.restaurante; SA.lista = null;
+              est.liberarVista = SA.retenerVista();   // R6: si hay que volver a pedir el codigo, esta vista (con lo ya creado) no se rearma
+            });
+          }).catch(function (e) { if (e && e.silencioso) throw e; throw new Error(traducirAlta(e)); });
         }
         cadena = cadena.then(function () {
           if (est.usuarioCreado) return;
-          if (est.usuario && est.usuarioDe !== est.correo) throw new Error("El correo del dueño cambió después de comprobarlo: vuelve al paso 3 y compruébalo de nuevo.");
+          if (est.usuario && est.usuarioDe !== est.correo) throw errorDeCorreo("El correo del dueño cambió después de comprobarlo. Pulsa “Cambiar el correo del dueño” y compruébalo de nuevo.");
           if (est.usuario) {
-            return SA.api("asignar_miembro", { restaurante_id: est.restaurante.id, usuario_id: est.usuario.id, rol: "dueno" }).then(function () { est.usuarioCreado = true; });
+            return SA.api("asignar_miembro", { restaurante_id: est.restaurante.id, usuario_id: est.usuario.id, rol: "dueno" }).then(function (r) {
+              est.usuarioCreado = true;
+              est.usuarioConfirmado = { email: (r && r.miembro && typeof r.miembro.email === "string" && r.miembro.email) || est.usuario.email };   // lo que el servidor confirmo
+            });
           }
           return SA.api("crear_usuario", { email: est.correo, restaurante_id: est.restaurante.id, rol: "dueno" }).then(function (r) {
             est.usuarioCreado = true;
+            est.usuarioConfirmado = { email: (r && r.usuario && typeof r.usuario.email === "string" && r.usuario.email) || est.correo };
             if (typeof r.password_temporal === "string") est.clave = r.password_temporal;
           });
         }).catch(function (e) {
-          if (est.restaurante) { est.paso = 5; }
-          if (e && e.status === 409 && est.restaurante) throw new Error("El restaurante YA se creó, pero ese correo ya tenía usuario. Vuelve al paso 3, comprueba el correo y confirma de nuevo: solo se le dará acceso.");
-          if (e && !e.silencioso) e.message = "El restaurante YA se creó, pero el usuario del dueño no: " + e.message + " Pulsa el botón de nuevo para reintentar solo eso.";
-          throw e;
+          if (!est.restaurante) throw e;
+          /* El restaurante YA existe y el usuario no (R7): se vuelve a pintar el paso 5 en su modo "falta el usuario" (pasos ya ejecutados en
+             solo lectura, boton "Reintentar crear el usuario"), con el motivo a la vista. Nunca se crea otro restaurante. */
+          est.paso = 5;
+          if (e && e.silencioso) { pintar(); throw e; }
+          var motivo;
+          if (e && e.deCorreo) motivo = "El restaurante YA se creó, pero falta el usuario del dueño. " + e.message;
+          else if (e && e.status === 409) motivo = "El restaurante YA se creó, pero ese correo ya tenía usuario. Pulsa “Cambiar el correo del dueño”, comprueba el correo y confirma de nuevo: solo se le dará acceso.";
+          else motivo = "El restaurante YA se creó, pero el usuario del dueño no: " + (e && e.message ? e.message.replace(/[.!?\s]*$/, "") : "no se pudo completar") + ". Pulsa “Reintentar crear el usuario” (no se crea otro restaurante).";
+          est.aviso = t(motivo, 600);
+          pintar();
+          var visto = new Error(motivo); visto.silencioso = true;   // el motivo ya quedo a la vista en el paso 5 nuevo
+          throw visto;
         });
         return cadena.then(function () {
           est.paso = 6; pintar();
@@ -349,6 +408,7 @@
       function dato(k, v) { return h("div", null, h("dt", { texto: k }), h("dd", { texto: t(v, 300) })); }
     }
 
+    function errorDeCorreo(texto) { var e = new Error(texto); e.deCorreo = true; return e; }
     function traducirAlta(e) {
       if (e && e.silencioso) return e.message;
       if (e && e.status === 409) return "Ya existe un restaurante con ese nombre corto" + (est.dominioModo === "propio" ? " o ese dominio ya está en uso" : "") + ". Vuelve al paso 1 y cambia el nombre corto" + (est.dominioModo === "propio" ? ", o al paso 4 y usa otra dirección." : ".");
@@ -358,16 +418,21 @@
 
     /* ---------------- paso 6 ---------------- */
     function paso6() {
-      var host = hostFinal();
+      /* TODO sale de lo que el servidor confirmo haber creado (R7), no de lo que quedo escrito en los pasos. */
+      var creado = est.restaurante || {};
+      var nombreCreado = String(creado.nombre === undefined || creado.nombre === null ? est.nombre : creado.nombre);
+      var correoCreado = est.usuarioConfirmado && est.usuarioConfirmado.email ? est.usuarioConfirmado.email : est.correo;
+      var host = (Array.isArray(creado.dominios) && typeof creado.dominios[0] === "string" && creado.dominios[0]) ||
+        (est.dominioModo === "subdominio" && est.dominioBase && creado.slug ? creado.slug + "." + est.dominioBase.trim().toLowerCase() : "");
       var restante = h("p", { class: "sa-vence", id: "al-clave-reloj" });
       var caja = h("div");
       var copiarMsj = h("button", { type: "button", class: "sa-btn sa-btn-primario", id: "al-copiar-msj", texto: "Copiar mensaje para WhatsApp" });
       copiarMsj.addEventListener("click", function () { SA.copiar(mensaje(), "Mensaje copiado"); });
       function mensaje() {
-        var l = ["¡Hola! Ya quedó listo tu restaurante “" + est.nombre + "” 🎉", ""];
+        var l = ["¡Hola! Ya quedó listo tu restaurante “" + nombreCreado + "” 🎉", ""];
         if (host) { l.push("Tu dirección: https://" + host); l.push("Panel para tu equipo: https://" + host + "/panel.html"); l.push("Menú y productos: https://" + host + "/menu-admin.html"); }
         else l.push("La dirección de tu restaurante te la confirmo en cuanto esté lista.");
-        l.push("Usuario: " + est.correo);
+        l.push("Usuario: " + correoCreado);
         if (est.clave) l.push("Contraseña temporal: " + est.clave);
         else l.push(est.usuario ? "Contraseña: la misma que ya usas." : "Contraseña temporal: te la envío por aparte.");
         l.push("", "Entra, cámbiala y empieza a cargar tu menú. Cualquier duda me escribes.");
@@ -377,7 +442,7 @@
         if (!est.clave) {
           caja.replaceChildren(est.usuario
             ? h("div", { class: "sa-msj sa-msj-info", texto: "El dueño ya tenía usuario: entra con su contraseña de siempre." })
-            : h("div", { class: "sa-msj sa-msj-aviso", texto: "La contraseña temporal ya se borró de la pantalla y no se guarda en ningún lado. Si no alcanzaste a copiarla, crea un usuario nuevo desde la pestaña Usuarios del restaurante (con otro correo) o restablece la contraseña en Supabase." }));
+            : h("div", { class: "sa-msj sa-msj-aviso", texto: "La contraseña temporal ya se borró de la pantalla" + (est.motivoBorrado === "oculta" ? " porque la pestaña estuvo oculta más de un minuto" : est.motivoBorrado === "tiempo" ? " porque pasaron los 3 minutos" : "") + " y no se guarda en ningún lado. Si no alcanzaste a copiarla, crea un usuario nuevo desde la pestaña Usuarios del restaurante (con otro correo) o restablece la contraseña en Supabase." }));
           restante.textContent = "";
           return;
         }
@@ -389,15 +454,16 @@
           h("strong", { texto: "CONTRASEÑA TEMPORAL — se muestra una sola vez" }),
           h("div", { class: "sa-clave-valor", id: "al-clave", texto: est.clave }),
           h("p", { class: "sa-chico", texto: "No se vuelve a ver ni queda guardada en ningún sitio. Cópiala ahora y entrégala por un canal privado. Se borrará sola en unos minutos." }),
-          h("div", { class: "sa-acciones" }, copiarClave, borrar)));
+          h("div", { class: "sa-acciones" }, copiarClave, borrar),
+          SA.avisoPortapapeles()));
       }
-      if (est.clave && !est.temporizador) {
-        est.restante = 180;
-        est.temporizador = setInterval(function () {
-          est.restante--;
-          if (est.restante <= 0) { limpiarClave(); pintarClave(); return; }
-          restante.textContent = "Se borra sola en " + Math.floor(est.restante / 60) + ":" + String(est.restante % 60).padStart(2, "0");
-        }, 1000);
+      /* R4: hora limite absoluta, revisada cada segundo y al volver a ver la pestana (no cuenta tics). R6: mientras vive, la vista no se rearma. */
+      if (est.clave && !est.vigia) {
+        est.vigia = SA.vigilarClave({
+          segundos: 180,
+          alTic: function (seg) { restante.textContent = "Se borra sola en " + Math.floor(seg / 60) + ":" + String(seg % 60).padStart(2, "0"); },
+          alVencer: function (motivo) { est.vigia = null; est.clave = null; est.motivoBorrado = motivo; pintarClave(); }
+        });
       }
       pintarClave();
       var verBtn = h("button", { type: "button", class: "sa-btn", texto: "Abrir el restaurante" });
@@ -405,13 +471,13 @@
       var otro = h("button", { type: "button", class: "sa-btn", texto: "Crear otro" });
       otro.addEventListener("click", function () { limpiarClave(); SA.ir("alta"); });
       return h("div", null,
-        h("div", { class: "sa-msj sa-msj-ok", role: "status", texto: "Listo: “" + est.nombre + "” quedó creado en estado de prueba." }),
+        h("div", { class: "sa-msj sa-msj-ok", role: "status", texto: "Listo: “" + t(nombreCreado, 120) + "” quedó creado en estado de prueba." }),
         h("div", { class: "sa-tarjeta" }, h("h2", { texto: "Qué se le entrega al restaurante" }),
           h("dl", { class: "sa-datos" },
-            h("div", null, h("dt", { texto: "Dirección" }), h("dd", { texto: host ? "https://" + host : "Pendiente" })),
-            h("div", null, h("dt", { texto: "Correo" }), h("dd", { texto: est.correo }))),
+            h("div", null, h("dt", { texto: "Dirección" }), h("dd", { texto: host ? "https://" + t(host, 253) : "Pendiente" })),
+            h("div", null, h("dt", { texto: "Correo" }), h("dd", { texto: t(correoCreado, 254) }))),
           caja, restante,
-          h("p", null, copiarMsj)),
+          h("p", null, copiarMsj), SA.avisoPortapapeles()),
         host ? h("div", { class: "sa-msj sa-msj-aviso", texto: "Recuerda: la dirección solo funciona cuando el dominio esté configurado en Vercel (ver el paso 4). Después configura sus colores, tarifas y llaves de Wompi en el detalle del restaurante." })
              : h("div", { class: "sa-msj sa-msj-aviso", texto: "Falta darle una dirección: agrégala en la pestaña Dominios del restaurante." }),
         h("div", { class: "sa-acciones" }, verBtn, otro));
@@ -419,7 +485,9 @@
 
     function pintar() {
       area = h("div");
-      var contenido = est.paso === 1 ? paso1() : est.paso === 2 ? paso2() : est.paso === 3 ? paso3() : est.paso === 4 ? paso4() : est.paso === 5 ? paso5() : paso6();
+      /* Un paso que ya se ejecuto en el servidor (R7) nunca vuelve a ser un formulario: se ve, pero en solo lectura. */
+      var bloqueado = !!est.restaurante && (est.paso === 1 || est.paso === 2 || est.paso === 4 || (est.paso === 3 && est.usuarioCreado));
+      var contenido = bloqueado ? pasoBloqueado(est.paso) : est.paso === 1 ? paso1() : est.paso === 2 ? paso2() : est.paso === 3 ? paso3() : est.paso === 4 ? paso4() : est.paso === 5 ? paso5() : paso6();
       cuerpo.replaceChildren(encabezadoPasos(), h("div", { class: "sa-tarjeta" }, contenido));
       var primero = cuerpo.querySelector("input:not([type=radio]):not([type=checkbox]), input[type=radio]:checked");
       if (primero && est.paso < 5) primero.focus();

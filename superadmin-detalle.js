@@ -21,29 +21,33 @@
 
   /* Caja de la contrasena temporal: se ve UNA vez y se borra sola. Devuelve { nodo, limpiar }. */
   function cajaClave(clave, alBorrar) {
-    var valor = clave, restante = 180, reloj = null;
+    var valor = clave, vigia = null;
     var visor = h("div", { class: "sa-clave-valor", texto: valor });
     var cuenta = h("p", { class: "sa-vence", texto: "Se borra sola en 3:00" });
     var nodo = h("div", { class: "sa-clave-caja", role: "group", "aria-label": "Contraseña temporal" });
-    function limpiar() {
-      valor = null; clearInterval(reloj); reloj = null;
-      nodo.replaceChildren(h("div", { class: "sa-msj sa-msj-aviso", texto: "La contraseña temporal ya se borró de la pantalla. No se guarda en ningún lado." }));
+    /* motivo: "tiempo" (vencio la hora limite), "oculta" (la pestana estuvo oculta mas de un minuto) o nada (la borraron a mano o se salio de la vista) */
+    function limpiar(motivo) {
+      valor = null;
+      if (vigia) { vigia.cancelar(); vigia = null; }
+      nodo.replaceChildren(h("div", { class: "sa-msj sa-msj-aviso", texto: "La contraseña temporal ya se borró de la pantalla" + (motivo === "oculta" ? " porque la pestaña estuvo oculta más de un minuto" : motivo === "tiempo" ? " porque pasaron los 3 minutos" : "") + ". No se guarda en ningún lado." }));
       if (alBorrar) alBorrar();
     }
     var copiarBtn = h("button", { type: "button", class: "sa-btn", texto: "Copiar" });
     copiarBtn.addEventListener("click", function () { if (valor) SA.copiar(valor, "Contraseña copiada"); });
     var borrarBtn = h("button", { type: "button", class: "sa-btn", texto: "Ya la copié, borrarla" });
-    borrarBtn.addEventListener("click", limpiar);
+    borrarBtn.addEventListener("click", function () { limpiar(); });
     nodo.appendChild(h("strong", { texto: "CONTRASEÑA TEMPORAL — se muestra una sola vez" }));
     nodo.appendChild(visor);
     nodo.appendChild(h("p", { class: "sa-chico", texto: "No se vuelve a ver. Entrégala por un canal privado y pide que la cambien al entrar." }));
     nodo.appendChild(h("div", { class: "sa-acciones" }, copiarBtn, borrarBtn));
+    nodo.appendChild(SA.avisoPortapapeles());
     nodo.appendChild(cuenta);
-    reloj = setInterval(function () {
-      restante--;
-      if (restante <= 0) { limpiar(); return; }
-      cuenta.textContent = "Se borra sola en " + Math.floor(restante / 60) + ":" + String(restante % 60).padStart(2, "0");
-    }, 1000);
+    /* R4: hora limite absoluta, revisada cada segundo y al volver a ver la pestana (no cuenta tics). R6: mientras vive, la vista no se rearma. */
+    vigia = SA.vigilarClave({
+      segundos: 180,
+      alTic: function (seg) { cuenta.textContent = "Se borra sola en " + Math.floor(seg / 60) + ":" + String(seg % 60).padStart(2, "0"); },
+      alVencer: function (motivo) { vigia = null; limpiar(motivo); }
+    });
     return { nodo: nodo, limpiar: limpiar };
   }
   SA.cajaClave = cajaClave;
@@ -299,6 +303,7 @@
     function tabUsuarios(p, mi) {
       var msj = h("div", { role: "alert" });
       var claveCaja = h("div");
+      var cajaViva = null;   // la caja de la contrasena temporal que esta a la vista (una sola a la vez)
       var tbody = h("tbody");
       var ms = (D.miembros || []);
       ms.forEach(function (m) {
@@ -336,11 +341,13 @@
         SA.enviar(boton, err, function () {
           var c = correo.value.trim().toLowerCase();
           if (!SA.validar.correo.test(c) || c.length > 254) throw new Error("El correo no es válido.");
+          if (cajaViva) { cajaViva.limpiar(); cajaViva = null; }   // una contrasena anterior se borra (y su vigilante se cancela) antes de mostrar otra
           claveCaja.replaceChildren();
           if (modo === "nuevo") {
             return SA.api("crear_usuario", { email: c, restaurante_id: id, rol: rol.value }).then(function (r) {
               correo.value = "";
               var caja = cajaClave(r.password_temporal, null);
+              cajaViva = caja;
               alSalirDeTab(caja.limpiar);
               claveCaja.replaceChildren(h("div", { class: "sa-msj sa-msj-ok", texto: "Usuario creado: " + t(r.usuario && r.usuario.email, 120) + " (" + ROLES[rol.value] + ")." }), caja.nodo);
               return cargar();
@@ -623,7 +630,12 @@
         "Los secretos son de SOLO ESCRITURA: esta pantalla nunca los muestra ni los puede leer; solo sabe si hay uno cargado (Sí/No). Si cargas uno distinto donde ya hay uno, se rechaza a menos que marques “Reemplazar”. Un valor que ya usa OTRO restaurante también se rechaza (cada restaurante debe tener los suyos)."));
       CAMPOS_SECRETOS.forEach(function (c) {
         var puesto = estado[c[0]] === true;
-        var inp = h("input", { type: "password", id: "sa-sec-" + c[0], autocomplete: "new-password", spellcheck: "false", autocapitalize: "off", maxlength: 300, placeholder: puesto ? "Escribe para reemplazar" : "Escribe para cargar", "aria-label": c[1] });
+        /* R9: que el gestor de contrasenas del navegador (o una extension) no ofrezca guardar ni sugerir estos valores. Los campos NO son
+           type=password (Chrome solo trata asi a esos), el texto se oculta con CSS (-webkit-text-security), no hay <form> ni atributo name, y se
+           le pide expresamente a Chrome (autocomplete=off) y a las extensiones mas comunes (LastPass, 1Password, Bitwarden, Dashlane) que los ignoren.
+           Chrome no garantiza ninguna de estas peticiones: la prueba comprueba los atributos, no lo que el navegador decida hacer. */
+        var inp = h("input", { type: "text", "data-secreto": "1", id: "sa-sec-" + c[0], autocomplete: "off", autocapitalize: "off", spellcheck: "false", inputmode: "text", maxlength: 300,
+          "data-lpignore": "true", "data-1p-ignore": "true", "data-bwignore": "true", "data-form-type": "other", placeholder: puesto ? "Escribe para reemplazar" : "Escribe para cargar", "aria-label": c[1] });
         entradas[c[0]] = inp;
         filas.appendChild(h("div", { class: "sa-secreto-fila", "data-campo": c[0] },
           h("label", { for: "sa-sec-" + c[0], texto: c[1] }),

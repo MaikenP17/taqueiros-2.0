@@ -145,7 +145,84 @@
     return Promise.resolve(respaldo());
   }
   SA.copiar = function (texto, etiqueta) {
-    return copiar(texto).then(function (ok) { aviso(ok ? (etiqueta || "Copiado") : "No se pudo copiar. Selecciónalo y cópialo a mano.", 2500); return ok; });
+    return copiar(texto).then(function (ok) {
+      aviso(ok ? (etiqueta || "Copiado") : "No se pudo copiar. Selecciónalo y cópialo a mano.", 2500);
+      if (ok) programarVaciado();
+      return ok;
+    });
+  };
+
+  /* Portapapeles (R8): lo copiado queda ahi y esta pantalla NO copia nada sola. Mejor esfuerzo razonable: a los 60 segundos de copiar se intenta
+     dejarlo vacio, SOLO si la pestana sigue visible y con foco (el navegador no deja escribir el portapapeles si no) y sin mostrar ningun
+     error si no se puede. Limites: no borra el historial del portapapeles de Windows (Win+V) ni lo copiado desde otra aplicacion, y si
+     en esos 60 segundos copiaste otra cosa estando en esta pestana, tambien se vacia. Cada copia nueva reinicia la cuenta. */
+  var VACIAR_PORTAPAPELES_MS = 60000;
+  var tVaciar = null;
+  function programarVaciado() {
+    clearTimeout(tVaciar);
+    tVaciar = setTimeout(function () {
+      tVaciar = null;
+      try {
+        if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText("").then(function () { /* listo */ }, function () { /* el navegador no lo permitio: sin ruido */ });
+      } catch (e) { /* el navegador no lo permite: sin ruido */ }
+    }, VACIAR_PORTAPAPELES_MS);
+  }
+  /* El aviso corto que va junto a cada boton de copiar. */
+  SA.avisoPortapapeles = function () {
+    return h("p", { class: "sa-ayuda sa-aviso-copia", texto: "Ojo: lo que copias se queda en el portapapeles. Esta pantalla intenta vaciarlo a los 60 segundos; si no puede, copia cualquier otra cosa para borrarlo." });
+  };
+
+  /* Contrasena temporal (R4 y R6). La cuenta de los 3 minutos NO depende de que corra un temporizador: se guarda una HORA LIMITE absoluta
+     (reloj del sistema y, de apoyo, performance.now) y se revisa cada segundo y tambien al volver a ver la pestana (visibilitychange,
+     focus, pageshow). Si el computador se durmio o el navegador congelo la pestana, al volver ya vencio y se borra. Tambien se borra si la
+     pestana estuvo oculta mas de un minuto. Mientras vive, la vista que la muestra NO se rearma si hay que volver a pedir el codigo (R6). */
+  var MAX_OCULTA_MS = 60000;
+  var clavesVivas = 0, vistasRetenidas = 0;
+  SA.hayClaveViva = function () { return clavesVivas > 0; };
+  SA.retenerVista = function () {   // devuelve la funcion que la libera (se puede llamar varias veces)
+    var activa = true;
+    vistasRetenidas++;
+    return function () { if (activa) { activa = false; vistasRetenidas--; } };
+  };
+  SA.vigilarClave = function (o) {
+    var ttl = (o.segundos || 180) * 1000;
+    var finReloj = Date.now() + ttl, finMono = performance.now() + ttl;
+    var oculto = document.hidden ? { reloj: Date.now(), mono: performance.now() } : null;
+    var activo = true, intervalo = null;
+    var liberar = SA.retenerVista();
+    clavesVivas++;
+    function restanteMs() { return Math.min(finReloj - Date.now(), finMono - performance.now()); }
+    function parar() {
+      if (!activo) return false;
+      activo = false; clavesVivas--; liberar();
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      window.removeEventListener("focus", revisar); window.removeEventListener("pageshow", revisar);
+      return true;
+    }
+    function vencer(motivo) { if (parar() && o.alVencer) o.alVencer(motivo); }
+    function revisar() {
+      if (!activo) return;
+      var r = restanteMs();
+      if (r <= 0) { vencer("tiempo"); return; }
+      if (o.alTic) o.alTic(Math.ceil(r / 1000));
+    }
+    function alCambiarVisibilidad() {
+      if (!activo) return;
+      if (document.hidden) { if (!oculto) oculto = { reloj: Date.now(), mono: performance.now() }; return; }
+      if (oculto) {
+        var fuera = Math.max(Date.now() - oculto.reloj, performance.now() - oculto.mono);
+        oculto = null;
+        if (fuera > MAX_OCULTA_MS) { vencer("oculta"); return; }
+      }
+      revisar();
+    }
+    intervalo = setInterval(revisar, 1000);
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    window.addEventListener("focus", revisar); window.addEventListener("pageshow", revisar);
+    revisar();
+    return { cancelar: parar, vivo: function () { return activo; } };
   };
 
   var modalAbierto = null;
@@ -407,6 +484,7 @@
      CERRAR SESION / VENCIMIENTO
   --------------------------------------------------------------- */
   function limpiarTodo() {
+    var habiaClave = clavesVivas > 0;   // R6: una contrasena temporal a la vista se pierde con la sesion; hay que avisarlo con claridad
     ses = null; mfaEnCurso = false; bloqueoHasta = 0; refrescando = null;
     try { sessionStorage.removeItem(CLAVE_SESION); } catch (e) { /* nada */ }
     limpiarVista();
@@ -415,6 +493,7 @@
     if (elEmail) elEmail.textContent = "";
     if (elVence) elVence.hidden = true;
     cerrarModal(); ocultarAviso();
+    return habiaClave;
   }
   function cerrarSesion(mensaje) {
     var token = ses && ses.access;
@@ -424,9 +503,11 @@
   }
   function sesionVencida(mensaje) {
     var token = ses && ses.access;
-    limpiarTodo();
+    var perdioClave = limpiarTodo();
     if (token) authLlamar("POST", "/logout", null, token);
-    mostrarEntrada({ tipo: "aviso", texto: mensaje });
+    mostrarEntrada({ tipo: "aviso", texto: perdioClave
+      ? mensaje + " La contraseña temporal que estaba en pantalla se borró y ya no se puede ver: si no alcanzaste a copiarla, crea otro usuario desde la pestaña Usuarios del restaurante o restablece la contraseña en Supabase."
+      : mensaje });
   }
   SA.cerrarSesion = cerrarSesion;
 
@@ -526,6 +607,9 @@
   function entrarALaApp() {
     mfaEnCurso = false;
     mostrarApp();
+    /* R6: si hay una contrasena temporal a la vista (o un alta a medias) y la pantalla tuvo que pedir el codigo otra vez, al confirmarlo se
+       vuelve al MISMO lugar sin rearmar la vista: rearmarla borraria la contrasena (que vive solo en memoria y no se puede volver a ver). */
+    if (vistaActual && vistasRetenidas > 0) { tic(); return; }
     if (SA.lista === null && !vistaActual) SA.ir("lista");
     else if (vistaActual) SA.recargarVista();
     else SA.ir("lista");
@@ -713,7 +797,7 @@
         h("li", { texto: "Escribe abajo el número de 6 dígitos que aparece en la app." })),
       qr || h("p", { class: "sa-msj sa-msj-aviso", texto: "No se pudo mostrar el QR. Usa la clave de abajo." }),
       h("p", { class: "sa-ayuda", texto: "¿No puedes escanear? Escribe esta clave a mano en la app (tipo “basada en tiempo”):" }),
-      claveEl, h("p", null, copiarBtn),
+      claveEl, h("p", null, copiarBtn), SA.avisoPortapapeles(),
       area, form,
       h("p", { class: "sa-ayuda", texto: "Esta clave y este QR no se guardan en ningún lado: desaparecen al terminar. Guárdalos solo en tu app." }),
       h("p", { class: "sa-chico" }, salir)]));

@@ -89,7 +89,18 @@ const SCRIPT_GRABADORA = `
   setter(HTMLIFrameElement.prototype, "srcdoc");
   metodo(Element.prototype, "insertAdjacentHTML"); metodo(Element.prototype, "setHTMLUnsafe"); metodo(Document.prototype, "write"); metodo(Document.prototype, "writeln");
   metodo(Range.prototype, "createContextualFragment"); metodo(DOMParser.prototype, "parseFromString"); metodo(window, "eval");
-  ["setTimeout", "setInterval"].forEach(function(n){ var o = window[n]; window[n] = function(f){ if (typeof f === "string") marca(n + " con texto"); return o.apply(this, arguments); }; });
+  /* RELOJ Y TEMPORIZADORES CONTROLABLES (pulido: R4 y R8). Sin tocarlos no cambian nada: los saltos valen 0.
+       __saltoReloj / __saltoMono: milisegundos que se suman a Date.now() y a performance.now() (simula que el computador se durmio o que el reloj cambio).
+       __sinIntervalos: los setInterval de la pagina dejan de ejecutar su funcion (aisla la revision que se hace al volver a ver la pestana).
+       __acelerar: un setTimeout de 60000 ms corre a los 600 ms (se prueba el vaciado del portapapeles sin esperar un minuto). __retardos: todos los retardos pedidos. */
+  window.__saltoReloj = 0; window.__saltoMono = 0; window.__sinIntervalos = false; window.__acelerar = false; window.__retardos = [];
+  var dnow = Date.now.bind(Date); Date.now = function(){ return dnow() + window.__saltoReloj; };
+  var pnow = performance.now.bind(performance); performance.now = function(){ return pnow() + window.__saltoMono; };
+  ["setTimeout", "setInterval"].forEach(function(n){ var o = window[n]; window[n] = function(f, ms){
+    if (typeof f === "string") marca(n + " con texto");
+    if (n === "setTimeout") { window.__retardos.push(ms); if (ms === 60000 && window.__acelerar) arguments[1] = 600; }
+    if (n === "setInterval" && typeof f === "function") { var g = f; arguments[0] = function(){ if (window.__sinIntervalos) return; return g.apply(this, arguments); }; }
+    return o.apply(this, arguments); }; });
   var F = Function; try { window.Function = function(){ marca("Function"); return F.apply(this, arguments); }; window.Function.prototype = F.prototype; } catch(e){}
 })();`;
 const SUMIDEROS = [];   // usos reales de sumideros de HTML o de codigo en cualquier pagina de la prueba
@@ -365,6 +376,7 @@ async function escenario(nombre, fn) {
     pg.targetId = targetId; pg.contexto = ctx; pg.ancho = ancho;
     abiertas.push(pg);
     for (const d of ['Page', 'Runtime', 'DOM', 'Network', 'Log']) await cdp.send(d + '.enable', {}, sessionId);
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId);   // la pagina "tiene foco" (document.hasFocus() es true) aunque Chrome corra sin ventana
     await cdp.send('Network.setBlockedURLs', { urls: ['https://fonts.googleapis.com/*', 'https://fonts.gstatic.com/*', 'https://*.jsdelivr.net/*'] }, sessionId);
     await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: SCRIPT_GRABADORA }, sessionId);
     await cdp.send('Emulation.setDeviceMetricsOverride', { width: ancho, height: alto, deviceScaleFactor: 1, mobile: ancho < 500 }, sessionId);
@@ -1242,7 +1254,7 @@ async function escenario(nombre, fn) {
     await pestana(pg, 'secretos');
     const S1 = 'pub_test_SecretoUnoABCDEF123456', S2 = 'test_integrity_SecretoDosABCDEF123456', S3 = 'callmebot-clave-' + sfx;
     comprobar(await pg.eval(`[...document.querySelectorAll('[data-puesto]')].every(function(x){return x.dataset.puesto==='no'})`), 'al inicio ningun secreto esta cargado (indicadores "No")');
-    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.autocomplete==='new-password'&&i.spellcheck===false})`) && await pg.eval(`document.querySelectorAll('#sa-panel-tab input[type=password]').length`) === 10, 'los 10 campos son de contrasena, con autocomplete new-password');
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-panel-tab input[data-secreto]').length`) === 10 && await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[data-secreto]')].every(function(i){return getComputedStyle(i).webkitTextSecurity==='disc'&&i.spellcheck===false})`), 'los 10 campos de secretos existen y lo escrito se ve OCULTO (puntos) aunque ya no son type=password (R9)');
     comprobar(/SOLO ESCRITURA/.test(await pg.cuerpo()) && /OTRO restaurante también se rechaza/.test(await pg.cuerpo()), 'explica que son de solo escritura y que un valor de otro restaurante se rechaza');
     await capturarAmbos(pg, 'detalle-secretos');
     await pg.clic('#sa-sec-guardar');
@@ -1265,7 +1277,7 @@ async function escenario(nombre, fn) {
     comprobar(![S1, S2, S3].some((s) => respuesta.includes(s)), 'la respuesta del servidor no trae ningun valor');
     const dom = await pg.eval('document.documentElement.outerHTML'), texto = await pg.cuerpo();
     comprobar(![S1, S2, S3].some((s) => dom.includes(s) || texto.includes(s)), 'ningun valor aparece en la pagina (ni texto ni HTML) despues de guardar');
-    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.value===''})`), 'todos los campos quedan vacios');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[data-secreto]')].every(function(i){return i.value===''})`) && await pg.eval(`document.querySelectorAll('#sa-panel-tab input[data-secreto]').length`) === 10, 'todos los campos quedan vacios');
     comprobar(await pg.eval(`['wompi_llave_publica_test','wompi_integridad_test','callmebot_apikey'].every(function(k){return document.querySelector('[data-campo='+k+'] [data-puesto]').dataset.puesto==='si'})`) && /Ahora: Pruebas/.test(await pg.cuerpo()), 'los indicadores pasan a "Cargado: Sí" y el modo a Pruebas');
     comprobar(/Guardado/.test(await pg.texto('#sa-sec-resultado')), 'se muestra el resultado por campo');
     await capturarAmbos(pg, 'detalle-secretos-guardados');
@@ -1295,7 +1307,7 @@ async function escenario(nombre, fn) {
     comprobar(await pg.eval(`document.getElementById('sa-sec-callmebot_telefono').value===''`), 'un valor con formato malo (400): se muestra el motivo y el campo se vacia igual');
     // al salir y volver no hay nada
     await pestana(pg, 'resumen'); await pestana(pg, 'secretos');
-    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[type=password]')].every(function(i){return i.value===''})`), 'al cambiar de pestaña y volver los campos siguen vacios');
+    comprobar(await pg.eval(`[...document.querySelectorAll('#sa-panel-tab input[data-secreto]')].every(function(i){return i.value===''})`) && await pg.eval(`document.querySelectorAll('#sa-panel-tab input[data-secreto]').length`) === 10, 'al cambiar de pestaña y volver los campos siguen vacios');
     const aud = (await db.query(`select resumen::text as r from public.auditoria_superadmin where accion = 'guardar_secretos'`)).rows.map((x) => x.r).join('');
     comprobar(![S1, S2, S3, 'OtroValor'].some((s) => aud.includes(s)), 'la auditoria no tiene ningun valor de secreto');
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
@@ -1644,12 +1656,13 @@ async function escenario(nombre, fn) {
 
     // restaurante que existe: nombre arriba y nombre corto (pequeño) debajo
     let f = await celdas(R.activo.id);
-    comprobar(f.length >= 1 && f.every((x) => x.restNombre === 'Zeta Activo' && x.restSlug === 'pr-activo' && x.restHijos === 2), 'restaurante que existe: el NOMBRE ("Zeta Activo") arriba y el nombre corto ("pr-activo") pequeño debajo', JSON.stringify(f.map((x) => x.rest)));
+    const nombreActivo = (await filaDe('pr-activo')).nombre;   // el nombre ACTUAL (el escenario 12 lo renombro): la auditoria muestra el de hoy, no el de cuando se escribio la fila
+    comprobar(f.length >= 1 && f.every((x) => x.restNombre === nombreActivo && x.restSlug === 'pr-activo' && x.restHijos === 2), 'restaurante que existe: el NOMBRE actual arriba y el nombre corto ("pr-activo") pequeño debajo', JSON.stringify(f.map((x) => x.rest)) + ' vs ' + nombreActivo);
     await capturarAmbos(pg, 'pulido-auditoria-nombre');
 
     // restaurante borrado: solo el nombre corto (la fila lo guardo al escribirse)
     const opt = await pg.eval(`[...document.querySelectorAll('#sa-aud-rest option')].map(function(o){return o.textContent})`);
-    comprobar(opt.includes('Zeta Activo (pr-activo)') && opt.includes('pr-borrado-21') && !opt.some((x) => /Borrado 21/.test(x)), 'el filtro lista "Nombre (nombre-corto)" y, para el restaurante que ya no existe, solo su nombre corto', JSON.stringify(opt.slice(0, 12)));
+    comprobar(opt.includes(nombreActivo + ' (pr-activo)') && opt.includes('pr-borrado-21') && !opt.some((x) => /Borrado 21/.test(x)), 'el filtro lista "Nombre (nombre-corto)" y, para el restaurante que ya no existe, solo su nombre corto', JSON.stringify(opt.slice(0, 12)));
     const valorBorrado = await pg.eval(`[...document.querySelectorAll('#sa-aud-rest option')].filter(function(o){return o.textContent==='pr-borrado-21'})[0].value`);
     await pg.escribir('#sa-aud-rest', valorBorrado);
     await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-contenido tbody tr')];return f.length>0&&f.every(function(tr){var m=tr.children[2].querySelector('.sa-mono');return m&&m.textContent==='pr-borrado-21'})}`, 8000, 'filas del borrado');
@@ -1781,6 +1794,349 @@ async function escenario(nombre, fn) {
     await capturarAmbos(pg, 'pulido-auditoria-detalle-tecnico');
     const aud = (await db.query(`select string_agg(resumen::text, '') as r from public.auditoria_superadmin where restaurante_id = $1::uuid`, [S.id])).rows[0].r;
     comprobar(!/password|contrasena|clave_temporal/i.test(aud.replace(/pago en efectivo/g, '')), 'la auditoria sigue sin guardar contrasenas');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  /* ======================= 23 a 27. pulido: R4, R6, R7, R8 y R9 (docs 24.13) ======================= */
+  const saltar = (pg, reloj, mono) => pg.eval(`window.__saltoReloj+=${reloj};window.__saltoMono+=${mono};true`);
+  const enPagina = (pg, texto) => pg.eval(`document.documentElement.textContent.indexOf(${JSON.stringify(texto)})>=0`);
+  const sinClave = (pg, clave, ms = 3500) => pg.esperar(`function(){return document.documentElement.textContent.indexOf(${JSON.stringify(clave)})<0}`, ms, 'que la contrasena desaparezca de la pagina');
+  const pausa = (ms) => sleep(ms);
+  const MFA_REQ = { error: 'Activa o confirma la verificación en dos pasos', codigo: 'mfa_requerida', aal: 'aal1' };
+  /* crea un usuario en la pestaña Usuarios del detalle y devuelve la contrasena temporal que se ve */
+  async function claveDeUsuarios(pg, etiqueta) {
+    await pg.escribir('#sa-u-correo', `${etiqueta}-${sfx}@prueba-pantalla.example.com`);
+    await pg.sinAviso(); await pg.clic('#sa-u-ir');
+    await pg.existe('.sa-clave-caja .sa-clave-valor', 8000);
+    return (await pg.texto('.sa-clave-caja .sa-clave-valor')).trim();
+  }
+
+  await escenario('23. R4: la contrasena temporal se borra por HORA LIMITE (computador dormido, reloj cambiado, pestana oculta), no por contar tics', async () => {
+    const pg = await pagina('r4');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Casa Prueba'); await pestana(pg, 'usuarios');
+
+    // 1. vive 3 minutos mientras todo es normal (la cuenta atras se ve y baja)
+    let clave = await claveDeUsuarios(pg, 'r4-a');
+    comprobar(clave.length === 20 && /Se borra sola en [0-3]:\d\d/.test(await pg.texto('.sa-clave-caja .sa-vence')), 'la contrasena temporal se ve con su cuenta atras (3:00)');
+    await pausa(1300);
+    const cuenta = await pg.texto('.sa-clave-caja .sa-vence');
+    comprobar(/Se borra sola en 2:5\d/.test(cuenta), 'y la cuenta baja con el reloj', cuenta);
+    // 2. se acerca la hora limite pero todavia no: sigue; la pasa: se borra sola
+    await saltar(pg, 170000, 170000); await pausa(1300);
+    comprobar(await enPagina(pg, clave), 'a los ~171 s de los 180 sigue a la vista');
+    await saltar(pg, 20000, 20000);
+    await sinClave(pg, clave);
+    comprobar(/porque pasaron los 3 minutos/.test(await pg.texto('#sa-panel-tab')) && await pg.eval(`document.querySelectorAll('.sa-clave-valor, .sa-clave-caja button').length===0`), 'al pasar la hora limite se borra sola (sin contrasena ni botones de copiar) y dice por que');
+    comprobar(!(await pg.eval('document.documentElement.outerHTML')).includes(clave), 'ya no queda en el HTML de la pagina');
+
+    // 3. el computador se durmio: el reloj salto 3 minutos y las revisiones del navegador no corrieron (aqui se apagan los setInterval de la pagina)
+    for (const [evento, codigoJs] of [['focus', `window.dispatchEvent(new Event('focus'))`], ['pageshow', `window.dispatchEvent(new Event('pageshow'))`], ['visibilitychange', `document.dispatchEvent(new Event('visibilitychange'))`]]) {
+      clave = await claveDeUsuarios(pg, 'r4-' + evento);
+      await pg.eval(`window.__sinIntervalos=true;true`);
+      await saltar(pg, 181000, 0);   // el reloj del sistema avanza; performance.now no (como al dormir)
+      await pausa(1500);
+      comprobar(await enPagina(pg, clave), `sin temporizadores y sin eventos, la contrasena sigue ahi (${evento}: nadie ha mirado la hora)`);
+      await pg.eval(codigoJs);
+      comprobar(!(await enPagina(pg, clave)), `${evento}: al volver a ver la pestana se borra al instante porque la hora limite ya paso`);
+      await pg.eval(`window.__sinIntervalos=false;true`);
+    }
+
+    // 4. el reloj del sistema se movio hacia ATRAS (o no avanzo): performance.now de apoyo la borra igual
+    clave = await claveDeUsuarios(pg, 'r4-mono');
+    await saltar(pg, -3600000, 181000);
+    await sinClave(pg, clave);
+    comprobar(true, 'con el reloj del sistema una hora atras, performance.now de apoyo la borra a los 3 minutos');
+    await saltar(pg, 3600000, 0);
+
+    // 5. pestana en segundo plano (oculta) mas de un minuto: se borra; menos: no
+    const ocultar = (v) => pg.eval(`(function(){Object.defineProperty(document,'hidden',{configurable:true,get:function(){return ${v}}});Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return ${v} ? 'hidden' : 'visible'}});document.dispatchEvent(new Event('visibilitychange'));return true})()`);
+    clave = await claveDeUsuarios(pg, 'r4-oculta30');
+    await ocultar(true); await saltar(pg, 30000, 30000); await ocultar(false);
+    await pausa(300);
+    comprobar(await enPagina(pg, clave), 'oculta 30 s (menos de un minuto): sigue a la vista');
+    await ocultar(true); await saltar(pg, 61000, 61000); await ocultar(false);
+    await sinClave(pg, clave);
+    comprobar(/estuvo oculta más de un minuto/.test(await pg.texto('#sa-panel-tab')), 'oculta 61 s: se borra al volver y dice que fue por tener la pestana oculta');
+    await saltar(pg, 0, 0);
+
+    // 6. congelar la pestana de verdad (CDP) con la hora limite ya pasada: al reanudar se borra
+    clave = await claveDeUsuarios(pg, 'r4-congelada');
+    await saltar(pg, 200000, 0);
+    let congelo = true;
+    try { await cdp.send('Page.setWebLifecycleState', { state: 'frozen' }, pg.sid); await sleep(400); await cdp.send('Page.setWebLifecycleState', { state: 'active' }, pg.sid); } catch (e) { congelo = false; }
+    comprobar(congelo, 'el navegador acepto congelar y reanudar la pestana', 'Page.setWebLifecycleState no disponible');
+    await sinClave(pg, clave);
+    comprobar(true, 'tras reanudar la pestana congelada, la contrasena ya no esta');
+
+    // 7. nada queda a la vista ni en el aviso del portapapeles, y otra contrasena nueva vuelve a empezar de 3:00
+    clave = await claveDeUsuarios(pg, 'r4-nueva');
+    comprobar(/Se borra sola en [23]:\d\d/.test(await pg.texto('.sa-clave-caja .sa-vence')), 'una contrasena nueva empieza su propia cuenta de 3 minutos');
+
+    // 8. en el asistente de alta (paso 6) pasa lo mismo, y el mensaje de WhatsApp deja de llevarla
+    await pg.clicTexto('Nuevo restaurante', '.sa-nav button');
+    await asistente(pg, { nombre: 'R4 Reloj', slug: 'pr-r4-reloj', correo: `r4-alta-${sfx}@prueba-pantalla.example.com`, host: `r4-${sfx}.prueba-pantalla.example.com` });
+    await crearAhora(pg);
+    await pg.existe('#al-clave', 10000);
+    const claveAlta = (await pg.texto('#al-clave')).trim();
+    await pg.eval(`window.__sinIntervalos=true;true`);
+    await saltar(pg, 181000, 0);
+    await pausa(1300);
+    comprobar(await enPagina(pg, claveAlta), 'alta, paso 6: sin nadie que mire la hora, la contrasena sigue ahi');
+    await pg.eval(`window.dispatchEvent(new Event('focus'))`);
+    comprobar(!(await enPagina(pg, claveAlta)) && /porque pasaron los 3 minutos/.test(await pg.texto('#sa-contenido')), 'alta, paso 6: al volver a ver la pestana se borra y dice por que');
+    await pg.eval(`window.__sinIntervalos=false;true`);
+    await pg.clic('#al-copiar-msj');
+    const msjAlta = (await pg.eval('window.__copiado')).slice(-1)[0];
+    comprobar(!msjAlta.includes(claveAlta) && /por aparte/.test(msjAlta), 'y el mensaje de WhatsApp ya no la lleva');
+    comprobar(!(await pg.eval('window.__copiado')).some((x) => x.includes(claveAlta)), 'ni se copio nada por su cuenta');
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  await escenario('24. R6: volver a pedir el codigo con la contrasena temporal a la vista no la pierde; un 401 completo lo avisa con claridad', async () => {
+    const pg = await pagina('r6');
+    await entrarConCodigo(pg, uMfa);
+    const altaConClave = async (tag) => {
+      await pg.clicTexto('Nuevo restaurante', '.sa-nav button');
+      await asistente(pg, { nombre: 'R6 ' + tag, slug: 'pr-r6-' + tag, correo: `r6-${tag}-${sfx}@prueba-pantalla.example.com`, host: `r6-${tag}-${sfx}.prueba-pantalla.example.com` });
+      await crearAhora(pg);
+      await pg.existe('#al-clave', 10000);
+      return (await pg.texto('#al-clave')).trim();
+    };
+    // ---- mfa_requerida mientras se ve la contrasena del paso 6 ----
+    const clave = await altaConClave('uno');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 403, cuerpo: MFA_REQ, veces: 1 });
+    bitacoraApi.length = 0;
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-codigo');
+    comprobar(!(await pg.cuerpo()).includes(clave) && await pg.eval(`document.querySelector('#sa-capa-app').hidden`), 'al pedir el codigo otra vez la contrasena NO se ve en pantalla (la aplicacion queda oculta)');
+    await pg.escribir('#sa-codigo', codigo(uMfa)); await pg.clic('form button[type=submit]');
+    await pg.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden}`, 8000, 'volver a la aplicacion');
+    comprobar((await pg.texto('#al-clave')).trim() === clave && await pg.eval(`!!document.getElementById('al-copiar-clave')&&!!document.getElementById('al-copiar-msj')`), 'tras confirmar el codigo vuelve al MISMO lugar y la MISMA contrasena sigue a la vista, con sus botones');
+    comprobar(/Se borra sola en [0-3]:\d\d/.test(await pg.texto('#al-clave-reloj')) && await pg.eval(`document.querySelector('#sa-contenido h1').textContent==='Nuevo restaurante'`), 'su cuenta atras sigue corriendo y la vista no se rearmo (sigue siendo "Nuevo restaurante")');
+    comprobar(llamadas('listar_restaurantes').every((x) => x.status !== 200) && llamadas('crear_restaurante').length === 0 && llamadas('crear_usuario').length === 0, 'y no se recargo la lista ni se creo nada otra vez', JSON.stringify(bitacoraApi.map((x) => x.accion + ':' + x.status)));
+    await capturarAmbos(pg, 'pulido-clave-tras-pedir-codigo');
+    // ---- sigue venciendo por hora limite ----
+    await saltar(pg, 181000, 181000);
+    await sinClave(pg, clave);
+    comprobar(true, 'y se borra igual a los 3 minutos');
+
+    // ---- venció mientras se pedía el código: al volver ya no está, y lo dice ----
+    const clave2 = await altaConClave('dos');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 403, cuerpo: MFA_REQ, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-codigo');
+    await saltar(pg, 181000, 181000); await pausa(1400);
+    await pg.escribir('#sa-codigo', codigo(uMfa)); await pg.clic('form button[type=submit]');
+    await pg.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden}`, 8000);
+    comprobar(!(await enPagina(pg, clave2)) && /porque pasaron los 3 minutos/.test(await pg.texto('#sa-contenido')), 'si los 3 minutos pasaron mientras se pedia el codigo, al volver la contrasena ya no esta y lo dice');
+
+    // ---- la pestana Usuarios del detalle se comporta igual ----
+    await pg.clicTexto('Restaurantes', '.sa-nav button');
+    await abrirDetalle(pg, 'Casa Prueba'); await pestana(pg, 'usuarios');
+    const clave3 = await claveDeUsuarios(pg, 'r6-usuarios');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 403, cuerpo: MFA_REQ, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-codigo');
+    await pg.escribir('#sa-codigo', codigo(uMfa)); await pg.clic('form button[type=submit]');
+    await pg.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden}`, 8000);
+    comprobar((await pg.texto('.sa-clave-caja .sa-clave-valor')).trim() === clave3, 'en la pestana Usuarios del restaurante tambien: la contrasena sigue ahi tras volver del codigo');
+
+    // ---- 401 completo: se pierde (a proposito) y se avisa ----
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 401, cuerpo: { error: 'Inicia sesión para continuar' }, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-form-entrada');
+    const texto401 = await pg.cuerpo();
+    comprobar(/La contraseña temporal que estaba en pantalla se borró y ya no se puede ver/.test(texto401) && /crea otro usuario/.test(texto401), 'si la sesion se pierde del todo (401) la contrasena se borra y el aviso lo dice claramente, con que hacer');
+    comprobar(!(await enPagina(pg, clave3)) && (await pg.almacenamiento()).sesion.length === 0, 'y no queda rastro de la contrasena ni de la sesion');
+    // un 401 SIN contrasena a la vista no lleva ese aviso
+    await entrarConCodigo(pg, uMfa);
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 401, cuerpo: { error: 'Inicia sesión para continuar' }, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-form-entrada');
+    comprobar(/venció/.test(await pg.cuerpo()) && !/contraseña temporal/.test(await pg.cuerpo()), 'sin contrasena a la vista el aviso del 401 es el de siempre');
+
+    // ---- alta a medias + codigo: el asistente vuelve donde estaba, con lo ya creado ----
+    const pg2 = await pagina('r6-medias');
+    await entrarConCodigo(pg2, uMfa);
+    await asistente(pg2, { nombre: 'R6 Medias', slug: 'pr-r6-medias', correo: `r6-medias-${sfx}@prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_usuario', status: 403, cuerpo: MFA_REQ, veces: 1 });
+    bitacoraApi.length = 0;
+    await crearAhora(pg2);
+    await pg2.existe('#sa-codigo');
+    await pg2.escribir('#sa-codigo', codigo(uMfa)); await pg2.clic('form button[type=submit]');
+    await pg2.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden&&!!document.getElementById('al-crear')&&document.getElementById('al-crear').textContent==='Reintentar crear el usuario'}`, 8000, 'el asistente en modo reintento');
+    comprobar(!!(await filaDe('pr-r6-medias')) && await pg2.eval(`!document.getElementById('al-atras')`), 'alta a medias (el restaurante ya existia y el codigo se pidio otra vez): el asistente vuelve en modo "reintentar el usuario", sin empezar de cero');
+    bitacoraApi.length = 0;
+    await pg2.clic('#al-crear'); await pg2.existe('#al-copiar-msj', 10000);
+    comprobar(llamadas('crear_restaurante').length === 0 && llamadas('crear_usuario').length === 1 && (await db.query(`select count(*)::int as n from public.restaurantes where slug = 'pr-r6-medias'`)).rows[0].n === 1, 'el reintento crea solo el usuario: no hay un segundo restaurante');
+    comprobar(pg.errores.length === 0 && pg2.errores.length === 0, 'sin errores de JavaScript', pg.errores.concat(pg2.errores).join(';'));
+  });
+
+  await escenario('25. R7: alta a medias (restaurante creado, usuario no): los pasos ya ejecutados quedan en SOLO LECTURA, el reintento no crea otro restaurante y el mensaje sale de lo que el servidor confirmo', async () => {
+    const pg = await pagina('r7');
+    await entrarConCodigo(pg, uMfa);
+    const correoMal = `r7-mal-${sfx}@prueba-pantalla.example.com`, correoBien = `r7-bien-${sfx}@prueba-pantalla.example.com`, host = `r7-${sfx}.prueba-pantalla.example.com`;
+    await asistente(pg, { nombre: 'R7 A Medias', slug: 'pr-r7-medias', correo: correoMal, host });
+    comprobar(await pg.eval(`!!document.getElementById('al-atras')&&!document.getElementById('al-atras').disabled`), 'antes de crear, "Atrás" funciona como siempre');
+    inyectar.api.push({ accion: 'crear_usuario', status: 500, cuerpo: { error: 'No se pudo completar la accion' }, veces: 1 });
+    bitacoraApi.length = 0;
+    await crearAhora(pg);
+    await pg.esperar(`function(){return /El restaurante YA se creó, pero el usuario del dueño no/.test(document.body.innerText)}`, 8000, 'el aviso de fallo a medias');
+    comprobar(await pg.eval(`!document.getElementById('al-atras')`) && (await pg.texto('#al-crear')).trim() === 'Reintentar crear el usuario' && await pg.eval(`!!document.getElementById('al-cambiar-correo')`), 'ya no hay "Atrás" (dejaba cambiar nombre, plan o direccion de algo ya creado): quedan "Reintentar crear el usuario" y "Cambiar el correo del dueño"');
+    comprobar(await pg.eval(`!document.getElementById('al-crear').disabled`) && await pg.eval(`document.querySelector('[data-confirmado]')!==null`) && /R7 A Medias/.test(await pg.cuerpo()) && /pr-r7-medias/.test(await pg.cuerpo()) && (await pg.cuerpo()).includes(host), 'el paso 5 muestra lo que el servidor confirmo haber creado (nombre, nombre corto, plan, direccion) y el boton de reintento activo');
+    await capturarAmbos(pg, 'pulido-alta-a-medias');
+
+    // los pasos que ya se ejecutaron se ven, pero no se editan
+    for (const n of [1, 2, 4]) {
+      await pg.clic(`ol.sa-pasos button[data-paso="${n}"]`);
+      const v = await pg.eval(`(function(){var c=document.getElementById('sa-contenido');return {form:!!c.querySelector('form'),campos:c.querySelectorAll('input,select,textarea').length,bloq:!!c.querySelector('[data-bloqueado="${n}"]'),txt:c.innerText}})()`);
+      comprobar(!v.form && v.campos === 0 && v.bloq && /ya se ejecutó en el servidor/.test(v.txt), `paso ${n}: se ve en SOLO LECTURA (sin formulario ni campos) con el aviso de que ya se creo`, JSON.stringify(v).slice(0, 200));
+      if (n === 1) comprobar(v.txt.includes('R7 A Medias') && v.txt.includes('pr-r7-medias'), 'y muestra lo que el servidor confirmo (nombre y nombre corto)');
+      if (n === 4) comprobar(v.txt.includes(host), 'paso 4: la direccion registrada');
+      if (n === 1) await capturarAmbos(pg, 'pulido-alta-paso-bloqueado');
+      await pg.clic('#al-volver-resumen');
+      await irPaso(pg, 5);
+    }
+
+    // el unico paso que aun se puede corregir es el del dueno, y de ahi se vuelve al resumen (no al paso 4)
+    await pg.clic('#al-cambiar-correo');
+    await irPaso(pg, 3);
+    comprobar(/ya está creado; solo falta el usuario del dueño/.test(await pg.cuerpo()) && await pg.eval(`![...document.querySelectorAll('#sa-contenido button')].some(function(b){return b.textContent.trim()==='Atrás'})`), 'paso 3: avisa que el restaurante ya esta creado, deja corregir el correo y no ofrece "Atrás"');
+    await pg.escribir('#al-correo', correoBien);
+    await pg.clic('form button[type=submit]');
+    await irPaso(pg, 5);
+    comprobar(/ya tiene usuario|usuario nuevo/.test(await pg.cuerpo()) && (await pg.cuerpo()).includes(correoBien), 'al guardar el correo vuelve al resumen (paso 5) con el correo nuevo');
+
+    // reintento: SOLO el usuario, con el correo corregido
+    bitacoraApi.length = 0;
+    await pg.clic('#al-crear');
+    await pg.existe('#al-copiar-msj', 10000);
+    const cu = llamadas('crear_usuario');
+    comprobar(llamadas('crear_restaurante').length === 0 && cu.length === 1 && JSON.parse(cu[0].cuerpo).email === correoBien, 'el reintento NO crea otro restaurante: solo el usuario, con el correo corregido', JSON.stringify(bitacoraApi.map((x) => x.accion)));
+    comprobar((await db.query(`select count(*)::int as n from public.restaurantes where slug = 'pr-r7-medias'`)).rows[0].n === 1 && (await db.query(`select count(*)::int as n from auth.users where email = $1`, [correoMal])).rows[0].n === 0, 'en la base: un solo restaurante y el correo equivocado nunca se creo');
+    // lo entregado sale de lo que el servidor confirmo
+    await pg.clic('#al-copiar-msj');
+    const msj = (await pg.eval('window.__copiado')).slice(-1)[0];
+    comprobar(msj.includes('R7 A Medias') && msj.includes('https://' + host) && msj.includes('Usuario: ' + correoBien) && !msj.includes(correoMal), 'el mensaje de WhatsApp lleva el nombre, la direccion y el correo CONFIRMADOS (y no el correo equivocado)', msj.slice(0, 200));
+    const final = await pg.eval(`document.getElementById('sa-contenido').innerText`);
+    comprobar(final.includes(correoBien) && !final.includes(correoMal) && final.includes('https://' + host), 'y el resumen final tambien');
+    comprobar(await pg.eval(`document.querySelectorAll('ol.sa-pasos button').length===0`), 'ya con todo creado, los pasos no se pueden abrir');
+    await capturarAmbos(pg, 'pulido-alta-entrega-confirmada');
+
+    // 409 (el correo ya tenia cuenta): el aviso manda a "Cambiar el correo del dueño"
+    await pg.clicTexto('Crear otro');
+    await asistente(pg, { nombre: 'R7 Conflicto', slug: 'pr-r7-conflicto', correo: `r7-conf-${sfx}@prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_usuario', status: 409, cuerpo: { error: 'Ya existe un usuario con ese correo' }, veces: 1 });
+    await crearAhora(pg);
+    await pg.esperar(`function(){return /ese correo ya tenía usuario/.test(document.body.innerText)}`, 8000);
+    comprobar(/Cambiar el correo del dueño/.test(await pg.cuerpo()) && await pg.eval(`!document.getElementById('al-atras')`), '409: el aviso manda a "Cambiar el correo del dueño" y el resto queda cerrado');
+    await pg.clic('#al-cambiar-correo'); await irPaso(pg, 3);
+    await pg.escribir('#al-correo', uDueno.email);
+    await pg.clicTexto('Comprobar si ya existe');
+    await pg.esperar(`function(){return /ya tiene usuario/.test(document.getElementById('al-correo-res').textContent)}`);
+    await pg.clic('form button[type=submit]'); await irPaso(pg, 5);
+    bitacoraApi.length = 0;
+    await pg.clic('#al-crear'); await pg.existe('#al-copiar-msj', 10000);
+    comprobar(llamadas('crear_restaurante').length === 0 && llamadas('crear_usuario').length === 0 && llamadas('asignar_miembro').length === 1, '409: tras comprobar el correo existente solo se le da acceso (asignar_miembro), sin otro restaurante ni otra cuenta');
+    const msj409 = (await (async () => { await pg.clic('#al-copiar-msj'); return (await pg.eval('window.__copiado')).slice(-1)[0]; })());
+    comprobar(msj409.includes('Usuario: ' + uDueno.email) && /la misma que ya usas/.test(msj409), 'y el mensaje lleva el correo confirmado por el servidor');
+
+    // el mensaje sale de lo que el servidor CONFIRMO aunque lo escrito sea distinto (el servidor contesta otro correo y otro nombre)
+    await pg.clicTexto('Crear otro');
+    await asistente(pg, { nombre: 'R7 Escrito', slug: 'pr-r7-escrito', correo: `r7-escrito-${sfx}@prueba-pantalla.example.com`, host: `r7-esc-${sfx}.prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_usuario', status: 200, cuerpo: { usuario: { id: uDueno.id, email: 'confirmado-por-servidor@ejemplo.com' }, miembro: null, password_temporal: 'ClaveFalsaDePrueba-123' }, veces: 1 });
+    await crearAhora(pg);
+    await pg.existe('#al-copiar-msj', 10000);
+    await pg.clic('#al-copiar-msj');
+    const msjC = (await pg.eval('window.__copiado')).slice(-1)[0];
+    comprobar(msjC.includes('Usuario: confirmado-por-servidor@ejemplo.com') && !msjC.includes('r7-escrito-') && msjC.includes('R7 Escrito'), 'si el servidor contesta otro correo que el escrito, el mensaje y el resumen usan el del servidor', msjC.slice(0, 220));
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  await escenario('26. R8: lo copiado queda en el portapapeles: aviso junto a cada boton, nada se copia solo y se intenta vaciar a los 60 s (sin errores si el navegador lo impide)', async () => {
+    const pg = await pagina('r8');
+    await entrarConCodigo(pg, uMfa);
+    const AVISO = /lo que copias se queda en el portapapeles/;
+    // ---- el asistente de alta (paso 6): dos avisos, uno junto a la contrasena y otro junto al mensaje ----
+    await asistente(pg, { nombre: 'R8 Portapapeles', slug: 'pr-r8-portapapeles', correo: `r8-${sfx}@prueba-pantalla.example.com`, host: `r8-${sfx}.prueba-pantalla.example.com` });
+    await crearAhora(pg);
+    await pg.existe('#al-clave', 10000);
+    const clave = (await pg.texto('#al-clave')).trim();
+    comprobar((await pg.eval('window.__copiado')).length === 0, 'al llegar al paso 6 no se copio NADA por su cuenta');
+    const avisos = await pg.eval(`(function(){var a=document.querySelector('#al-copiar-clave').closest('.sa-clave-caja').querySelector('.sa-aviso-copia');var m=document.getElementById('al-copiar-msj').parentElement.nextElementSibling;return {junto_clave:a?a.textContent:null,junto_msj:m&&m.classList.contains('sa-aviso-copia')?m.textContent:null}})()`);
+    comprobar(AVISO.test(avisos.junto_clave || '') && AVISO.test(avisos.junto_msj || '') && /60 segundos/.test(avisos.junto_clave), 'aviso corto y claro junto a "Copiar" la contrasena y junto a "Copiar mensaje para WhatsApp"', JSON.stringify(avisos));
+    await capturarAmbos(pg, 'pulido-portapapeles-aviso');
+    // ---- vaciado ----
+    await pg.eval(`window.__acelerar=true;true`);
+    await pg.clic('#al-copiar-clave');
+    comprobar((await pg.eval('window.__copiado')).includes(clave) && (await pg.eval('window.__retardos')).includes(60000), 'al copiar se programa el vaciado a los 60000 ms exactos', JSON.stringify(await pg.eval('window.__retardos.filter(function(x){return x>=30000})')));
+    await pausa(300);
+    comprobar((await pg.eval('window.__copiado')).slice(-1)[0] === clave, 'a mitad de camino todavia no se vacio');
+    await pausa(700);
+    let c = await pg.eval('window.__copiado');
+    comprobar(c.length === 2 && c[1] === '', 'pasado el tiempo, con la pestana visible y con foco, se escribe un portapapeles VACIO', JSON.stringify(c.map((x) => x.length)));
+    // copiar otra vez reinicia la cuenta (un solo vaciado)
+    await pg.eval(`window.__copiado.length=0;true`);
+    await pg.clic('#al-copiar-clave'); await pausa(300);
+    await pg.clic('#al-copiar-msj'); await pausa(400);
+    c = await pg.eval('window.__copiado');
+    comprobar(c.length === 2 && c[0] === clave, 'copiar de nuevo reinicia la cuenta: a los 700 ms del primer copiado todavia no se vacio', JSON.stringify(c.map((x) => x.length)));
+    await pausa(700);
+    c = await pg.eval('window.__copiado');
+    comprobar(c.length === 3 && c[2] === '', 'y luego se vacia UNA sola vez', JSON.stringify(c.map((x) => x.length)));
+    // sin foco o con la pestana oculta: no se toca el portapapeles
+    await pg.eval(`window.__copiado.length=0;document.hasFocus=function(){return false};true`);
+    await pg.clic('#al-copiar-clave'); await pausa(1300);
+    comprobar((await pg.eval('window.__copiado')).length === 1, 'sin foco no se intenta vaciar (el navegador no lo deja)');
+    await pg.eval(`delete document.hasFocus;window.__copiado.length=0;Object.defineProperty(document,'visibilityState',{configurable:true,get:function(){return 'hidden'}});true`);
+    await pg.clic('#al-copiar-clave'); await pausa(1300);
+    comprobar((await pg.eval('window.__copiado')).length === 1, 'con la pestana oculta tampoco');
+    await pg.eval(`delete document.visibilityState;true`);
+    // el navegador lo impide (rechaza o lanza): ningun error ni aviso raro
+    await pg.eval(`window.__copiado.length=0;(function(){var w=navigator.clipboard.writeText;navigator.clipboard.writeText=function(t){window.__copiado.push(String(t));if(String(t)===''){return Promise.reject(new DOMException('no permitido','NotAllowedError'))}return Promise.resolve()}})();true`);
+    await pg.clic('#al-copiar-clave'); await pausa(1500);
+    comprobar((await pg.eval('window.__copiado')).slice(-1)[0] === '' && pg.errores.length === 0 && !/No se pudo copiar/.test(await pg.texto('#sa-aviso')), 'si el navegador rechaza el vaciado: no hay errores ni avisos de falla', pg.errores.join(';'));
+    await pg.eval(`window.__copiado.length=0;navigator.clipboard.writeText=function(t){window.__copiado.push(String(t));if(String(t)===''){throw new Error('sincrono')}return Promise.resolve()};true`);
+    await pg.clic('#al-copiar-clave'); await pausa(1500);
+    comprobar((await pg.eval('window.__copiado')).slice(-1)[0] === '' && pg.errores.length === 0, 'y si lanza una excepcion al intentarlo tampoco hay errores', pg.errores.join(';'));
+    await pg.eval(`window.__acelerar=false;true`);
+
+    // ---- la contrasena de la pestana Usuarios y la clave del alta de la verificacion en dos pasos tambien llevan el aviso ----
+    await pg.clicTexto('Restaurantes', '.sa-nav button');
+    await abrirDetalle(pg, 'Casa Prueba'); await pestana(pg, 'usuarios');
+    await claveDeUsuarios(pg, 'r8-usuarios');
+    comprobar(AVISO.test(await pg.texto('.sa-clave-caja .sa-aviso-copia') || ''), 'pestana Usuarios: aviso dentro de la caja de la contrasena temporal');
+    const uNuevo = await usuario('sa-r8-sin-factor'); await srv('POST', 'superadmins', [{ user_id: uNuevo.id }]);
+    const pg2 = await pagina('r8-mfa');
+    await pg2.ir(URL_PAGINA); await pg2.existe('#sa-form-entrada'); await iniciarSesion(pg2, uNuevo);
+    await pg2.existe('#sa-clave-texto', 10000);
+    const avisoMfa = await pg2.eval(`(function(){var b=[...document.querySelectorAll('button')].filter(function(x){return x.textContent==='Copiar clave'})[0];var n=b.parentElement.nextElementSibling;return n&&n.classList.contains('sa-aviso-copia')?n.textContent:null})()`);
+    comprobar(AVISO.test(avisoMfa || ''), 'alta de la verificacion en dos pasos: aviso junto a "Copiar clave" (la semilla del TOTP)');
+    await capturarAmbos(pg2, 'pulido-portapapeles-aviso-mfa');
+    comprobar(pg.errores.length === 0 && pg2.errores.length === 0, 'sin errores de JavaScript', pg.errores.concat(pg2.errores).join(';'));
+  });
+
+  await escenario('27. R9: los campos de secretos no se ofrecen al gestor de contrasenas (atributos reales; Chrome no garantiza nada)', async () => {
+    const pg = await pagina('r9');
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Casa Prueba'); await pestana(pg, 'secretos');
+    const info = await pg.eval(`(function(){var t=document.getElementById('sa-panel-tab');var campos=[...t.querySelectorAll('input[data-secreto]')];
+      return {n:campos.length,password:t.querySelectorAll('input[type=password]').length,forms:t.querySelectorAll('form').length,
+        malos:campos.filter(function(i){return i.type!=='text'||i.autocomplete!=='off'||i.getAttribute('data-lpignore')!=='true'||i.getAttribute('data-1p-ignore')!=='true'||i.getAttribute('data-bwignore')!=='true'||i.getAttribute('data-form-type')!=='other'||i.spellcheck!==false||i.getAttribute('autocapitalize')!=='off'}).map(function(i){return i.id}),
+        conNombre:campos.filter(function(i){return i.hasAttribute('name')}).length,enForm:campos.filter(function(i){return i.closest('form')}).length,
+        credenciales:campos.filter(function(i){return /pass|pwd|passwd|user|login|signin|email|mail|correo|contrase|usuario|credential|otp|token/i.test([i.id,i.getAttribute('name')||'',i.getAttribute('placeholder')||'',i.getAttribute('autocomplete')||''].join(' '))}).map(function(i){return i.id+'|'+i.placeholder}),
+        oculto:campos.every(function(i){return getComputedStyle(i).webkitTextSecurity==='disc'})}})()`);
+    comprobar(info.n === 10 && info.password === 0, 'los 10 campos de secretos NO son type=password (Chrome solo ofrece guardar/sugerir en esos)', JSON.stringify(info));
+    comprobar(info.forms === 0 && info.enForm === 0 && info.conNombre === 0, 'no hay ningun <form> en la pestana, ningun campo esta dentro de uno y ninguno tiene atributo name');
+    comprobar(info.malos.length === 0, 'cada campo trae autocomplete="off", data-lpignore, data-1p-ignore, data-bwignore, data-form-type="other", sin corrector ni mayusculas automaticas', JSON.stringify(info.malos));
+    comprobar(info.credenciales.length === 0, 'ningun id, name, placeholder ni autocomplete parece el de una credencial de inicio de sesion (password, user, login, email, correo, contrasena...)', JSON.stringify(info.credenciales));
+    comprobar(info.oculto, 'lo que se escribe se ve oculto (puntos) gracias al CSS, no por ser un campo de contrasena');
+    await pg.escribir('#sa-sec-callmebot_apikey', 'valor-que-se-oculta-123');
+    comprobar(await pg.eval(`(function(){var i=document.getElementById('sa-sec-callmebot_apikey');return i.value==='valor-que-se-oculta-123'&&getComputedStyle(i).webkitTextSecurity==='disc'})()`), 'al escribir, el valor existe en el campo pero sigue oculto');
+    await pg.escribir('#sa-sec-callmebot_apikey', '');
+    comprobar(await pg.eval(`document.querySelectorAll('input[type=password]').length`) === 0, 'y en toda la pantalla ya no queda ningun campo type=password dentro de la aplicacion');
+    await capturarAmbos(pg, 'pulido-secretos-campos');
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 
