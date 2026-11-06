@@ -1684,6 +1684,11 @@ async function escenario(nombre, fn) {
     const sinLista = await filasAud(pg2, 'ver_menu');
     comprobar(sinLista.length >= 1 && sinLista.every((x) => x.restNombre === null && x.restHijos === 1 && /^pr-/.test(x.restSlug)), 'sin la lista de restaurantes cargada: solo el nombre corto (nunca "undefined" ni vacio)', JSON.stringify(sinLista.map((x) => x.rest)));
     comprobar(!/undefined|null/.test(await pg2.eval(`[...document.querySelectorAll('#sa-contenido tbody tr')].map(function(tr){return tr.children[2].textContent+'|'+tr.children[3].textContent}).join('#')`)), 'y no aparece "undefined" ni "null" en las columnas Restaurante y Accion');
+    // la pestaña Auditoria de un restaurante conoce su propio nombre aunque la lista general no este cargada (por ejemplo tras un alta)
+    await pg2.eval(`SA.ir('detalle', { id: ${JSON.stringify(R.activo.id)}, tab: 'auditoria' })`);
+    await pg2.esperar(`function(){return document.querySelectorAll('#sa-panel-tab tbody tr').length>0}`, 8000, 'auditoria del restaurante');
+    const propia = await filasAud(pg2, 'ver_menu');
+    comprobar(propia.length >= 1 && propia.every((x) => x.restNombre === nombreActivo && x.restSlug === 'pr-activo'), 'la pestaña Auditoria del restaurante muestra su nombre aunque la lista general no haya cargado', JSON.stringify(propia.map((x) => x.rest)));
     comprobar(pg.errores.length === 0 && pg2.errores.length === 0, 'sin errores de JavaScript', pg.errores.concat(pg2.errores).join(';'));
   });
   /* como entrarConCodigo, pero la lista de restaurantes puede fallar: espera la barra de la aplicacion en vez del titulo "Restaurantes" */
@@ -1956,6 +1961,24 @@ async function escenario(nombre, fn) {
     await pg.existe('#sa-form-entrada');
     comprobar(/venció/.test(await pg.cuerpo()) && !/contraseña temporal/.test(await pg.cuerpo()), 'sin contrasena a la vista el aviso del 401 es el de siempre');
 
+    // ---- una contrasena borrada A MANO ya no cuenta como "a la vista": un 401 despues no dice que se perdio una ----
+    await entrarConCodigo(pg, uMfa);
+    await abrirDetalle(pg, 'Casa Prueba'); await pestana(pg, 'usuarios');
+    await claveDeUsuarios(pg, 'r6-borrada-usuarios');
+    await pg.clicTexto('Ya la copié, borrarla');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 401, cuerpo: { error: 'Inicia sesión para continuar' }, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-form-entrada');
+    comprobar(/venció/.test(await pg.cuerpo()) && !/contraseña temporal/.test(await pg.cuerpo()), 'pestana Usuarios: con la contrasena ya borrada a mano el aviso del 401 no habla de ella');
+    await entrarConCodigo(pg, uMfa);
+    await asistente(pg, { nombre: 'R6 Borrada', slug: 'pr-r6-borrada', correo: `r6-borrada-${sfx}@prueba-pantalla.example.com` });
+    await crearAhora(pg); await pg.existe('#al-clave', 10000);
+    await pg.clic('#al-borrar-clave');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 401, cuerpo: { error: 'Inicia sesión para continuar' }, veces: 1 });
+    await pg.eval(`SA.api('listar_restaurantes').catch(function(){})`);
+    await pg.existe('#sa-form-entrada');
+    comprobar(/venció/.test(await pg.cuerpo()) && !/contraseña temporal/.test(await pg.cuerpo()), 'alta: con la contrasena ya borrada a mano el aviso del 401 tampoco habla de ella');
+
     // ---- alta a medias + codigo: el asistente vuelve donde estaba, con lo ya creado ----
     const pg2 = await pagina('r6-medias');
     await entrarConCodigo(pg2, uMfa);
@@ -2051,6 +2074,18 @@ async function escenario(nombre, fn) {
     await pg.clic('#al-copiar-msj');
     const msjC = (await pg.eval('window.__copiado')).slice(-1)[0];
     comprobar(msjC.includes('Usuario: confirmado-por-servidor@ejemplo.com') && !msjC.includes('r7-escrito-') && msjC.includes('R7 Escrito'), 'si el servidor contesta otro correo que el escrito, el mensaje y el resumen usan el del servidor', msjC.slice(0, 220));
+    // ... y lo mismo con el restaurante: el servidor "confirma" otro nombre y otra direccion que los escritos
+    const E = await sembrar('pr-r7-existente', 'R7 Existente', { estado: 'activo', vigente: fechaEn(30) });
+    await pg.clicTexto('Crear otro');
+    await asistente(pg, { nombre: 'R7 Lo Escrito', slug: 'pr-r7-lo-escrito', correo: `r7-conf2-${sfx}@prueba-pantalla.example.com`, host: `r7-escrito-${sfx}.prueba-pantalla.example.com` });
+    inyectar.api.push({ accion: 'crear_restaurante', status: 200, cuerpo: { restaurante: { id: E.id, slug: 'pr-r7-existente', nombre: 'Nombre del Servidor', plan: 'completo', modalidad_pago: 'mensual', vigente_hasta: null, dias_gracia: 5, modulos: {}, zona_horaria: 'America/Bogota', dominios: ['servidor-' + sfx + '.ejemplo.com'] } }, veces: 1 });
+    await crearAhora(pg);
+    await pg.existe('#al-copiar-msj', 10000);
+    await pg.clic('#al-copiar-msj');
+    const msjS = (await pg.eval('window.__copiado')).slice(-1)[0];
+    const finalS = await pg.eval(`document.getElementById('sa-contenido').innerText`);
+    comprobar(msjS.includes('“Nombre del Servidor”') && msjS.includes('https://servidor-' + sfx + '.ejemplo.com') && !msjS.includes('R7 Lo Escrito') && !msjS.includes('r7-escrito-' + sfx), 'si el servidor confirma otro nombre y otra direccion que los escritos, el mensaje usa los del servidor', msjS.slice(0, 220));
+    comprobar(finalS.includes('Nombre del Servidor') && finalS.includes('https://servidor-' + sfx + '.ejemplo.com') && !finalS.includes('R7 Lo Escrito'), 'y el resumen final tambien');
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 
