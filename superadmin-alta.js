@@ -217,7 +217,8 @@
         if (!CORREO.test(c) || c.length > 254) return Promise.reject(new Error("El correo no es válido."));
         return SA.api("buscar_usuario", { email: c }).then(function (r) {
           if (!SA.vigente(n)) return;
-          est.correo = c; est.usuario = r.usuario ? { id: r.usuario.id, email: r.usuario.email } : null; pintarRes();
+          if (correo.value.trim().toLowerCase() !== c) return;   // respuesta vieja: el correo cambio mientras se comprobaba (24.13 R2)
+          est.correo = c; est.usuario = r.usuario ? { id: r.usuario.id, email: r.usuario.email } : null; est.usuarioDe = c; pintarRes();
         });
       }
       comprobar.addEventListener("click", function () { SA.enviar(comprobar, areaC, consultar); });
@@ -230,8 +231,11 @@
         var c = correo.value.trim().toLowerCase();
         if (!CORREO.test(c) || c.length > 254) return "El correo no es válido.";
         est.correo = c;
-        if (est.usuario !== undefined) return null;
-        return consultar().then(function () { return null; }, function (e) { return e.message; });
+        if (est.usuario !== undefined && est.usuarioDe === c) return null;   // la comprobacion es de ESTE correo
+        est.usuario = undefined;
+        return consultar().then(function () {
+          return est.usuario !== undefined && est.usuarioDe === c ? null : "El correo cambió mientras se comprobaba. Pulsa Siguiente otra vez.";
+        }, function (e) { return e.message; });
       });
     }
 
@@ -324,6 +328,7 @@
         }
         cadena = cadena.then(function () {
           if (est.usuarioCreado) return;
+          if (est.usuario && est.usuarioDe !== est.correo) throw new Error("El correo del dueño cambió después de comprobarlo: vuelve al paso 3 y compruébalo de nuevo.");
           if (est.usuario) {
             return SA.api("asignar_miembro", { restaurante_id: est.restaurante.id, usuario_id: est.usuario.id, rol: "dueno" }).then(function () { est.usuarioCreado = true; });
           }

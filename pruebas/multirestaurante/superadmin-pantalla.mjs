@@ -78,7 +78,21 @@ const SCRIPT_GRABADORA = `
 (function(){
   window.__copiado = [];
   try { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: function(t){ window.__copiado.push(String(t)); return Promise.resolve(); } } }); } catch(e){}
+  /* TRAMPA DE SUMIDEROS (revision adversaria, docs 24.13 I): la revision de codigo busca palabras (innerHTML...) y se esquiva con
+     corchetes, alias o concatenacion. Esto registra cualquier USO REAL de un sumidero de HTML o de codigo, se escriba como se escriba. */
+  var avisar = console.debug.bind(console);
+  function marca(n){ try { avisar("__SUMIDERO__ " + n + " en " + location.pathname); } catch(e){} }
+  function setter(proto, prop){ var d = proto && Object.getOwnPropertyDescriptor(proto, prop); if (!d || !d.set) return;
+    Object.defineProperty(proto, prop, { configurable: true, enumerable: d.enumerable, get: d.get, set: function(v){ marca(prop); return d.set.call(this, v); } }); }
+  function metodo(obj, m){ var o = obj && obj[m]; if (typeof o !== "function") return; obj[m] = function(){ marca(m); return o.apply(this, arguments); }; }
+  setter(Element.prototype, "innerHTML"); setter(Element.prototype, "outerHTML"); setter(window.ShadowRoot && ShadowRoot.prototype, "innerHTML");
+  setter(HTMLIFrameElement.prototype, "srcdoc");
+  metodo(Element.prototype, "insertAdjacentHTML"); metodo(Element.prototype, "setHTMLUnsafe"); metodo(Document.prototype, "write"); metodo(Document.prototype, "writeln");
+  metodo(Range.prototype, "createContextualFragment"); metodo(DOMParser.prototype, "parseFromString"); metodo(window, "eval");
+  ["setTimeout", "setInterval"].forEach(function(n){ var o = window[n]; window[n] = function(f){ if (typeof f === "string") marca(n + " con texto"); return o.apply(this, arguments); }; });
+  var F = Function; try { window.Function = function(){ marca("Function"); return F.apply(this, arguments); }; window.Function.prototype = F.prototype; } catch(e){}
 })();`;
+const SUMIDEROS = [];   // usos reales de sumideros de HTML o de codigo en cualquier pagina de la prueba
 
 class Pagina {
   constructor(cdp, sessionId, nombre) {
@@ -90,6 +104,8 @@ class Pagina {
         const d = m.params.exceptionDetails;
         this.errores.push('EXCEPCION: ' + ((d.exception && d.exception.description) || d.text));
       } else if (m.method === 'Runtime.consoleAPICalled') {
+        const primero = m.params.args[0] && m.params.args[0].value;
+        if (typeof primero === 'string' && primero.startsWith('__SUMIDERO__')) { SUMIDEROS.push(this.nombre + ': ' + primero); return; }
         this.consola.push(m.params.type + ': ' + m.params.args.map((a) => (a.value !== undefined ? String(a.value) : a.description || a.type)).join(' '));
       } else if (m.method === 'Log.entryAdded') {
         this.consola.push('log-' + m.params.entry.level + ': ' + m.params.entry.text + ' ' + (m.params.entry.url || ''));
@@ -253,7 +269,9 @@ async function crearSitio({ falso, manejador }) {
       const archivo = path.join(/^[/]superadmin|^[/]vercel/.test(ruta) ? RAIZ_PANTALLA : REPO, ruta);
       if (!(archivo.startsWith(path.resolve(REPO)) || archivo.startsWith(RAIZ_PANTALLA)) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) { res.writeHead(404); res.end('no existe'); return; }
       const cab = { 'Content-Type': TIPOS[path.extname(archivo)] || 'application/octet-stream' };
-      if (!estadoSitio.sinCabeceras) Object.assign(cab, cabecerasDeVercel(ruta));
+      // Como Vercel (comprobado en produccion, docs 24.13 R1): el archivo se busca con la ruta DECODIFICADA, pero las cabeceras
+      // se eligen comparando la ruta CRUDA. /%73uperadmin.html sirve la pantalla y NO recibe sus cabeceras.
+      if (!estadoSitio.sinCabeceras) Object.assign(cab, cabecerasDeVercel(url.pathname));
       res.writeHead(200, cab);
       res.end(fs.readFileSync(archivo));
     } catch (e) {
@@ -1538,7 +1556,58 @@ async function escenario(nombre, fn) {
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 
+  /* ======================= 20. revision adversaria de la pantalla (docs 24.13) ======================= */
+  await escenario('20. Revision adversaria: solo arranca en su direccion exacta (R1) y una respuesta vieja de buscar_usuario no cambia al dueno (R2)', async () => {
+    // R1: con %xx en la ruta Vercel sirve la pantalla SIN sus cabeceras (CSP, X-Frame-Options, no-store)
+    for (const variante of ['/%73uperadmin.html', '/superadmin.htm%6c', '/superadmin.html%2f']) {
+      const rr = await fetchOriginal(ORIGEN_SITIO + variante);
+      comprobar(rr.status === 200 && !rr.headers.get('content-security-policy') && !rr.headers.get('x-frame-options'), `${variante}: el sitio de prueba la sirve SIN cabeceras, como Vercel`);
+      const pv = await pagina('variante');
+      await pv.ir(ORIGEN_SITIO + variante);
+      let ok = true;
+      try { await pv.esperar(`function(){return location.pathname==='/superadmin.html'&&!!document.getElementById('sa-form-entrada')}`, 6000, 'la direccion exacta'); } catch (e) { ok = false; }
+      comprobar(ok, `${variante}: la pantalla se va sola a /superadmin.html (donde SI tiene sus cabeceras) antes de mostrar el inicio de sesion`, await pv.eval('location.pathname'));
+    }
+    // dentro de un marco, en una direccion sin X-Frame-Options, no arma nada
+    const pm = await pagina('marco');
+    await pm.ir(ORIGEN_SITIO + '/no-existe');
+    await sleep(300);
+    await pm.eval(`(function(){var f=document.createElement('iframe');f.id='mf';f.src='/%73uperadmin.html';document.body.appendChild(f);return true})()`);
+    await sleep(1500);
+    const enMarco = await pm.eval(`(function(){var d=document.getElementById('mf').contentDocument;var r=d&&d.getElementById('sa-raiz');return {ruta:d?d.location.pathname:null, hijos:r?r.children.length:-1, form:!!(d&&d.getElementById('sa-form-entrada'))}})()`);
+    comprobar(enMarco.hijos === 0 && !enMarco.form, 'dentro de un marco la pantalla no arma nada (ni el formulario de entrada)', JSON.stringify(enMarco));
+
+    // R2: el correo cambia mientras "Comprobar si ya existe" va en camino; la respuesta VIEJA no puede dejar como dueno a la otra cuenta
+    const pg = await pagina('alta-carrera');
+    await entrarConCodigo(pg, uMfa);
+    await pg.clicTexto('Nuevo restaurante');
+    await pg.existe('#al-nombre');
+    await pg.escribir('#al-nombre', 'Carrera de correos');
+    await pg.escribir('#al-slug', 'pr-carrera');
+    await siguiente(pg, 2);
+    await siguiente(pg, 3);
+    const nuevo = `carrera-${sfx}@prueba-pantalla.example.com`;
+    inyectar.api.push({ accion: 'buscar_usuario', demora: 1500, status: 200, cuerpo: { ok: true, usuario: { id: uDueno.id, email: uDueno.email } }, veces: 1 });
+    await pg.escribir('#al-correo', uDueno.email);
+    await pg.clicTexto('Comprobar si ya existe');
+    await sleep(250);
+    await pg.escribir('#al-correo', nuevo);   // lo corrige mientras la consulta del primero va en camino
+    await sleep(1900);                         // llega la respuesta del PRIMER correo
+    await siguiente(pg, 4);
+    await siguiente(pg, 5);
+    comprobar(!/ya tiene usuario/.test(await pg.cuerpo()), 'el resumen NO da por existente al correo nuevo', (await pg.cuerpo()).slice(0, 600));
+    bitacoraApi.length = 0;
+    await crearAhora(pg);
+    await pg.existe('#al-copiar-msj', 10000);
+    const cu = llamadas('crear_usuario');
+    comprobar(llamadas('asignar_miembro').length === 0 && cu.length === 1 && cu[0].cuerpo.includes(nuevo), 'la respuesta vieja NO le da el restaurante a la cuenta del primer correo: se crea el usuario del correo escrito', JSON.stringify(bitacoraApi.map((x) => x.accion + ':' + x.cuerpo.slice(0, 120))));
+    const miembros = (await db.query(`select m.user_id from public.miembros m join public.restaurantes r on r.id = m.restaurante_id where r.slug = 'pr-carrera'`)).rows;
+    comprobar(miembros.length === 1 && miembros[0].user_id !== uDueno.id, 'y en la base el primer correo no tiene acceso al restaurante nuevo', JSON.stringify(miembros));
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
   /*FIN-ESCENARIOS*/
+  comprobar(SUMIDEROS.length === 0, 'en ninguna pagina de la prueba la pantalla uso un sumidero de HTML o de codigo (innerHTML, outerHTML, insertAdjacentHTML, document.write, createContextualFragment, DOMParser, eval, Function, setTimeout con texto), se escriba como se escriba', SUMIDEROS.slice(0, 5).join(' ; '));
 
   // ---- resumen ----
   const fallas = resultados.filter((r) => !r.ok);
