@@ -688,7 +688,7 @@
         h("div", { class: "sa-msj sa-msj-aviso", texto: "Cada vez que miras un restaurante queda una constancia en la auditoría (quién, cuándo y qué sección; nunca los datos de los clientes). Los pedidos incluyen nombres, teléfonos y direcciones de clientes: úsalos solo para dar soporte." }), btn));
     }
     function tabAuditoria(p, mi) {
-      p.appendChild(h("div", { class: "sa-tarjeta" }, h("h2", { texto: "Auditoría de este restaurante" }), SA.listaAuditoria(id, n)));
+      p.appendChild(h("div", { class: "sa-tarjeta" }, h("h2", { texto: "Auditoría de este restaurante" }), SA.listaAuditoria(id, n, { restaurante: { id: D.id, nombre: D.nombre, slug: D.slug } })));
     }
 
     /* ---- arranque ---- */

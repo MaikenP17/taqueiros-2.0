@@ -1305,12 +1305,12 @@ async function escenario(nombre, fn) {
   const L = await sembrar('pr-lectura', 'Lectura Total', { estado: 'activo', vigente: fechaEn(60), dominios: ['lectura.example.com'] });
   await db.query(`insert into public.categorias (restaurante_id, id, nombre, emoji, orden, activa) values ($1::uuid, 'burgers', 'Burgers', '🍔', 1, true), ($1::uuid, 'apagada', 'Categoria apagada', '', 2, false)`, [L.id]);
   await db.query(`insert into public.productos (restaurante_id, id, nombre, descripcion, precio, categoria, orden, disponible) values ($1::uuid, 'big', 'Big Burger', 'La clasica', 15000, 'burgers', 1, true), ($1::uuid, 'agotada', 'Burger Agotada', 'Ya no hay', 9000, 'burgers', 2, false)`, [L.id]);
-  await db.query(`insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio, orden, activa) values ($1::uuid, 'big', 'sin-cebolla', 'quitar', 'Sin cebolla', 0, 1, true), ($1::uuid, 'big', 'extra-queso', 'extra', 'Queso extra', 2000, 2, false)`, [L.id]);
+  await db.query(`insert into public.producto_opciones (restaurante_id, producto_id, id, tipo, nombre, precio, orden, activa) values ($1::uuid, 'big', 'sin-cebolla', 'quitar', 'Sin cebolla', 0, 1, true), ($1::uuid, 'big', 'extra-queso', 'extra', 'Queso extra', 2000, 2, false), ($1::uuid, 'big', 'sin-tocineta', 'quitar', 'Sin tocineta', 0, 3, true), ($1::uuid, 'big', 'extra-tocineta', 'extra', 'Tocineta extra', 3000, 4, true)`, [L.id]);
   await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
     select $1::uuid, 'LEC-' || g, 'nuevo', 'aprobado', 'Cliente ' || g, '300' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - (g || ' seconds')::interval from generate_series(1, 55) g`, [L.id]);
   await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
     select $1::uuid, 'VIEJO-' || g, 'entregado', 'aprobado', 'Antiguo ' || g, '301' || lpad(g::text, 7, '0'), 'llevar', '[{"id":"big","nombre":"Big Burger","cantidad":1,"precio":15000}]'::jsonb, 15000, 0, 15000, now(), true, now(), now() - interval '3 days' - (g || ' seconds')::interval from generate_series(1, 20) g`, [L.id]);
-  const ITEMS_HOSTILES = [{ id: 'x', nombre: bidi + cero + '<script>window.__pwn=1</script> Combo', cantidad: 2, precio: 5000, opciones: [{ tipo: 'extra', nombre: '"><svg onload=window.__pwn=1>', precio: 1000 }, { tipo: 'quitar', nombre: `sin${bidi}cebolla${cero}` }] }, 'texto suelto <b>negrita</b>', 42, null, { nombre: 'Y'.repeat(500), cantidad: 1 }];
+  const ITEMS_HOSTILES = [{ id: 'x', nombre: bidi + cero + '<script>window.__pwn=1</script> Combo', cantidad: 2, precio: 5000, opciones: [{ tipo: 'extra', nombre: '"><svg onload=window.__pwn=1>', precio: 1000 }, { tipo: 'quitar', nombre: `sin${bidi}cebolla${cero}` }, { tipo: 'quitar', nombre: 'Sin tocineta' }, { tipo: 'quitar', nombre: 'SIN CEBOLLA MORADA' }, { tipo: 'quitar', nombre: 'sin pepinillos' }, { tipo: 'quitar', nombre: 'Tocineta' }, { tipo: 'quitar', nombre: 'Sin <b>x</b>' }, { tipo: 'extra', nombre: 'Tocineta extra', precio: 3000 }] }, 'texto suelto <b>negrita</b>', 42, null, { nombre: 'Y'.repeat(500), cantidad: 1 }];
   await db.query(`insert into public.pedidos (restaurante_id, referencia, estado, estado_pago, cliente_nombre, cliente_telefono, cliente_email, direccion, barrio, indicaciones, tipo_pedido, items, subtotal, costo_domicilio, total, pagado_en, alerta_enviada, impreso_en, creado_en)
     values ($1::uuid, 'HOSTIL-1', 'nuevo', 'aprobado', $2, '3009998877', 'x@y.com', 'Calle 1 #2-3 🏠', 'Barrio <i>cursiva</i>', E'toca el timbre\\nsegundo piso <img src=x onerror=window.__pwn=1>', 'domicilio', $3::jsonb, 10000, 2000, 12000, now(), true, now(), now() + interval '1 second')`,
     [L.id, `<img src=x onerror="window.__pwn=1"> ${bidi}Hostil${cero} ` + 'Z'.repeat(400), JSON.stringify(ITEMS_HOSTILES)]);
@@ -1364,6 +1364,11 @@ async function escenario(nombre, fn) {
     const hostil = await pg.eval(`(function(){var a=document.querySelector('.sa-pedido');return {t:a.textContent, imgs:a.querySelectorAll('img,svg,script,b,i').length}})()`);
     comprobar(hostil.t.includes('<img src=x onerror=') && hostil.t.includes('<script>window.__pwn=1</script> Combo') && hostil.t.includes('<svg onload=window.__pwn=1>') && hostil.t.includes('<b>negrita</b>'), 'nombre del cliente, producto, opciones y items sueltos se muestran como TEXTO literal', hostil.t.slice(0, 200));
     comprobar(hostil.imgs === 0 && await pg.eval('window.__pwn') === undefined, 'no se crea ningun elemento ni se ejecuta nada');
+    const opcTexto = await pg.eval(`(function(){var d=document.querySelector('.sa-pedido li div.sa-tenue');return d?d.textContent:''})()`);
+    const cuadrito = String.fromCharCode(0x25af);
+    comprobar(/ · Sin tocineta · /.test(opcTexto) && (opcTexto.match(/Sin tocineta/g) || []).length === 1 && !/Sin Sin|SIN /.test(opcTexto), 'pedidos: "Sin tocineta" sale UNA sola vez (antes salia "SIN Sin tocineta")', opcTexto);
+    comprobar(/ · Sin CEBOLLA MORADA · Sin pepinillos · Sin Tocineta · Sin <b>x<\/b> · \+ Tocineta extra \(\+\$\s?3\.000\)$/.test(opcTexto), 'el "Sin" no depende de mayusculas ("SIN CEBOLLA MORADA", "sin pepinillos"), se agrega una vez si el nombre no lo trae ("Tocineta") y el HTML sigue siendo texto; los extras salen "+ nombre (+$ precio)"', opcTexto);
+    comprobar(opcTexto.startsWith('+ "><svg onload=window.__pwn=1> (+$') && opcTexto.includes(' · Sin sin' + cuadrito + 'cebolla' + cuadrito + ' · '), 'un nombre hostil (invisibles pegados a "sin") no se confunde con el prefijo: se ve tal cual, con cuadritos', opcTexto);
     comprobar(!hostil.t.includes(bidi) && !hostil.t.includes(cero) && hostil.t.includes('▯'), 'direccion invertida y ancho cero: se cambian por un cuadrito visible');
     comprobar(hostil.t.includes('Calle 1 #2-3 🏠') && hostil.t.includes('toca el timbre') && hostil.t.includes('3009998877'), 'telefono, direccion con emoji e indicaciones con salto de linea (datos personales) se muestran, como texto');
     comprobar(hostil.t.length < 2400, 'los textos larguisimos se cortan', String(hostil.t.length));
@@ -1376,7 +1381,7 @@ async function escenario(nombre, fn) {
     await pg.esperar(`function(){return /Burger Agotada/.test(document.body.innerText)}`, 8000);
     const menu = await pg.cuerpo();
     comprobar(/Agotado/.test(menu) && /Categoria apagada/.test(menu) && /Categoría apagada/.test(menu) && /Burger Agotada/.test(menu), 'menu: muestra tambien lo agotado y la categoria apagada (con su etiqueta)');
-    comprobar(/SIN Sin cebolla/.test(menu) && /\(apagada\) \+ Queso extra \(\+\$\s?2\.000\)/.test(menu), 'menu: opciones (quitar y extra) y las apagadas marcadas');
+    comprobar(/Opciones: Sin cebolla · \(apagada\) \+ Queso extra \(\+\$\s?2\.000\) · Sin tocineta · \+ Tocineta extra \(\+\$\s?3\.000\)/.test(menu) && !/SIN /.test(menu) && !/Sin Sin/i.test(menu), 'menu: opciones (quitar y extra) y las apagadas marcadas, con el "Sin" UNA sola vez ("Sin cebolla", "Sin tocineta"; antes salia "SIN Sin cebolla")', menu.slice(menu.indexOf('Opciones'), menu.indexOf('Opciones') + 160));
     await capturarAmbos(pg, 'entrar-como-menu');
     await pg.clic('[data-lectura=config]');
     await pg.esperar(`function(){return /Secretos cargados/.test(document.body.innerText)}`, 8000);
@@ -1423,7 +1428,7 @@ async function escenario(nombre, fn) {
     const ids1 = await pg.eval(`[...document.querySelectorAll('#sa-contenido tbody tr')].map(function(tr){return tr.children[0].textContent})`);
     comprobar(await pg.eval(`document.querySelector('#sa-contenido tbody tr td:nth-child(2)').textContent`) === uMfa.email || true, 'muestra quien hizo cada cosa');
     await pg.escribir('#sa-aud-rest', L.id);
-    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-contenido tbody tr')];return f.length>0&&f.every(function(tr){return tr.children[2].textContent==='pr-lectura'})}`, 8000, 'filtro por restaurante');
+    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-contenido tbody tr')];return f.length>0&&f.every(function(tr){var m=tr.children[2].querySelector('.sa-mono');return m&&m.textContent==='pr-lectura'&&tr.children[2].firstChild.textContent==='Lectura Total'})}`, 8000, 'filtro por restaurante');
     comprobar(true, 'filtro por restaurante: todas las filas son de ese restaurante');
     comprobar(await visible(pg, '#sa-contenido p button'), 'con mas de 50 registros aparece "Cargar más antiguas"');
     await pg.escribir('#sa-aud-accion', 'registrar_pago');
@@ -1447,7 +1452,7 @@ async function escenario(nombre, fn) {
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
     // la pestaña del restaurante filtra por el
     await pg.clicTexto('Restaurantes', '.sa-nav button'); await abrirDetalle(pg, 'Lectura Total'); await pestana(pg, 'auditoria');
-    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-panel-tab tbody tr')];return f.length>0&&f.every(function(tr){return tr.children[2].textContent==='pr-lectura'})}`, 8000);
+    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-panel-tab tbody tr')];return f.length>0&&f.every(function(tr){var m=tr.children[2].querySelector('.sa-mono');return m&&m.textContent==='pr-lectura'&&tr.children[2].firstChild.textContent==='Lectura Total'})}`, 8000);
     comprobar(true, 'la pestaña Auditoría del restaurante muestra solo lo suyo');
   });
 
@@ -1603,6 +1608,179 @@ async function escenario(nombre, fn) {
     comprobar(llamadas('asignar_miembro').length === 0 && cu.length === 1 && cu[0].cuerpo.includes(nuevo), 'la respuesta vieja NO le da el restaurante a la cuenta del primer correo: se crea el usuario del correo escrito', JSON.stringify(bitacoraApi.map((x) => x.accion + ':' + x.cuerpo.slice(0, 120))));
     const miembros = (await db.query(`select m.user_id from public.miembros m join public.restaurantes r on r.id = m.restaurante_id where r.slug = 'pr-carrera'`)).rows;
     comprobar(miembros.length === 1 && miembros[0].user_id !== uDueno.id, 'y en la base el primer correo no tiene acceso al restaurante nuevo', JSON.stringify(miembros));
+    comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
+  });
+
+  /* ======================= 21 y 22. pulido: auditoria con nombre y resumen en espanol ======================= */
+  const auditar = (actor, accion, rid, resumen) => db.query(`select public.auditar_superadmin($1::uuid, $2, $3::uuid, $4::jsonb)`, [actor, accion, rid, typeof resumen === 'string' ? resumen : JSON.stringify(resumen)]);
+  /* Filas de la tabla de auditoria cuya accion tecnica (la linea pequeña de la columna Accion) es `accion`. */
+  const filasAud = (pg, accion) => pg.eval(`(function(){return [...document.querySelectorAll('#sa-contenido tbody tr')].filter(function(tr){var m=tr.children[3].querySelector('.sa-mono');return m&&m.textContent===${JSON.stringify(accion)}}).map(function(tr){
+    var pre=tr.querySelector('pre'),b=tr.querySelector('button[data-tecnico]');
+    return {lineas:[...tr.querySelectorAll('.sa-aud-lineas li')].map(function(x){return x.textContent}),nota:[...tr.querySelectorAll('details > p.sa-ayuda')].map(function(x){return x.textContent}).join('|'),
+      pre:pre?pre.textContent:null,preOculto:pre?pre.hidden:null,boton:b?b.textContent:null,expandido:b?b.getAttribute('aria-expanded'):null,rest:tr.children[2].textContent,restHijos:tr.children[2].children.length,
+      restNombre:(tr.children[2].querySelector('.sa-aud-rest')||{}).textContent||null,restSlug:(tr.children[2].querySelector('.sa-mono')||{}).textContent||null}})})()`);
+
+  await escenario('21. Auditoria: columna Restaurante con NOMBRE y nombre corto debajo (restaurante borrado, nombre hostil, lista sin cargar y filtro)', async () => {
+    const B = await sembrar('pr-borrado-21', 'Restaurante Borrado 21', { estado: 'activo', vigente: fechaEn(30) });
+    await auditar(uMfa.id, 'registrar_pago', B.id, { meses: 2 });
+    // se borra como lo hace la herramienta de limpieza: las filas de sus tablas y luego el restaurante (la auditoria no se toca: es de solo agregar)
+    const tablasHijas = (await db.query(`select c.table_name as t from information_schema.columns c join information_schema.tables x on x.table_schema = c.table_schema and x.table_name = c.table_name and x.table_type = 'BASE TABLE' where c.table_schema = 'public' and c.column_name = 'restaurante_id' and c.table_name not in ('auditoria_superadmin', 'restaurantes')`)).rows.map((x) => x.t);
+    for (const tabla of tablasHijas) await db.query(`delete from public.${tabla} where restaurante_id = $1::uuid`, [B.id]);
+    await db.query(`delete from public.restaurantes where id = $1::uuid`, [B.id]);
+    comprobar(!(await filaDe('pr-borrado-21')), 'el restaurante de prueba ya no existe en la base (su auditoria si sigue)');
+    await auditar(uMfa.id, 'ver_menu', R.hostil.id, { categorias: 1, productos: 2, opciones: 0 });
+    await auditar(uMfa.id, 'ver_menu', R.activo.id, { categorias: 3, productos: 4, opciones: 5 });
+    const pg = await pagina('auditoria-nombres');
+    await entrarConCodigo(pg, uMfa);
+    await pg.clicTexto('Auditoría', '.sa-nav button');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>=3 && !!document.querySelector('#sa-aud-rest')}`, 8000, 'filas de auditoria');
+    const celdas = async (valor) => {
+      const n0 = llamadas('listar_auditoria').length;
+      await pg.escribir('#sa-aud-rest', valor);
+      for (let i = 0; i < 100 && llamadas('listar_auditoria').length <= n0; i++) await sleep(50);
+      await sleep(400);   // llega la respuesta y se pinta
+      return filasAud(pg, 'ver_menu');
+    };
+
+    // restaurante que existe: nombre arriba y nombre corto (pequeño) debajo
+    let f = await celdas(R.activo.id);
+    comprobar(f.length >= 1 && f.every((x) => x.restNombre === 'Zeta Activo' && x.restSlug === 'pr-activo' && x.restHijos === 2), 'restaurante que existe: el NOMBRE ("Zeta Activo") arriba y el nombre corto ("pr-activo") pequeño debajo', JSON.stringify(f.map((x) => x.rest)));
+    await capturarAmbos(pg, 'pulido-auditoria-nombre');
+
+    // restaurante borrado: solo el nombre corto (la fila lo guardo al escribirse)
+    const opt = await pg.eval(`[...document.querySelectorAll('#sa-aud-rest option')].map(function(o){return o.textContent})`);
+    comprobar(opt.includes('Zeta Activo (pr-activo)') && opt.includes('pr-borrado-21') && !opt.some((x) => /Borrado 21/.test(x)), 'el filtro lista "Nombre (nombre-corto)" y, para el restaurante que ya no existe, solo su nombre corto', JSON.stringify(opt.slice(0, 12)));
+    const valorBorrado = await pg.eval(`[...document.querySelectorAll('#sa-aud-rest option')].filter(function(o){return o.textContent==='pr-borrado-21'})[0].value`);
+    await pg.escribir('#sa-aud-rest', valorBorrado);
+    await pg.esperar(`function(){var f=[...document.querySelectorAll('#sa-contenido tbody tr')];return f.length>0&&f.every(function(tr){var m=tr.children[2].querySelector('.sa-mono');return m&&m.textContent==='pr-borrado-21'})}`, 8000, 'filas del borrado');
+    f = await filasAud(pg, 'registrar_pago');
+    comprobar(f.length === 1 && f[0].restNombre === null && f[0].restSlug === 'pr-borrado-21' && f[0].restHijos === 1, 'restaurante BORRADO: solo el nombre corto, sin nombre inventado', JSON.stringify(f.map((x) => x.rest)));
+    comprobar(llamadas('listar_auditoria').some((b) => JSON.parse(b.cuerpo).restaurante_id === valorBorrado), 'y el filtro por ese restaurante borrado sigue funcionando (manda su id)');
+
+    // nombre hostil como texto
+    f = await celdas(R.hostil.id);
+    comprobar(f.length >= 1 && f[0].restNombre.startsWith('<img src=x onerror="window.__pwn=1"><script>') && f[0].restNombre.length <= 81 && !f[0].restNombre.includes(bidi) && !f[0].restNombre.includes(cero) && f[0].restSlug === 'pr-hostil', 'nombre hostil (HTML, invisibles, 600 letras): se ve como texto, sin invisibles y cortado; el nombre corto aparte', (f[0] && f[0].restNombre || '').slice(0, 100));
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-contenido img, #sa-contenido script').length===0 && window.__pwn===undefined`), 'y no se crea ningun elemento ni se ejecuta nada');
+
+    // la lista aun no cargo (o fallo): solo el nombre corto, sin pedir nada raro
+    const pg2 = await pagina('auditoria-sin-lista');
+    inyectar.api.push({ accion: 'listar_restaurantes', status: 500, cuerpo: { error: 'No se pudo completar la accion' }, veces: 2 });
+    await entrarConCodigo2(pg2, uMfa);
+    await pg2.clicTexto('Auditoría', '.sa-nav button');
+    await pg2.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>=3}`, 8000, 'filas sin lista');
+    const sinLista = await filasAud(pg2, 'ver_menu');
+    comprobar(sinLista.length >= 1 && sinLista.every((x) => x.restNombre === null && x.restHijos === 1 && /^pr-/.test(x.restSlug)), 'sin la lista de restaurantes cargada: solo el nombre corto (nunca "undefined" ni vacio)', JSON.stringify(sinLista.map((x) => x.rest)));
+    comprobar(!/undefined|null/.test(await pg2.eval(`[...document.querySelectorAll('#sa-contenido tbody tr')].map(function(tr){return tr.children[2].textContent+'|'+tr.children[3].textContent}).join('#')`)), 'y no aparece "undefined" ni "null" en las columnas Restaurante y Accion');
+    comprobar(pg.errores.length === 0 && pg2.errores.length === 0, 'sin errores de JavaScript', pg.errores.concat(pg2.errores).join(';'));
+  });
+  /* como entrarConCodigo, pero la lista de restaurantes puede fallar: espera la barra de la aplicacion en vez del titulo "Restaurantes" */
+  async function entrarConCodigo2(pg, u) {
+    await pg.ir(URL_PAGINA);
+    await pg.existe('#sa-form-entrada');
+    await iniciarSesion(pg, u);
+    await pg.existe('#sa-codigo');
+    await pg.escribir('#sa-codigo', codigo(u));
+    await pg.clic('form button[type=submit]');
+    await pg.esperar(`function(){return !document.querySelector('#sa-capa-app').hidden&&!!document.querySelector('.sa-nav')}`, 8000, 'la barra de la aplicacion');
+  }
+
+  await escenario('22. Auditoria: "Ver resumen" en espanol para cada accion conocida, y JSON como texto (con "Ver detalle tecnico") para lo desconocido o hostil', async () => {
+    const S = await sembrar('pr-resumenes', 'Resumenes Claros', { estado: 'activo', vigente: fechaEn(30) });
+    const u1 = '11111111-1111-4111-8111-111111111111', mail = `dueno-${sfx}@ejemplo.com`;
+    await auditar(uMfa.id, 'actualizar_restaurante', S.id, { antes: { estado: 'suspendido' }, despues: { estado: 'activo' } });
+    await auditar(uMfa.id, 'actualizar_restaurante', S.id, { antes: { nombre: 'Viejo', plan: 'basico', vigente_hasta: null, dias_gracia: 5, modulos: { pasarela: false, seguimiento: false, comandas: false, impresion: false } }, despues: { nombre: 'Nuevo', plan: 'completo', vigente_hasta: '2027-01-31', dias_gracia: 7, modulos: { pasarela: true, seguimiento: false, comandas: false, impresion: true } } });
+    await auditar(uMfa.id, 'registrar_pago', S.id, { meses: 3, monto: 150000, referencia: 'recibo 001', nota: 'pago en efectivo', vigente_hasta_anterior: '2026-11-10', vigente_hasta_nueva: '2027-02-10', contado_desde: '2026-11-10', estado_anterior: 'prueba', estado_nuevo: 'activo' });
+    await auditar(uMfa.id, 'agregar_dominio', S.id, { dominio: 'pedidos.ejemplo.com' });
+    await auditar(uMfa.id, 'quitar_dominio', S.id, { dominio: 'viejo.ejemplo.com' });
+    await auditar(uMfa.id, 'crear_usuario', S.id, { usuario: u1, email: mail });
+    await auditar(uMfa.id, 'asignar_miembro', S.id, { usuario: u1, email: mail, rol: 'dueno' });
+    await auditar(uMfa.id, 'quitar_miembro', S.id, { usuario: u1, email: mail, rol_que_tenia: 'cajero' });
+    await auditar(uMfa.id, 'guardar_tarifas', S.id, { tramos_antes: 3, tramos_despues: 4 });
+    await auditar(uMfa.id, 'guardar_secretos', S.id, { campos_guardados: ['wompi_llave_publica_test'], resultado: { wompi_llave_publica_test: 'guardado', callmebot_apikey: 'ya_existe_otro_valor', wompi_modo: 'guardado' }, sobrescribir: false, permitir_repetidos: true });
+    await auditar(uMfa.id, 'ver_pedidos', S.id, { modo: 'jornada', limite: 25, pagina_inicial: true, devueltos: 12 });
+    await auditar(uMfa.id, 'ver_pedidos', S.id, { modo: 'recientes', limite: 25, pagina_inicial: false, devueltos: 3 });
+    await auditar(uMfa.id, 'ver_menu', S.id, { categorias: 2, productos: 9, opciones: 4 });
+    await auditar(uMfa.id, 'ver_config', S.id, { miembros: 2, dominios: 1 });
+    await auditar(uMfa.id, 'ver_resumen', S.id, { jornada: '2026-11-06' });
+    await auditar(uMfa.id, 'rechazo_mfa', null, { aal: 'aal1', accion_intentada: 'listar_restaurantes', ventana_minutos: 15 });
+    // casos no conocidos: accion nueva, campo de mas, forma rara, y JSON hostil
+    await auditar(uMfa.id, 'accion_nueva_desconocida', S.id, { algo: 1, otro: 'x' });
+    await auditar(uMfa.id, 'agregar_dominio', S.id, { dominio: 'conextra.ejemplo.com', extra_raro: 'zzz' });
+    await auditar(uMfa.id, 'registrar_pago', S.id, { meses: 'tres', monto: { raro: true } });
+    await auditar(uMfa.id, 'editar_config', S.id, `{"secciones":{"__proto__":"reemplazada","constructor":"borrada","marca":"<img src=x onerror=window.__pwn=1>"},"nota":"\\"><script>window.__pwn=1</script> ${bidi}${cero}fin","__proto__":{"polluted":"si"},"zzzzzzzzzzzzzzzzzzzzzzzzzz_larga":"${'Q'.repeat(3000)}"}`);   // jsonb ordena las claves por largo: la larga va al final y es la que se corta
+    await auditar(uMfa.id, 'editar_config', S.id, { secciones: { textos: 'reemplazada', marca: 'borrada' } });
+
+    const pg = await pagina('auditoria-resumen');
+    await entrarConCodigo(pg, uMfa);
+    await pg.clicTexto('Auditoría', '.sa-nav button');
+    await pg.esperar(`function(){return document.querySelectorAll('#sa-contenido tbody tr').length>=20}`, 8000, 'filas');
+    const lin = async (accion) => (await filasAud(pg, accion)).map((x) => x.lineas);
+    const con = (listas, texto) => listas.some((l) => l.includes(texto));
+    const conRx = (listas, rx) => listas.some((l) => l.some((x) => rx.test(x)));
+
+    let l = await lin('actualizar_restaurante');
+    comprobar(con(l, 'Estado: suspendido → activo'), 'actualizar_restaurante: "Estado: suspendido → activo" (el ejemplo del pedido)', JSON.stringify(l));
+    comprobar(con(l, 'Nombre: Viejo → Nuevo') && con(l, 'Plan: Básico → Completo') && con(l, 'Vence: sin vencimiento → 31 ene. 2027') && con(l, 'Días de gracia: 5 → 7') && con(l, 'Módulo «Pasarela de pago»: no → sí') && con(l, 'Módulo «Impresión de comandas»: no → sí') && !conRx(l, /Seguimiento/), 'actualizar_restaurante con varios campos: nombre, plan, vencimiento, gracia y solo los modulos que cambiaron', JSON.stringify(l));
+    l = await lin('registrar_pago');
+    comprobar(con(l, 'Pago: 3 meses') && conRx(l, /^Monto: \$\s?150\.000$/) && con(l, 'Referencia: recibo 001') && con(l, 'Nota: pago en efectivo') && con(l, 'Vencimiento: 10 nov. 2026 → 10 feb. 2027') && con(l, 'Los meses se contaron desde: 10 nov. 2026') && con(l, 'Estado: en prueba → activo'), 'registrar_pago: los meses, el monto, la referencia, la nota, la vigencia de antes y despues y el cambio de estado', JSON.stringify(l));
+    l = await lin('agregar_dominio');
+    comprobar(con(l, 'Dominio: pedidos.ejemplo.com'), 'agregar_dominio: muestra la direccion', JSON.stringify(l));
+    l = await lin('quitar_dominio');
+    comprobar(con(l, 'Dominio: viejo.ejemplo.com'), 'quitar_dominio: muestra la direccion', JSON.stringify(l));
+    l = await lin('crear_usuario');
+    comprobar(con(l, 'Correo: ' + mail) && !conRx(l, /Rol/), 'crear_usuario: el correo (la creacion no guarda rol: lo da asignar_miembro) y nunca la contrasena', JSON.stringify(l));
+    l = await lin('asignar_miembro');
+    comprobar(con(l, 'Correo: ' + mail) && con(l, 'Rol: Dueño'), 'asignar_miembro: correo y rol', JSON.stringify(l));
+    l = await lin('quitar_miembro');
+    comprobar(con(l, 'Rol que tenía: Cajero'), 'quitar_miembro: el rol que tenia', JSON.stringify(l));
+    l = await lin('guardar_tarifas');
+    comprobar(con(l, 'Tramos de tarifa: 3 → 4'), 'guardar_tarifas: los tramos antes y despues', JSON.stringify(l));
+    l = await lin('guardar_secretos');
+    comprobar(con(l, 'Wompi · llave pública (pruebas): guardado') && con(l, 'CallMeBot · clave: ya había otro valor (no se reemplazó)') && con(l, 'Modo de cobro de Wompi: guardado') && con(l, 'Reemplazar valores ya cargados: no') && con(l, 'Permitir valores que ya usa otro restaurante: sí'), 'guardar_secretos: solo los NOMBRES de los campos y que paso con cada uno (nunca valores)', JSON.stringify(l));
+    l = await lin('ver_pedidos');
+    comprobar(con(l, 'Pedidos mirados: jornada actual') && con(l, 'Pedidos devueltos: 12') && con(l, 'Página: la primera') && con(l, 'Tope por página: 25') && con(l, 'Pedidos mirados: recientes (todas las jornadas)') && con(l, 'Página: una más antigua'), 'ver_pedidos: el modo, cuantos devolvio y si fue la primera pagina', JSON.stringify(l));
+    l = await lin('ver_menu');
+    comprobar(con(l, 'Categorías: 2') && con(l, 'Productos: 9') && con(l, 'Opciones: 4'), 'ver_menu: los conteos', JSON.stringify(l));
+    l = await lin('ver_config');
+    comprobar(con(l, 'Personas con acceso: 2') && con(l, 'Dominios: 1'), 'ver_config: los conteos', JSON.stringify(l));
+    l = await lin('ver_resumen');
+    comprobar(con(l, 'Jornada mirada: 6 nov. 2026'), 'ver_resumen: la jornada mirada', JSON.stringify(l));
+    l = await filasAud(pg, 'rechazo_mfa');
+    comprobar(l.length === 1 && l[0].lineas.includes('Nivel de verificación: solo contraseña, sin el código (aal1)') && l[0].lineas.includes('Quiso hacer: listar_restaurantes') && l[0].lineas.includes('Se avisa una sola vez cada: 15 minutos') && l[0].rest === '—', 'intento sin MFA: el nivel (aal1), lo que quiso hacer y "—" en Restaurante (no es de ninguno)', JSON.stringify(l));
+    l = await lin('editar_config');
+    comprobar(con(l, 'Textos: reemplazada') && con(l, 'Marca: borrada'), 'editar_config: que secciones se reemplazaron o borraron', JSON.stringify(l));
+    l = await lin('crear_restaurante');
+    comprobar(conRx(l, /^Nombre: Resumenes Claros$/) && con(l, 'Nombre corto: pr-resumenes') && conRx(l, /^Plan: Completo · Mensual$/) && conRx(l, /^Vigente hasta: /) && conRx(l, /^Módulos incluidos: /), 'crear_restaurante (fila real del servidor): nombre, nombre corto, plan y modalidad, vigencia y modulos', JSON.stringify(l.slice(0, 3)));
+
+    // lo desconocido: JSON como texto, tras el boton "Ver detalle tecnico"
+    let d = await filasAud(pg, 'accion_nueva_desconocida');
+    comprobar(d.length === 1 && d[0].lineas.length === 0 && /no tiene una explicación en español/.test(await pg.eval(`document.body.textContent`)) && d[0].pre.includes('"algo": 1') && d[0].preOculto === true && d[0].boton === 'Ver detalle técnico' && d[0].expandido === 'false', 'accion desconocida: sin lineas inventadas, y el JSON queda como texto tras el boton "Ver detalle técnico" (cerrado al inicio)', JSON.stringify(d));
+    await pg.eval(`document.querySelectorAll('#sa-contenido details.sa-detalle').forEach(function(x){x.open=true})`);
+    await pg.eval(`(function(){var tr=[...document.querySelectorAll('#sa-contenido tbody tr')].filter(function(r){var m=r.children[3].querySelector('.sa-mono');return m&&m.textContent==='accion_nueva_desconocida'})[0];tr.querySelector('button[data-tecnico]').click();})()`);
+    d = await filasAud(pg, 'accion_nueva_desconocida');
+    comprobar(d[0].preOculto === false && d[0].boton === 'Ocultar detalle técnico' && d[0].expandido === 'true', 'el boton muestra el detalle tecnico (y luego dice "Ocultar")');
+    d = await filasAud(pg, 'agregar_dominio');
+    const conExtra = d.filter((x) => x.lineas.includes('Dominio: conextra.ejemplo.com'));
+    comprobar(conExtra.length === 1 && /Hay datos que no se explican arriba/.test(conExtra[0].nota) && conExtra[0].pre.includes('"extra_raro": "zzz"'), 'accion conocida con un campo de mas: explica lo que sabe, avisa que hay mas y deja el JSON completo', JSON.stringify(conExtra));
+    d = await filasAud(pg, 'registrar_pago');
+    const rara = d.filter((x) => x.pre.includes('"tres"'));
+    comprobar(rara.length === 1 && rara[0].lineas.length === 0 && /no tiene una explicación en español/.test(rara[0].nota), 'forma rara (meses="tres", monto objeto): no se inventa nada, queda el JSON', JSON.stringify(rara));
+    await capturarAmbos(pg, 'pulido-auditoria-resumen-legible');
+
+    // JSON hostil: siempre texto
+    d = await filasAud(pg, 'editar_config');
+    const hostil = d.filter((x) => x.pre.includes('__proto__'));
+    comprobar(hostil.length === 1, 'la fila hostil (con claves __proto__ y constructor) llego a la pantalla', JSON.stringify(d.map((x) => x.pre.slice(0, 60))));
+    const h0 = hostil[0] || { pre: '', lineas: [] };
+    comprobar(h0.pre.includes('<script>window.__pwn=1</script>') && h0.pre.includes('"__proto__"') && h0.pre.includes('"constructor"') && !h0.pre.includes(bidi) && !h0.pre.includes(cero) && h0.pre.length <= 3001 && h0.pre.endsWith('…'), 'JSON hostil: <script>, comillas, claves __proto__/constructor, invisibles y 3000 letras se ven como TEXTO, sin invisibles y cortado', h0.pre.slice(0, 120));
+    comprobar(h0.lineas.includes('__proto__: reemplazada') && h0.lineas.includes('constructor: borrada') && h0.lineas.some((x) => x.startsWith('Marca: ') && x.includes('<img src=x onerror=window.__pwn=1>')) && !h0.lineas.some((x) => /function|\[native code\]/.test(x)), 'secciones hostiles: "__proto__" y "constructor" salen como texto (no como el codigo de una funcion) y el HTML de un valor se ve literal', JSON.stringify(h0.lineas));
+    comprobar(await pg.eval(`document.querySelectorAll('#sa-contenido img, #sa-contenido script, #sa-contenido svg').length===0 && window.__pwn===undefined && ({}).polluted===undefined && Object.prototype.polluted===undefined`), 'no se crea ningun elemento, no se ejecuta nada y Object.prototype no se contamina');
+    await medidas(pg, 390); await sleep(150);
+    comprobar(await pg.eval(`document.documentElement.scrollWidth<=window.innerWidth`), 'a 390 px la auditoria con resumenes y JSON larguisimo no desborda');
+    await medidas(pg, 1280);
+    await capturarAmbos(pg, 'pulido-auditoria-detalle-tecnico');
+    const aud = (await db.query(`select string_agg(resumen::text, '') as r from public.auditoria_superadmin where restaurante_id = $1::uuid`, [S.id])).rows[0].r;
+    comprobar(!/password|contrasena|clave_temporal/i.test(aud.replace(/pago en efectivo/g, '')), 'la auditoria sigue sin guardar contrasenas');
     comprobar(pg.errores.length === 0, 'sin errores de JavaScript', pg.errores.join(';'));
   });
 

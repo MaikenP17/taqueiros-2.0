@@ -870,6 +870,165 @@
   };
   SA.accionAuditoria = function (a) { return ACCIONES_AUD[a] || t(a, 60); };
 
+  /* ---- Restaurante de una fila: el NOMBRE (de la lista ya cargada, sin pedir nada nuevo) y debajo el nombre corto.
+     Si el restaurante ya no existe (por ejemplo uno de prueba borrado) o la lista aun no cargo, queda solo el nombre corto
+     que la propia fila de auditoria guardo. ---- */
+  function tiene(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function esObjeto(x) { return x !== null && typeof x === "object" && !Array.isArray(x); }
+  function restauranteConocido(id, extra) {
+    if (!id) return null;
+    if (extra && extra.id === id) return extra;
+    if (!Array.isArray(SA.lista)) return null;
+    for (var i = 0; i < SA.lista.length; i++) if (SA.lista[i] && SA.lista[i].id === id) return SA.lista[i];
+    return null;
+  }
+  SA.celdaRestaurante = function (fila, extra) {
+    var r = restauranteConocido(fila.restaurante_id, extra);
+    var slug = fila.restaurante_slug || (r && r.slug) || "";
+    var nombre = r && r.nombre ? t(r.nombre, 80) : "";
+    if (nombre && slug && nombre !== t(slug, 60)) return [h("div", { class: "sa-aud-rest", texto: nombre }), h("div", { class: "sa-chico sa-tenue sa-mono", texto: t(slug, 60) })];
+    if (nombre) return [h("div", { class: "sa-aud-rest", texto: nombre })];
+    return slug ? [h("div", { class: "sa-mono", texto: t(slug, 60) })] : [h("span", { class: "sa-tenue", texto: "—" })];
+  };
+
+  /* ---- "Ver resumen" en espanol claro. Solo se usan los campos que el servidor REALMENTE guarda en cada accion (SQL 16 y 19).
+     Cualquier accion o campo que no se conozca queda como JSON en texto, tras el boton "Ver detalle tecnico". Todo se pinta con textContent. ---- */
+  var ETQ_CAMPO = { nombre: "Nombre", estado: "Estado", plan: "Plan", modalidad_pago: "Modalidad de pago", vigente_hasta: "Vence", dias_gracia: "Días de gracia", modulos: "Módulos", zona_horaria: "Zona horaria" };
+  var ETQ_SECCION = { marca: "Marca", wompi: "Wompi (llaves públicas)", pwa: "App del panel", contacto: "Contacto", textos: "Textos", ubicacion: "Ubicación", domicilio: "Domicilio" };
+  var ETQ_SECCION_HECHO = { reemplazada: "reemplazada", borrada: "borrada" };
+  var ETQ_ROL = { dueno: "Dueño", cajero: "Cajero", cocina: "Cocina" };
+  var ETQ_MODO = { jornada: "jornada actual", recientes: "recientes (todas las jornadas)" };
+  var ETQ_SECRETO = {
+    wompi_llave_publica_test: "Wompi · llave pública (pruebas)", wompi_integridad_test: "Wompi · secreto de integridad (pruebas)", wompi_eventos_test: "Wompi · secreto de eventos (pruebas)", wompi_llave_privada_test: "Wompi · llave privada (pruebas)",
+    wompi_llave_publica_prod: "Wompi · llave pública (producción)", wompi_integridad_prod: "Wompi · secreto de integridad (producción)", wompi_eventos_prod: "Wompi · secreto de eventos (producción)", wompi_llave_privada_prod: "Wompi · llave privada (producción)",
+    callmebot_telefono: "CallMeBot · teléfono", callmebot_apikey: "CallMeBot · clave", wompi_modo: "Modo de cobro de Wompi" };
+  var ETQ_RESULTADO_SECRETO = { guardado: "guardado", ya_coincide: "ya estaba puesto igual", ya_existe_otro_valor: "ya había otro valor (no se reemplazó)", repetido_en_otro_restaurante: "rechazado: otro restaurante ya usa ese valor", no_guardado: "no se guardó (por otro campo)" };
+  function etq(mapa, k) { return typeof k === "string" && tiene(mapa, k) ? mapa[k] : t(k, 40); }
+  function estadoLindo(v) { return typeof v === "string" && tiene(ETIQUETA_ESTADO, v) ? ETIQUETA_ESTADO[v].toLowerCase() : t(v, 40); }
+
+  var FORMATOS = {
+    crear_restaurante: function (c) {
+      c.linea("Nombre", c.txt("nombre", 120)); c.linea("Nombre corto", c.txt("slug", 60));
+      var plan = c.mapa("plan", ETIQUETA_PLAN), mod = c.mapa("modalidad_pago", ETIQUETA_MODALIDAD);
+      c.linea("Plan", plan && mod ? plan + " · " + mod : plan || mod);
+      if (c.hay("dominio")) c.linea("Dirección web", c.txt("dominio", 253) || "ninguna por ahora");
+      if (c.hay("vigente_hasta")) c.linea("Vigente hasta", c.fecha("vigente_hasta"));
+      c.linea("Días de gracia", c.num("dias_gracia")); c.linea("Zona horaria", c.txt("zona_horaria", 64));
+      var m = c.obj("modulos");
+      if (m) c.linea("Módulos incluidos", Object.keys(NOMBRES_MODULO()).filter(function (k) { return m[k] === true; }).map(function (k) { return NOMBRES_MODULO()[k]; }).join(", ") || "ninguno");
+    },
+    actualizar_restaurante: function (c) {
+      var a = c.obj("antes"), d = c.obj("despues");
+      if (!a || !d) { c.dudoso(); return; }
+      Object.keys(ETQ_CAMPO).forEach(function (k) {
+        if (!tiene(d, k) && !tiene(a, k)) return;
+        if (k === "modulos") {
+          var NM = NOMBRES_MODULO(), ma = esObjeto(a.modulos) ? a.modulos : {}, md = esObjeto(d.modulos) ? d.modulos : {};
+          Object.keys(NM).forEach(function (m) { if (ma[m] !== md[m]) c.linea("Módulo «" + NM[m] + "»", (ma[m] === true ? "sí" : ma[m] === false ? "no" : "—") + " → " + (md[m] === true ? "sí" : md[m] === false ? "no" : "—")); });
+          return;
+        }
+        var f = k === "estado" ? estadoLindo : k === "plan" ? function (v) { return etq(ETIQUETA_PLAN, v); } : k === "modalidad_pago" ? function (v) { return etq(ETIQUETA_MODALIDAD, v); }
+          : k === "vigente_hasta" ? function (v) { return v === null ? "sin vencimiento" : fechaCorta(v); } : function (v) { return v === null || v === undefined ? "—" : t(v, 120); };
+        c.linea(ETQ_CAMPO[k], f(a[k]) + " → " + f(d[k]));
+      });
+      Object.keys(a).concat(Object.keys(d)).forEach(function (k) { if (!tiene(ETQ_CAMPO, k)) c.dudoso(); });
+    },
+    registrar_pago: function (c) {
+      var meses = c.num("meses");
+      c.linea("Pago", meses !== null && meses !== undefined ? meses + (meses === 1 ? " mes" : " meses") : null);
+      if (c.hay("monto")) { var mo = c.num("monto"); c.linea("Monto", mo === null || mo === undefined ? null : pesos(mo)); }
+      if (c.hay("referencia")) c.linea("Referencia", c.txt("referencia", 80));
+      if (c.hay("nota")) c.linea("Nota", c.txt("nota", 300));
+      var antes = c.hay("vigente_hasta_anterior") ? c.fecha("vigente_hasta_anterior") : null, nueva = c.hay("vigente_hasta_nueva") ? c.fecha("vigente_hasta_nueva") : null;
+      c.linea("Vencimiento", antes && nueva ? antes + " → " + nueva : nueva || antes);
+      if (c.hay("contado_desde")) c.linea("Los meses se contaron desde", c.fecha("contado_desde"));
+      var ea = c.hay("estado_anterior") ? c.txt("estado_anterior", 40) : null, en = c.hay("estado_nuevo") ? c.txt("estado_nuevo", 40) : null;
+      if (ea && en && ea !== en) c.linea("Estado", estadoLindo(ea) + " → " + estadoLindo(en));
+    },
+    editar_config: function (c) {
+      var s = c.obj("secciones");
+      if (!s) { c.dudoso(); return; }
+      Object.keys(s).forEach(function (k) { c.linea(etq(ETQ_SECCION, k), typeof s[k] === "string" ? etq(ETQ_SECCION_HECHO, s[k]) : null); });
+    },
+    guardar_tarifas: function (c) {
+      var antes = c.num("tramos_antes"), despues = c.num("tramos_despues");
+      if (typeof antes === "number" && typeof despues === "number") c.linea("Tramos de tarifa", antes + " → " + despues);
+    },
+    agregar_dominio: function (c) { c.linea("Dominio", c.txt("dominio", 253)); },
+    quitar_dominio: function (c) { c.linea("Dominio", c.txt("dominio", 253)); },
+    crear_usuario: function (c) { c.usar("usuario"); c.linea("Correo", c.txt("email", 254)); },
+    asignar_miembro: function (c) { c.usar("usuario"); c.linea("Correo", c.txt("email", 254)); c.linea("Rol", c.mapa("rol", ETQ_ROL)); },
+    quitar_miembro: function (c) { c.usar("usuario"); c.linea("Correo", c.txt("email", 254)); c.linea("Rol que tenía", c.mapa("rol_que_tenia", ETQ_ROL)); },
+    guardar_secretos: function (c) {
+      c.usar("campos_guardados");
+      var r = c.obj("resultado");
+      if (r) Object.keys(r).forEach(function (k) { c.linea(etq(ETQ_SECRETO, k), typeof r[k] === "string" ? etq(ETQ_RESULTADO_SECRETO, r[k]) : null); });
+      if (c.hay("sobrescribir")) c.linea("Reemplazar valores ya cargados", c.si("sobrescribir"));
+      if (c.hay("permitir_repetidos")) c.linea("Permitir valores que ya usa otro restaurante", c.si("permitir_repetidos"));
+    },
+    ver_pedidos: function (c) {
+      c.linea("Pedidos mirados", c.mapa("modo", ETQ_MODO)); c.linea("Pedidos devueltos", c.num("devueltos"));
+      if (c.hay("pagina_inicial")) c.linea("Página", c.si("pagina_inicial") === "sí" ? "la primera" : "una más antigua");
+      c.linea("Tope por página", c.num("limite"));
+    },
+    ver_menu: function (c) { c.linea("Categorías", c.num("categorias")); c.linea("Productos", c.num("productos")); c.linea("Opciones", c.num("opciones")); },
+    ver_config: function (c) { c.linea("Personas con acceso", c.num("miembros")); c.linea("Dominios", c.num("dominios")); },
+    ver_resumen: function (c) { c.linea("Jornada mirada", c.fecha("jornada")); },
+    rechazo_mfa: function (c) {
+      var aal = c.txt("aal", 10);
+      c.linea("Nivel de verificación", aal === "aal2" ? "completo (aal2)" : aal === "aal1" ? "solo contraseña, sin el código (aal1)" : aal);
+      if (c.hay("accion_intentada")) { var ai = c.txt("accion_intentada", 60); c.linea("Quiso hacer", ai ? SA.accionAuditoria(ai) : "una acción que no se pudo identificar"); }
+      if (c.hay("ventana_minutos")) { var vm = c.num("ventana_minutos"); if (typeof vm === "number") c.linea("Se avisa una sola vez cada", vm + " minutos"); }
+    }
+  };
+  function NOMBRES_MODULO() { return SA.NOMBRE_MODULO || {}; }
+
+  /* Devuelve { lineas, extra } o null si la accion no se conoce, el resumen no tiene la forma esperada o no se pudo explicar nada. */
+  function resumenLegible(accion, r) {
+    if (!esObjeto(r) || typeof accion !== "string" || !tiene(FORMATOS, accion)) return null;
+    var usadas = Object.create(null), lineas = [], dudoso = false;   // sin prototipo: una clave "__proto__" del resumen es un dato mas
+    var c = {
+      hay: function (k) { usadas[k] = true; return tiene(r, k); },
+      usar: function (k) { usadas[k] = true; },
+      dudoso: function () { dudoso = true; },
+      linea: function (etiqueta, valor) { if (valor === null || valor === undefined || valor === "") return; lineas.push(etiqueta + ": " + valor); },
+      txt: function (k, max) { usadas[k] = true; if (!tiene(r, k)) return undefined; var v = r[k]; if (v === null) return null; if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return t(v, max || 120); dudoso = true; return undefined; },
+      num: function (k) { usadas[k] = true; if (!tiene(r, k)) return undefined; var v = r[k]; if (v === null) return null; if (typeof v === "number" && isFinite(v)) return v; dudoso = true; return undefined; },
+      si: function (k) { usadas[k] = true; if (!tiene(r, k)) return undefined; if (typeof r[k] === "boolean") return r[k] ? "sí" : "no"; dudoso = true; return undefined; },
+      fecha: function (k) { usadas[k] = true; if (!tiene(r, k)) return undefined; var v = r[k]; if (v === null) return "sin vencimiento"; if (typeof v === "string") return fechaCorta(v.slice(0, 10)); dudoso = true; return undefined; },
+      mapa: function (k, mapa) { usadas[k] = true; if (!tiene(r, k)) return undefined; var v = r[k]; if (v === null) return null; if (typeof v === "string") return etq(mapa, v); dudoso = true; return undefined; },
+      obj: function (k) { usadas[k] = true; if (!tiene(r, k)) return undefined; if (esObjeto(r[k])) return r[k]; dudoso = true; return undefined; }
+    };
+    try { FORMATOS[accion](c); } catch (e) { return null; }
+    Object.keys(r).forEach(function (k) { if (!usadas[k]) dudoso = true; });
+    if (!lineas.length) return null;
+    return { lineas: lineas.slice(0, 40).map(function (x) { return t(x, 400); }), extra: dudoso };
+  }
+  SA.resumenLegible = resumenLegible;
+
+  function textoTecnico(r) {
+    var s; try { s = JSON.stringify(r, null, 2); } catch (e) { s = "[dato no mostrable]"; }
+    return t(s === undefined ? String(r) : s, 3000);
+  }
+  /* La celda "Detalle": resumen en espanol (si se conoce) y el boton "Ver detalle tecnico" con el JSON como texto. */
+  function celdaDetalle(fila) {
+    var r = fila.resumen;
+    if (r === null || r === undefined || r === "" || (typeof r === "object" && Object.keys(r).length === 0)) return h("span", { class: "sa-tenue", texto: "—" });
+    var legible = resumenLegible(fila.accion, r);
+    var pre = h("pre", { class: "sa-aud-resumen", hidden: true, texto: textoTecnico(r) });
+    var btn = h("button", { type: "button", class: "sa-btn sa-btn-chico", "data-tecnico": "1", "aria-expanded": "false", texto: "Ver detalle técnico" });
+    btn.addEventListener("click", function () {
+      pre.hidden = !pre.hidden;
+      btn.setAttribute("aria-expanded", pre.hidden ? "false" : "true");
+      btn.textContent = pre.hidden ? "Ver detalle técnico" : "Ocultar detalle técnico";
+    });
+    return h("details", { class: "sa-detalle" }, h("summary", { texto: "Ver resumen" }),
+      legible ? h("ul", { class: "sa-aud-lineas" }, legible.lineas.map(function (x) { return h("li", { texto: x }); }))
+        : h("p", { class: "sa-ayuda", texto: "Esta acción no tiene una explicación en español: este es el detalle técnico tal como quedó guardado." }),
+      legible && legible.extra ? h("p", { class: "sa-ayuda", texto: "Hay datos que no se explican arriba: están en el detalle técnico." }) : null,
+      btn, pre);
+  }
+
   /* Una lista de auditoria con "cargar mas" (la usan la vista global y la pestana de cada restaurante). */
   SA.listaAuditoria = function (restauranteId, n, opciones) {
     opciones = opciones || {};
@@ -890,13 +1049,12 @@
       if (!ver.length) { salida.replaceChildren(h("p", { class: "sa-vacio", texto: filas.length ? "Ninguna fila coincide con ese filtro." : "No hay registros todavía." })); return; }
       var tbody = h("tbody");
       ver.forEach(function (f) {
-        var resumen = f.resumen && Object.keys(f.resumen).length ? t(f.resumen, 1500) : "";
         tbody.appendChild(h("tr", null,
           h("td", { "data-etiqueta": "Cuándo" }, fechaHora(f.creado_en)),
           h("td", { "data-etiqueta": "Quién" }, t(f.actor_email || f.actor || "—", 120)),
-          h("td", { "data-etiqueta": "Restaurante", class: "sa-mono" }, f.restaurante_slug ? t(f.restaurante_slug, 60) : "—"),
+          h("td", { "data-etiqueta": "Restaurante" }, SA.celdaRestaurante(f, opciones.restaurante)),
           h("td", { "data-etiqueta": "Acción" }, h("div", { texto: SA.accionAuditoria(f.accion) }), h("div", { class: "sa-chico sa-tenue sa-mono", texto: t(f.accion, 60) })),
-          h("td", { "data-etiqueta": "Detalle" }, resumen ? h("details", { class: "sa-detalle" }, h("summary", { texto: "Ver resumen" }), h("pre", { class: "sa-aud-resumen", texto: resumen })) : h("span", { class: "sa-tenue", texto: "—" }))));
+          h("td", { "data-etiqueta": "Detalle" }, celdaDetalle(f))));
       });
       salida.replaceChildren(h("table", { class: "sa-tabla" },
         h("thead", null, h("tr", null, ["Cuándo", "Quién", "Restaurante", "Acción", "Detalle"].map(function (x) { return h("th", { scope: "col", texto: x }); }))), tbody));
@@ -921,13 +1079,24 @@
         filas = filas.concat(nuevas);
         if (nuevas.length) ultimoId = nuevas[nuevas.length - 1].id;
         masBtn.hidden = nuevas.length < 50;
-        actualizarAcciones(); pintar();
+        actualizarAcciones(); agregarRestaurantesBorrados(); pintar();
       }).catch(function (e) { if (SA.vigente(n)) SA.mostrarError(errorArea, e); });
     }
     masBtn.addEventListener("click", function () { SA.enviar(masBtn, errorArea, function () { return cargar(false); }); });
     filtroAccion.addEventListener("change", pintar);
     ordenSel.addEventListener("change", pintar);
 
+    /* El filtro trae los restaurantes de la lista ("Nombre (nombre-corto)"). Los que salen en la auditoria pero ya no estan en la lista
+       (uno de prueba que se borro) se agregan con su nombre corto, que es lo unico que se sabe de ellos. */
+    var extrasFiltro = {};
+    function agregarRestaurantesBorrados() {
+      if (!filtroRest || !Array.isArray(SA.lista)) return;
+      filas.forEach(function (f) {
+        if (!f.restaurante_id || !f.restaurante_slug || extrasFiltro[f.restaurante_id] || restauranteConocido(f.restaurante_id)) return;
+        extrasFiltro[f.restaurante_id] = true;
+        filtroRest.appendChild(h("option", { value: f.restaurante_id, texto: t(f.restaurante_slug, 60) }));
+      });
+    }
     var barraFiltros = h("div", { class: "sa-filtros" });
     if (opciones.conSelectorRestaurante) {
       filtroRest = h("select", { id: "sa-aud-rest", "aria-label": "Filtrar por restaurante" }, h("option", { value: "", texto: "Todos los restaurantes" }));

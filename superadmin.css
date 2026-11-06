@@ -198,6 +198,10 @@ body.sa-en-lectura .sa-contenedor-lectura { padding-top: 96px; }
 .sa-kpi b { display: block; font-size: 1.35rem; }
 
 details.sa-detalle > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--acento); }
-.sa-aud-resumen { font-family: var(--mono); font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--fondo); border-radius: 8px; padding: 8px; margin: 6px 0 0; }
+.sa-aud-lineas { margin: 6px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.sa-aud-lineas li { margin: 3px 0; }
+.sa-aud-rest { font-weight: 600; overflow-wrap: anywhere; }
+.sa-btn-chico { min-height: 44px; font-size: .85rem; }
+.sa-aud-resumen {font-family: var(--mono); font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--fondo); border-radius: 8px; padding: 8px; margin: 6px 0 0; }
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

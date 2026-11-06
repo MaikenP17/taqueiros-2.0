@@ -91,10 +91,17 @@
     }
 
     /* ---------------- pedidos ---------------- */
+    /* Una opcion "quitar" ya trae el "Sin" en su nombre ("Sin tocineta", como lo escribio el dueno): no se le agrega otro.
+       Si el nombre no empieza por "sin" (cualquier mayuscula), se le antepone una sola vez. Los extras: "+ Tocineta extra (+$ 3.000)". */
     function lineaOpcion(o) {
       if (o === null || typeof o !== "object") return t(o, 80);
-      var pref = o.tipo === "quitar" ? "SIN " : "+ ";
-      return pref + t(o.nombre, 80) + (typeof o.precio === "number" && o.precio > 0 ? " (+" + SA.pesos(o.precio) + ")" : "");
+      var nombre = t(o.nombre, 80).trim();
+      if (o.tipo === "quitar") {
+        var ya = /^sin(?:\s+([\s\S]*))?$/i.exec(nombre);
+        if (ya) return ya[1] ? "Sin " + ya[1] : "Sin";
+        return nombre ? "Sin " + nombre : "Sin";
+      }
+      return "+ " + nombre + (typeof o.precio === "number" && o.precio > 0 ? " (+" + SA.pesos(o.precio) + ")" : "");
     }
     function pintarItems(items) {
       if (!Array.isArray(items)) return h("p", { class: "sa-tenue", texto: items === null || items === undefined ? "Sin productos" : t(items, 200) });
